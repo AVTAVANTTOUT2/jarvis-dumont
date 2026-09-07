@@ -61,11 +61,28 @@ class Speech:
 
 
 @dataclass(frozen=True)
+class Chat:
+    model: str = "deepseek-v4-flash"
+    max_tokens: int = 256
+    connect_timeout: float = 10.0
+    first_content_timeout: float = 20.0
+    idle_timeout: float = 10.0
+    total_timeout: float = 60.0
+    segment_timeout: float = 0.8
+    input_chars: int = 4096
+    output_chars: int = 4096
+    history_turns: int = 4
+    context_chars: int = 12000
+    queue_events: int = 64
+
+
+@dataclass(frozen=True)
 class Config:
     assets: Assets = Assets()
     source_present: bool = False
     tts: TTS = TTS()
     speech: Speech = Speech()
+    chat: Chat = Chat()
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -92,7 +109,7 @@ def load_config(path: Path | None = None) -> Config:
         if len(raw) > MAX_CONFIG_BYTES:
             raise ConfigError("configuration_too_large")
         data = tomllib.loads(raw.decode("utf-8"))
-        if set(data) - {"assets", "tts", "speech"}:
+        if set(data) - {"assets", "tts", "speech", "chat"}:
             raise ConfigError("unknown_configuration_field")
         assets = data.get("assets", {})
         if not isinstance(assets, dict) or set(assets) - set(Assets.__dataclass_fields__):
@@ -174,8 +191,41 @@ def load_config(path: Path | None = None) -> Config:
                 raise ConfigError("invalid_speech_python")
             target = Path(value).expanduser()
             speech_values["python"] = target if target.is_absolute() else source.parent / target
+        chat_values = data.get("chat", {})
+        if not isinstance(chat_values, dict) or set(chat_values) - set(Chat.__dataclass_fields__):
+            raise ConfigError("invalid_chat_configuration")
+        chat = Chat(**chat_values)
+        if chat.model != "deepseek-v4-flash":
+            raise ConfigError("chat_requires_single_flash_model")
+        for value, low, high in (
+            (chat.max_tokens, 1, 256),
+            (chat.input_chars, 128, 4096),
+            (chat.output_chars, 256, 8192),
+            (chat.history_turns, 0, 8),
+            (chat.context_chars, 1024, 24000),
+            (chat.queue_events, 2, 128),
+        ):
+            if type(value) is not int or not low <= value <= high:
+                raise ConfigError("invalid_chat_limit")
+        for value in (
+            chat.connect_timeout,
+            chat.first_content_timeout,
+            chat.idle_timeout,
+            chat.total_timeout,
+            chat.segment_timeout,
+        ):
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not 0.01 <= value <= 120
+            ):
+                raise ConfigError("invalid_chat_timeout")
         return Config(
-            Assets(**paths), source_present=True, tts=TTS(**values), speech=Speech(**speech_values)
+            Assets(**paths),
+            source_present=True,
+            tts=TTS(**values),
+            speech=Speech(**speech_values),
+            chat=chat,
         )
     except PermissionError:
         raise ConfigError("configuration_permission_denied", blocked=True) from None

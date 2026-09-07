@@ -246,11 +246,15 @@ version = "0.1.0"
 source = { editable = "../../" }
 
 [package.metadata]
+requires-dist = [{ name = "httpx", marker = "extra == 'chat'", specifier = "==0.28.1" }]
+provides-extras = ["chat"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = "==2.3.1" },
+    { name = "numpy", specifier = "==2.5.1" },
     { name = "ruff", specifier = "==0.16.6" },
+    { name = "soxr", specifier = "==1.1.0" },
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 # Private configuration and reports
 .env
 .env.*
+*.env
 !.env.example
 config.toml
 *.local.*

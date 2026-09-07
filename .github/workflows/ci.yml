@@ -15,7 +15,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.11.29'
-      - run: uv sync --locked --no-python-downloads
+      - run: uv sync --locked --extra chat --no-python-downloads
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync mypy

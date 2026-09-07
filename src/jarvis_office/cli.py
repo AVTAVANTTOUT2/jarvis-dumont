@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Never
 
-from jarvis_office.config import ConfigError, load_config
+from jarvis_office.config import Chat, ConfigError, load_config
 from jarvis_office.diagnostics import Check, asset_checks, doctor_checks, report
 
 
@@ -17,11 +17,56 @@ class Parser(argparse.ArgumentParser):
         raise ConfigError("invalid_arguments")
 
 
+async def chat_command(settings: Chat, text: str, destination: Path | None) -> int:
+    from jarvis_office.assets import atomic_json, private_root
+    from jarvis_office.credentials import load_key
+    from jarvis_office.deepseek import ChatError, DeepSeek
+
+    if destination is not None and (
+        destination.exists()
+        or destination.is_symlink()
+        or not destination.resolve().is_relative_to(private_root().resolve() / "reports")
+    ):
+        raise ConfigError("chat_report_requires_new_private_path")
+    client = DeepSeek(load_key(), settings)
+    metrics: dict[str, object] = {"status": "FAIL", "requests": 0}
+    code = 1
+    try:
+        async with client.turn(text) as turn:
+            try:
+                async for event in turn:
+                    if event.kind == "delta":
+                        print(event.text, end="", flush=True)
+                turn.confirm(turn.delivered_text, channel="displayed", complete=True)
+                code = 0
+            except ChatError:
+                pass
+            except asyncio.CancelledError:
+                await turn.cancel()
+                code = 130
+            finally:
+                metrics = turn.metrics
+                print()
+    finally:
+        await client.close()
+    if destination is not None:
+        atomic_json(destination, metrics)
+    print(json.dumps(metrics, ensure_ascii=True), file=sys.stderr)
+    return code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = Parser(
-        prog="jarvis-office", description="Offline diagnostics, explicit asset import and local TTS"
+        prog="jarvis-office", description="Jarvis Office: passive diagnostics and explicit tests"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    chat = sub.add_parser("chat")
+    chat.add_argument("--text", required=True)
+    chat.add_argument("--report", type=Path, help="new private metadata-only JSON report")
+    chat.add_argument("--config", type=Path)
+    provision = sub.add_parser("configure-deepseek")
+    provision.add_argument("--from-env", type=Path, required=True)
+    provision.add_argument("--config", type=Path)
     doctor = sub.add_parser("doctor")
     assets = sub.add_parser("assets").add_subparsers(dest="action", required=True)
     inspect = assets.add_parser("inspect")
@@ -62,6 +107,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         command_name = args.command if args.command != "assets" else "assets " + args.action
         config = load_config(args.config)
+        if command_name == "chat":
+            return asyncio.run(chat_command(config.chat, args.text, args.report))
+        if command_name == "configure-deepseek":
+            from jarvis_office.credentials import import_key
+
+            print(json.dumps(import_key(args.from_env)))
+            return 0
         if command_name == "corpus-init":
             from jarvis_office.corpus import prepare_human_corpus
 

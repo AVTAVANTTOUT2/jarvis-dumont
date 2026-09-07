@@ -1,7 +1,11 @@
-# Composants tiers — constats des phases 01 à 03
+# Composants tiers — constats des phases 01 à 04
 
 Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
 Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
+
+Phase 04 : le segmenteur Office est nouveau. Lecture de `jarvis/audio/tts/segmenter.py`
+et `tests/test_tts_segmenter.py` V1 refusée par l'outil ; aucune reprise de code ni
+équivalence affirmée. Le contrat HTTP est implémenté à partir de la documentation officielle.
 Les métadonnées/licences installées et fichiers de révision ont été lus sans importer les
 moteurs. Les avis fournis restent dans leurs distributions existantes. Ce tableau est un
 inventaire, pas une autorisation de redistribution des actifs ou de la voix.
@@ -109,3 +113,20 @@ Cette absence de redistribution ne dispense pas de leurs conditions applicables.
 | requests 2.34.2 ; urllib3 2.7.0 ; certifi 2026.6.17 ; idna 3.18 | Apache-2.0 ; MIT ; MPL-2.0 ; BSD-3-Clause ; [Requests](https://github.com/psf/requests), [urllib3](https://github.com/urllib3/urllib3), [Certifi](https://github.com/certifi/python-certifi), [IDNA](https://github.com/kjd/idna). | Transitifs du Hub installés, aucun appel réseau nominal. |
 | filelock 3.29.7 ; fsspec 2026.6.0 ; packaging 26.2 ; pycparser 3.0 ; setuptools 83.0.0 | MIT ; BSD-3-Clause ; Apache-2.0 OR BSD-2-Clause ; BSD-3-Clause ; MIT ; [Filelock](https://github.com/tox-dev/py-filelock), [Fsspec](https://github.com/fsspec/filesystem_spec), [Packaging](https://github.com/pypa/packaging), [Parser](https://github.com/eliben/pycparser), [Setuptools](https://github.com/pypa/setuptools). | Avis des utilitaires et sous-paquets vendored setuptools conservés, inventaire transitif non exhaustivement qualifié. |
 | tqdm 4.68.4 ; typing_extensions 4.16.0 | MPL-2.0 AND MIT ; PSF-2.0 ; [tqdm](https://github.com/tqdm/tqdm), [Typing](https://github.com/python/typing_extensions). | Utilitaires Python transitifs. |
+
+## Extra HTTP installé pour Office — phase 04
+
+Un seul transport, HTTPX 0.28.1 déjà présent dans le runtime TTS, réinstallé séparément
+dans le contrôleur via l'extra `chat`. Versions effectives figées dans `uv.lock` ; aucun
+SDK OpenAI, aucune seconde bibliothèque cliente utilisée. Les six distributions ci-dessous
+sont Python/données, sans nouveau moteur ou binaire natif audio. Le TLS utilise l'interpréteur
+CPython existant ; ses notices ne sont pas remplacées par celles de HTTPX. Les fichiers de
+licence installés sont conservés. Le wheel Office ne les embarque pas, il déclare l'extra.
+
+| Composant/version | Licence constatée / source officielle | Utilisation / distribution |
+| --- | --- | --- |
+| httpx 0.28.1 ; httpcore 1.0.9 | BSD-3-Clause, LICENSE.md installés ; [HTTPX](https://github.com/encode/httpx/tree/0.28.1), [Core](https://github.com/encode/httpcore). | HTTP/SSE asynchrone direct ; installation optionnelle locale, non embarquée. |
+| anyio 4.15.1 ; h11 0.16.0 | MIT, LICENSE/ LICENSE.txt installés ; [AnyIO](https://github.com/agronholm/anyio), [h11](https://github.com/python-hyper/h11). | Concurrence et protocole HTTP transitifs, non embarqués. |
+| certifi 2026.7.22 | MPL-2.0, LICENSE installé ; [source](https://github.com/certifi/python-certifi). | Certificats CA pour TLS vérifié, non embarqués. |
+| idna 3.19 | BSD-3-Clause, LICENSE.md installé ; [source](https://github.com/kjd/idna). | Noms d'hôte transitifs, non embarqué. |
+| DeepSeek API, alias deepseek-v4-flash observé le 7 septembre 2026 | Service distant ; aucun octroi de licence de poids déduit du contrat technique. [Documentation officielle](https://api-docs.deepseek.com/), [Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion). Conditions contractuelles du compte non auditées ici. | Trois requêtes synthétiques autorisées, aucun poids distribué/téléchargé. Alias annoncé Flash-0731 ; révision effective des poids distants non vérifiable. |

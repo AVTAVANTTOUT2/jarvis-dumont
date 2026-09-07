@@ -226,6 +226,8 @@ version = "0.1.0"
 source = { editable = "../../" }
 
 [package.metadata]
+requires-dist = [{ name = "httpx", marker = "extra == 'chat'", specifier = "==0.28.1" }]
+provides-extras = ["chat"]
 
 [package.metadata.requires-dev]
 dev = [
