@@ -1,0 +1,3 @@
+- Office Python 3.12 is independent of the existing Python 3.14 MLX runtime. Do not merge their environments.
+- Runtime uses only the standard library. uv.lock covers dev dependencies; build backend has an exact independent pin in pyproject.toml.
+- A wheel with no dependencies is the artifact used to verify clean installation.

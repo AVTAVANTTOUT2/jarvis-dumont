@@ -6,6 +6,13 @@ config.toml
 *.local.*
 inventory*.json
 reports/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.sqlite*
 data/
 logs/
 releases/
@@ -17,6 +24,9 @@ models/
 *.wav
 *.mp3
 *.flac
+*.m4a
+*.aiff
+*.ogg
 *.pcm
 *.safetensors
 *.onnx
@@ -36,3 +46,4 @@ dist/
 .DS_Store
 .serena/cache/
 .serena/project.yml
+.serena/memories/memory_maintenance.md
