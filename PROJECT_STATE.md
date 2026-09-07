@@ -52,7 +52,9 @@ aucun microphone, lecture sonore ou pipeline de phase 05 démarré.
   validés, droits vocaux et certaines notices/provenances binaires inconnus. Dépôt privé
   sans licence publique automatique ; THIRD_PARTY_NOTICES.md actualisé en place.
 - Git : codex/04-deepseek basée sur codex/03-stt (PR #3 ouverte, dépendante de PR #2).
-  Checkpoint et PR de phase 04 en cours de livraison ; aucune protection/visibilité modifiée.
+  Checkpoint code 7fb8655 poussé ; [PR #4](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/4)
+  ouverte. Premier contrôle CI arrêté sur le format du bloc Python README, corrigé ;
+  contrôles relancés. Aucune fusion, protection ou visibilité modifiée.
   Suppression locale utilisateur de .env.example préservée hors commit ; .env reste ignoré.
 - Inventaire privé unique mis à jour ; mémoires Serena actualisées pour les contrats
   durables. Navigation symbolique indisponible, aucun langage actif. Aucun réglage global

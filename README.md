@@ -234,6 +234,7 @@ import asyncio
 from jarvis_office.credentials import load_key
 from jarvis_office.deepseek import DeepSeek
 
+
 async def demo():
     client = DeepSeek(load_key())
     try:
@@ -245,6 +246,7 @@ async def demo():
             turn.confirm(turn.delivered_text, channel="displayed", complete=True)
     finally:
         await client.close()
+
 
 asyncio.run(demo())
 ```
