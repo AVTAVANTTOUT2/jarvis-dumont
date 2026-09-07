@@ -1,0 +1,3 @@
+- CLI output is an allowlist of constant check names/reasons, never sanitized exception strings or paths.
+- PASS for an asset means structure only. Inference, audio permission, consent and device usability require separate evidence.
+- Relative asset paths resolve against the TOML parent, not process cwd.

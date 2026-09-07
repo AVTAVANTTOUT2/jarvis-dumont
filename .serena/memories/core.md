@@ -1,0 +1,3 @@
+- Phase boundaries and read-only V1 contract: AGENTS.md. Verified state lives in PROJECT_STATE.md, detailed inventory remains outside Git.
+- Configuration is local file data; importing V1 to inspect settings can initialize services. Never use it.
+- For runtime separation see `mem:tech_stack`; for checks use `mem:task_completion`; for CLI commands see `mem:suggested_commands`; for output constraints see `mem:conventions`.

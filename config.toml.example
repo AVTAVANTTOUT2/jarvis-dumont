@@ -1,0 +1,8 @@
+# Copy to ~/Library/Application Support/JarvisOffice/config.toml if needed.
+# Empty = not configured. Relative paths resolve from this file's directory.
+# Local files only. These diagnostics never download or load a model.
+[assets]
+tts_model = ""
+stt_model = ""
+voice_profile = ""
+vad_model = ""

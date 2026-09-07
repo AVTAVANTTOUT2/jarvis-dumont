@@ -1,0 +1,60 @@
+# Composants tiers — constat de phase 01
+
+Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
+Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
+Les métadonnées/licences installées et fichiers de révision ont été lus sans importer les
+moteurs. Les avis fournis restent dans leurs distributions existantes. Ce tableau est un
+inventaire, pas une autorisation de redistribution des actifs ou de la voix.
+
+## Poids, tokenizers et code source examiné
+
+Tous les éléments de ce tableau restent hors de la distribution Jarvis Office.
+
+| Composant / révision constatée | Licence constatée et source officielle | Usage / limites |
+| --- | --- | --- |
+| JarvisAPI `67968ed5bd4dee2cf402efe5088f6ac48bc94d19`, avec modifications locales | Aucune licence racine ; avis séparés dans `integrations/opencode/`. [Source](https://github.com/AVTAVANTTOUT2/JarvisAPI/tree/67968ed5bd4dee2cf402efe5088f6ac48bc94d19). Droits de reprise inconnus. | Lecture seule ; aucun code copié. |
+| Qwen3-TTS Base 0.6B MLX 6bit `4e44ed4bcee28a0f89a493e07bde16e6dccd43eb` | Apache-2.0 annoncée dans la [fiche de cette révision](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit/blob/4e44ed4bcee28a0f89a493e07bde16e6dccd43eb/README.md) ; aucun fichier LICENSE autonome dans la liste des fichiers. | TTS futur ; poids locaux et tokenizer vocal identifiés, SHA-256 égaux aux etags locaux. Conversion annoncée avec mlx-audio 0.3.0, distinct du runtime installé 0.4.5. |
+| Qwen3 Base source `5d83992436eae1d760afd27aff78a71d676296fc` (révision vérifiée, pas provenance exacte de conversion) | Apache-2.0 dans la [fiche figée](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base/blob/5d83992436eae1d760afd27aff78a71d676296fc/README.md), aucun LICENSE autonome listé. | Révision amont effectivement utilisée par la conversion inconnue ; modèle source non téléchargé. |
+| Tokenizers Qwen : `vocab.json`, `merges.txt`, configuration et `speech_tokenizer` à la même révision MLX | Même fiche Apache-2.0 ; aucun avis distinct constaté dans les fichiers locaux du tokenizer. | Fichiers identifiés, dont les poids du tokenizer vocal ; provenance amont précise à compléter. |
+| faster-whisper-small et tokenizer `536b0662742c02347bc0e980a01041f333bce120` | MIT annoncée dans la [fiche figée](https://huggingface.co/Systran/faster-whisper-small/blob/536b0662742c02347bc0e980a01041f333bce120/README.md). | Poids CTranslate2 présents ; candidat, pas sélectionné pour Office. |
+| faster-whisper-large-v3-turbo et tokenizer `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` | MIT annoncée dans la [fiche figée](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/blob/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/README.md). | Poids CTranslate2 présents dans le cache utilisé par V1 ; cache HF distinct incomplet. |
+| Silero VAD 6.2.1, poids JIT/ONNX embarqués | MIT dans les métadonnées installées ; [source](https://github.com/snakers4/silero-vad). | Présent dans un environnement V1 alternatif, absent du venv des lanceurs. Aucun chargement. |
+| Profil vocal local (WAV, transcript, métadonnées) | Droits et consentement **inconnus**, distincts de la licence Qwen. Aucune source publique affirmée. | Privé/local ; aucune copie, génération ou diffusion. |
+
+## Environnements audio existants — rien installé dans Office
+
+Les versions multiples correspondent à des environnements séparés. Les paquets et leurs
+binaires restent dans la V1/runtime MLX ; ils ne sont ni vendus ni embarqués par cette phase.
+
+| Composant/version | Licence constatée / source officielle | Usage |
+| --- | --- | --- |
+| MLX + mlx-metal 0.31.2 ; mlx-audio 0.4.5 ; mlx-lm 0.31.3 | MIT, métadonnées et licences installées ; [MLX](https://github.com/ml-explore/mlx), [mlx-audio](https://github.com/Blaizzy/mlx-audio), [mlx-lm](https://github.com/ml-explore/mlx-lm). | Runtime Python 3.14 séparé ; `libmlx` et `libjaccl` présents. Notices transitives exactes à revoir avant distribution. |
+| faster-whisper 1.2.1 ; CTranslate2 4.8.1 (extension et dylib incluses) | MIT dans métadonnées ; [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [CTranslate2](https://github.com/OpenNMT/CTranslate2). | STT existant, Python 3.12. |
+| PyAudio 0.2.14 ; sounddevice 0.5.5 | MIT dans métadonnées ; [PyAudio](https://people.csail.mit.edu/hubert/pyaudio/), [sounddevice](https://github.com/spatialaudio/python-sounddevice). | Audio existant, jamais importé ici. |
+| PortAudio Homebrew 19.7.0 ; dylibs embarquées par sounddevice | MIT dans formule Homebrew ; [source](https://www.portaudio.com/). Version exacte des dylibs embarquées inconnue. | Binaires présents ; aucun stream ouvert. |
+| soundfile 0.14.0 ; libsndfile embarquée | BSD-3-Clause pour wrapper ; COPYING LGPL-2.1 pour libsndfile, version binaire inconnue. [Source](https://github.com/bastibe/python-soundfile), [libsndfile](https://github.com/libsndfile/libsndfile). | Lecture/écriture audio future ; non importés. |
+| PyAV 18.0.0 | BSD-3-Clause dans sa licence ; [source](https://github.com/PyAV-Org/PyAV). | Décodeur STT existant ; cette licence ne couvre pas seule ses codecs. |
+| FFmpeg Homebrew 8.1.2_1 ; FFmpeg embarqué PyAV (avcodec 62.28.102, avformat 62.12.102) | GPL-3.0-or-later dans formule Homebrew ; conditions exactes du build PyAV **inconnues**. [Source](https://ffmpeg.org/legal.html). | Binaires présents, pas distribués. Ne pas confondre les deux builds. |
+| Codecs PyAV : SVT-AV1 4.1.0, dav1d, LAME, opencore-amrnb/wb, Opus, SharpYUV, VPX, WebP/WebPMux, x264 ABI 165, x265 ABI 216 | Licences et versions complètes des binaires embarqués **inconnues** ; [projet d'empaquetage officiel](https://github.com/PyAV-Org/PyAV). Les noms/ABI ne prouvent pas les versions source. | Liste locale relevée dans l'inventaire ; obligations de tous ces codecs à résoudre avant redistribution. |
+| NumPy 2.5.1 / 2.4.6 ; SciPy 1.17.1 / 1.18.0 | NumPy : BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 ; SciPy : avis BSD et tiers fournis. [NumPy](https://numpy.org/), [SciPy](https://scipy.org/). | Calcul existant ; notices des bibliothèques natives fournies à conserver. |
+| Torch 2.13.0 / 2.11.0 ; torchaudio 2.11.0 ; torchcodec 0.15.0 | Torch 2.13 : expression Apache-2.0, LLVM-exception, BSD-2/3, BSL-1.0 et MIT ; autres builds : avis installés, qualification transitive incomplète. [Source](https://pytorch.org/). | Présence inventoriée ; compatibilité des versions non testée. |
+| ONNX Runtime 1.27.0 / 1.23.2 ; transformers 4.57.6 / 5.14.1 / 5.9.0 ; tokenizers 0.22.2 ; librosa 0.11.0 | Détails dans métadonnées privées ; notices transitives de ces builds à compléter avant réutilisation. [ONNX](https://github.com/microsoft/onnxruntime), [Transformers](https://github.com/huggingface/transformers), [Tokenizers](https://github.com/huggingface/tokenizers), [librosa](https://github.com/librosa/librosa). | Dépendances existantes uniquement, pas de nouvelle installation Office. |
+
+## Outils installés pour Office
+
+Le wheel Office contient uniquement le paquet Python original ; aucun outil ci-dessous
+n'y est embarqué. `uv.lock` verrouille les dépendances de développement. Les licences
+accompagnant les distributions installées sont conservées dans l'environnement dédié.
+
+| Composant/version | Licence constatée / source officielle | Distribution / usage |
+| --- | --- | --- |
+| CPython 3.12.13 | PSF et notices tierces de l'interpréteur ; [source](https://www.python.org/). | Interpréteur système réutilisé, non copié dans le wheel. |
+| uv / uv_build 0.11.29 | MIT OR Apache-2.0, [source](https://github.com/astral-sh/uv/tree/0.11.29). | uv déjà installé ; backend de build épinglé, pas de moteur audio. |
+| Ruff 0.16.6 | MIT, licence installée ; [source](https://github.com/astral-sh/ruff). | Binaire de lint/format, développement uniquement. |
+| mypy 2.3.1 ; mypy_extensions 1.1.0 | MIT, licences installées ; [mypy](https://github.com/python/mypy), [extensions](https://github.com/python/mypy_extensions). | Typage, dont extension compilée mypy. |
+| ast_serialize 0.10.0 ; librt 0.15.0 | MIT, licences installées ; [ast_serialize](https://github.com/mypyc/ast_serialize), [librt](https://github.com/mypyc/librt). | Extensions binaires transitives de mypy, développement uniquement. |
+| pathspec 1.1.1 | MPL-2.0 dans LICENSE installé ; [source](https://github.com/cpburnz/python-pathspec). | Dépendance transitive de mypy, non embarquée. |
+| typing_extensions 4.16.0 | PSF-2.0, métadonnées installées ; [source](https://github.com/python/typing_extensions). | Dépendance transitive de mypy, non embarquée. |
+
+Avant phase 02 : confirmer les droits du profil vocal et compléter les notices des seuls
+composants effectivement importés. La licence de modèle ne vaut pas consentement vocal.

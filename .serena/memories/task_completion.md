@@ -1,0 +1,3 @@
+- Run unittest discovery, Ruff check and format --check, mypy, then uv build as documented in README.md.
+- After changes to packaging, install the wheel offline with --no-deps into a clean venv and run the tests there.
+- Inspect tracked files, diff, exclusions and actual remote before push. Compare scoped V1 baselines without claiming whole-machine immutability.

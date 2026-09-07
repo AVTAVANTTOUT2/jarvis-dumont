@@ -1,0 +1,3 @@
+- Reproducible commands and diagnostic exit codes are maintained in README.md; execute from the Office project root.
+- uv run --no-sync uses the already synchronized dedicated environment. Direct .venv/bin/jarvis-office avoids package resolution at diagnostic runtime.
+- Missing assets intentionally return 3 and do not initiate downloads.
