@@ -40,3 +40,19 @@ max_utterance_s = 30
 max_input_s = 60
 queue_blocks = 32
 reconnect_attempts = 2
+
+# DeepSeek HTTP JSON contract; endpoint is fixed in code, no provider/model fallback.
+# The secret is NOT in this TOML: private config/deepseek.env, mode 0600.
+[chat]
+model = "deepseek-v4-flash"
+max_tokens = 256
+connect_timeout = 10.0
+first_content_timeout = 20.0
+idle_timeout = 10.0
+total_timeout = 60.0
+segment_timeout = 0.8
+input_chars = 4096
+output_chars = 4096
+history_turns = 4
+context_chars = 12000
+queue_events = 64

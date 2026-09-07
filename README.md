@@ -1,19 +1,20 @@
 # Jarvis Office
 
-Assistant vocal personnel indépendant. Phase 03 : capture bornée, Silero et STT local,
-en complément des diagnostics, de l'import vérifié et de Qwen3 isolé.
+Assistant vocal personnel indépendant. Phase 04 : DeepSeek textuel en streaming et
+segments prononçables ; capture/STT/Qwen3 restent séparés, aucun pipeline vocal assemblé.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
 
 ## Installation et vérification
 
 Python 3.12.13 et uv 0.11.29 ont été vérifiés localement. Le paquet n'a aucune dépendance
-d'exécution ; les outils de développement sont verrouillés dans `uv.lock`, avec leurs
+d'exécution obligatoire ; l'extra `chat` installe HTTPX. Dépendances et outils sont verrouillés
+dans `uv.lock`, avec leurs
 empreintes de distributions. Le backend de build est épinglé séparément dans
 `pyproject.toml`. TTS et STT possèdent chacun un environnement distinct ; la V1 reste inchangée.
 
 ```sh
-uv sync --locked --no-python-downloads
+uv sync --locked --extra chat --no-python-downloads
 uv run --no-sync python -m unittest discover -s tests -v
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
@@ -191,6 +192,99 @@ la sortie STT comme vérité. Un manifeste incomplet n'est pas une référence u
 Ne pas régler les seuils sur le holdout. Moins de 50 prises humaines vérifiées, ou couverture
 insuffisante calme/bruit/holdout : validation `BLOCKED_USER`, même avec une belle WER synthétique.
 
+## DeepSeek textuel direct
+
+Contrat vérifié le 7 septembre 2026 dans la [documentation officielle](https://api-docs.deepseek.com/),
+le [contrat Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion)
+et le [mode de réflexion](https://api-docs.deepseek.com/guides/thinking_mode/) :
+`POST https://api.deepseek.com/chat/completions`, `model=deepseek-v4-flash`, `stream=true`,
+`thinking={"type":"disabled"}`, `max_tokens=256`. HTTPX transmet ces champs directement
+dans le JSON, sans `extra_body` (spécifique aux SDK) ni `reasoning_effort`. Aucun SDK,
+clé OpenAI ou autre fournisseur. L'alias officiel annonce Flash-0731 à cette date ; seuls
+le nom demandé/retourné et la date sont observables, pas des poids distants figés.
+
+```sh
+uv sync --locked --extra chat --no-python-downloads
+# Copier seulement la clé du fichier .env explicitement fourni pour Office :
+jarvis-office configure-deepseek --from-env "/chemin privé/.env"
+jarvis-office chat --text "Explique en deux phrases ce qu’est un réseau local." \
+  --report "$HOME/Library/Application Support/JarvisOffice/reports/chat-test.json"
+```
+
+Le secret est conservé sous `~/Library/Application Support/JarvisOffice/config/deepseek.env`
+(`DEEPSEEK_API_KEY=…`, fichier 0600, dossier 0700), jamais dans le TOML. L'import ne source
+pas le shell, refuse liens, valeurs ambiguës et substitutions ; il ne copie aucune autre
+clé et ne remplace pas un secret Office existant valide. Le runtime lit seulement ce fichier,
+sans recherche dans V1 ou d'autres coffres. Clé absente/permissions inadéquates : code 3.
+Ne jamais envoyer de clé dans le chat. `.env` est ignoré par Git, vérification des suivis incluse.
+
+La réponse s'affiche progressivement sur stdout. Les métadonnées de latence vont sur stderr
+et, avec `--report`, dans un nouveau JSON privé sous `reports/`, sans question, réponse,
+historique, headers ou exception réseau brute. Seul le texte fourni explicitement et les
+quelques échanges confirmés en RAM sont envoyés, jamais de fichier audio/profil vocal.
+TLS et hostname vérifiés, endpoint fixe, redirections et proxies d'environnement désactivés.
+Compression refusée avant décodage pour borner le flux ; espaces français insécables
+normalisés en espaces ordinaires, caractères de contrôle du terminal retirés.
+401/403/402/429/5xx, réseau, délais, flux tronqué/invalide, réponse vide, limite de tokens,
+saturation et annulation ont des raisons distinctes. Codes : succès 0, échec 1, configuration
+2, secret indisponible 3, Ctrl-C géré 130. Aucun retry automatique, aucun poll conversationnel.
+
+```python
+import asyncio
+from jarvis_office.credentials import load_key
+from jarvis_office.deepseek import DeepSeek
+
+
+async def demo():
+    client = DeepSeek(load_key())
+    try:
+        async with client.turn("Question explicitement adressée à Jarvis") as turn:
+            async for event in turn:
+                if event.kind == "delta":
+                    print(event.text, end="", flush=True)
+                # Les événements segment serviront au TTS dans une phase ultérieure.
+            turn.confirm(turn.delivered_text, channel="displayed", complete=True)
+    finally:
+        await client.close()
+
+
+asyncio.run(demo())
+```
+
+Un client réutilisable, un tour actif, un identifiant et un lecteur réseau asynchrones.
+La file de 64 événements permet au lecteur et au consommateur d'avancer indépendamment ;
+si elle sature, fermeture du flux et erreur explicite, aucun tampon illimité. Entrée/sortie
+4096 caractères, contexte total 12000, quatre tours confirmés au maximum. `reset()` annule
+le tour et efface l'historique ; `close()` ferme aussi HTTPX. Aucun résumé ou stockage mémoire.
+Un tour généré n'entre pas seul dans l'historique. `delivered_text` signifie remis au
+consommateur, pas automatiquement affiché ; la confirmation relève du consommateur.
+Après annulation/échec, `confirm(extrait, channel="spoken", complete=False)` accepte seulement
+un préfixe des segments déjà remis et note explicitement l'interruption dans le contexte.
+Le lecteur devra confirmer ce qu'il a réellement prononcé ; aucune lecture sonore ici.
+L'annulation arrête la livraison locale et ferme HTTP, sans prétendre arrêter le calcul
+ou la facturation chez le fournisseur. Aucun fragment de ce tour ne rejoint le suivant.
+
+SSE : octets UTF-8, lignes CR/LF/CRLF, commentaires, événements complets et `[DONE]` sont
+réassemblés ; rôle, usage et deltas sans contenu ne sont pas prononcés. La documentation
+actuelle place l'usage sur le dernier chunk ; une trame d'usage sans `choices` est également
+acceptée. Raisonnement/outils inattendus provoquent une erreur sans être prononcés. Les
+limites de connexion, premier contenu, inactivité de contenu (keepalive non suffisant) et
+durée totale sont distinctes. Une limite `finish_reason=length` n'est pas une réponse complète.
+
+Segmentation française autonome : phrases, première proposition utile, décimales,
+abréviations et séparation nombre/unité protégées ; Markdown/liens/code supprimés de façon
+bornée. Le timer de 0,8 s ne livre que des mots terminés, garde le dernier demi-mot et
+n'annule pas la lecture réseau en cours. Flush final unique seulement après une vraie fin.
+Token Markdown bloqué à 512 caractères, tampon de parole à 1024, segments visés ≤256 ;
+un mot insécable anormal peut dépasser cette cible jusqu'à la limite du tampon, jamais
+être découpé artificiellement. Revue du code/tests V1 refusée par l'outil : pas de copie,
+équivalence V1 non affirmée, blocage conservé dans PROJECT_STATE.md.
+
+Mesures distinctes : requête → premier contenu utile, premier segment disponible en file,
+fin explicite du texte. **Aucune n'est une latence vocale**. Les tests HTTPX simulés n'utilisent
+aucun réseau ; les tests API réels de cette phase se limitent à trois requêtes synthétiques
+sur cinq autorisées, 256 tokens maximum chacune. Résultats dans l'inventaire privé et l'état.
+
 ## Configuration et vie privée
 
 Le fichier par défaut est `~/Library/Application Support/JarvisOffice/config.toml`.
@@ -198,7 +292,8 @@ Le fichier par défaut est `~/Library/Application Support/JarvisOffice/config.to
 relatifs sont résolus depuis le dossier du fichier TOML ; espaces et `~` sont acceptés.
 Les chemins doivent être textuels/locaux ; les paramètres TTS sont typés et bornés.
 Les clés inconnues et URL sont refusées. `.env.example` contient
-seulement `DEEPSEEK_API_KEY=` ; aucun `.env` n'est chargé par cette phase.
+seulement `DEEPSEEK_API_KEY=` ; seuls l'import explicitement déclenché et le fichier secret
+Office dédié sont lus par le chemin DeepSeek. Les diagnostics ne lisent aucune clé.
 
 Développement : `~/Developer/jarvis-office`. Inventaire privé unique :
 `~/Library/Application Support/JarvisOffice/inventory.phase01.json`. Journaux futurs :

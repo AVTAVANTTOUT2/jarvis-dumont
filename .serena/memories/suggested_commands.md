@@ -1,3 +1,5 @@
-- Reproducible commands and diagnostic exit codes are maintained in README.md; execute from the Office project root.
-- uv run --no-sync uses the already synchronized dedicated environment. Direct .venv/bin/jarvis-office avoids package resolution at diagnostic runtime.
-- Missing assets intentionally return 3 and do not initiate downloads.
+- Reproducible commands and exit codes are maintained in README.md; run from the Office project root.
+- For all tests/chat: uv sync --locked --extra chat --no-python-downloads. Use uv run --no-sync afterward so the selected extra remains installed; direct .venv/bin/jarvis-office avoids runtime package resolution.
+- configure-deepseek --from-env explicitly imports only DEEPSEEK_API_KEY into the private config/deepseek.env (0600). The chat runtime never reads V1 or ambient env keys. Never print the key or place it in process arguments.
+- chat --text sends only the explicit text plus confirmed RAM history; optional --report writes metadata only under the private reports directory. No microphone or audio playback.
+- Missing assets/keys intentionally return 3 and do not initiate downloads. Full tests require NumPy/SoXR and the chat extra, no models, device or remote key.

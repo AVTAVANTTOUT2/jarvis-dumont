@@ -1,60 +1,63 @@
 # État du projet
 
-**PHASE_03_CODE_TESTED — QUALIFICATION_BLOCKED_USER**. Capture/VAD/STT autonomes
-fonctionnels sur M4 ; aucun STT homologué, phase 04 non commencée.
+**PHASE_04_TEXT_WORKING — AUDIT_V1_PARTIEL**. DeepSeek textuel et segmentation testés ;
+aucun microphone, lecture sonore ou pipeline de phase 05 démarré.
 
-- Code terminé : import STT explicite/idempotent/atomique avec SHA-256 ; un adaptateur
-  faster-whisper CPU, modèle chargé/préchauffé une fois, Silero ONNX seul segmente.
-  Capture sounddevice bornée, SoXR continu, pré-roll 320 ms et silence terminal 512 ms,
-  files/pertes/reconnexion contrôlées. Aucun réseau, fallback, serveur V1 ou LLM distant.
-- Environnement STT neuf : Python 3.12.13, faster-whisper 1.2.1, CTranslate2 4.8.1,
-  ONNX Runtime 1.27.0, sounddevice 0.5.5, SoXR 1.1.0, NumPy 2.5.1 ; lock séparé.
-  Backend effectif CPU float32, 4 threads, beam 1 ; ni CUDA ni Metal. Paramètres privés
-  d'énoncé/entrée limités à 60 s pour le corpus ; capture explicite limitée à 30 s.
-- Actifs : small (révision 536b066…) et turbo (0a363e9…) CTranslate2/tokenizers complets,
-  Silero 6.2.1 ONNX et LICENSE copiés indépendamment sous les benchmarks privés.
-  Seul large-v3-turbo est aussi copié sous assets/stt et configuré, **PROVISOIRE pour
-  développement**, jamais homologué. Aucun nouveau poids téléchargé ou modèle V1 effacé.
-- Mesures réelles finales : 5 fichiers distincts, dont seulement 3 phrases synthétiques
-  Qwen et 2 silence/bruit artificiel, 3 répétitions par candidat (15 essais chacun).
-  WER synthétique small 9,03 %, turbo 2,78 % ; dev/holdout séparés dans le rapport privé.
-  P95 inférence dev/holdout : small 1,726/3,460 s ; turbo 5,476/6,947 s.
-  Zéro erreur d'inférence, phrase perdue ou sortie sur silence/bruit de ce petit jeu.
-  Aucun bruit de bureau réel ni parole humaine qualifiés par ces résultats.
-- Critères stricts : **NO_ACCEPTABLE_STT** (sortie benchmark 1 attendue) : small dépasse
-  5 % ; les deux candidats signalent trois alertes critiques de représentation des nombres
-  sur les répétitions de la phrase longue (« 1, 2, 3, 4 » versus mots). Aucune négation
-  perdue observée ; interprétation sémantique à revoir humainement. Les seuils ne sont pas
-  relâchés. Turbo reste seulement le meilleur candidat technique, plus lent ; latence
-  conversationnelle globale non validée. Pic RSS processus ~1,64/4,46 Go, maximum cumulé.
-- Micro M4 réel : Blue Snowball, permission déjà accordée, aucune autre entrée active au
-  contrôle. Trois prises explicites de 2 s à 48/44,1/16 kHz réussies, chacune 32 000
-  échantillons mono 16 kHz après conversion ; signal non nul, aucun débordement/reconnexion,
-  aucune parole détectée. Postflight sans entrée active. Pas de modification de fréquence
-  globale, permission, sortie ou service. Contrôles instantanés, pas surveillance permanente.
-- Tests : 40 unittest réussis dans le checkout ET dans le wheel installé hors ligne dans
-  un venv neuf (NumPy/SoXR seulement pour tests). Ruff/format, mypy 13 fichiers et build
-  wheel/sdist hors ligne réussis. Imports CLI sans moteur/NumPy vérifiés. Socket native
-  réellement refusée sous sandbox et garde Python testée. doctor/assets inspect et
-  stt-test du seul modèle sélectionné réussis. Commandes reproductibles dans README.md.
-- Corpus humain **BLOCKED_USER** : manifeste privé de 50 prises planifiées (25 phrases
-  calme/bruit, 10 holdout), aucune fausse référence et aucun enregistrement automatique.
-  Action minimale : prises déclenchées individuellement, transcription/validation humaine,
-  annotation des noms/nombres/négations et vocabulaire métier, puis benchmark inchangé.
-- V1 : HEAD 67968ed5bd4dee2cf402efe5088f6ac48bc94d19, état Git inchangé (2 dirty et
-  20 non suivis préexistants) ; 41 fichiers et 74 actifs comparés sans différence.
-  Quatre lanceurs inchangés/non chargés. Contrôle partiel : logs/DB exclus, quatre
-  adaptateurs refusés par l'outil et une empreinte dirty initiale indisponible.
-- Phase 02 conservée : Qwen3 local isolé fonctionne (3 longueurs × 3 répétitions,
-  annulation/drainage réels testés). Écoute/TV/timbre **NOT_RUN**, droits vocaux inconnus.
-  Audit détaillé de quatre adaptateurs V1 toujours **BLOCKED_USER**, aucun contournement ;
-  autoriser leur lecture ciblée pour clôture. Notices de conversion/binaires incomplètes,
-  voir THIRD_PARTY_NOTICES.md. Aucun octroi de licence publique, aucun WAV dans Git.
-- Git : phase 01 fusionnée par PR #1 ; phase 02 PR #2 ouverte, CI réussie.
-  Phase 03 sur codex/03-stt, checkpoint code bbf5926 poussé ;
-  [PR #3](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/3) ouverte, empilée sur
-  codex/02-tts. Les deux exécutions CI Linux du code ont réussi ; aucune fusion effectuée.
-  Aucune protection/visibilité/identité globale modifiée.
-- Inventaire privé unique mis à jour en place ; mesures et corpus hors Git. Mémoires
-  Serena actualisées, navigation symbolique toujours indisponible (aucun langage actif).
-  Prochain jalon : qualification humaine STT et revues restantes ; pas de client DeepSeek.
+- Code terminé : un client HTTPX asynchrone réutilisable, SSE réellement réassemblé,
+  événements delta/segment identifiés, annulation et fermeture explicites. File bornée,
+  saturation en erreur, délais connexion/premier contenu/inactivité/total, aucun retry.
+  Raisonnement/outils inattendus refusés, jamais transmis comme texte prononçable.
+- Contrat officiel revérifié le 7 septembre 2026 : POST api.deepseek.com/chat/completions,
+  deepseek-v4-flash, stream=true, thinking.type=disabled, max_tokens=256. Aucun SDK,
+  reasoning_effort, clé OpenAI ou fournisseur de secours. Alias distant non figé en poids ;
+  modèle retourné, date et contrat consignés sans contenu de conversation.
+- Installation : extra chat optionnel, HTTPX 0.28.1, httpcore 1.0.9, anyio 4.15.1,
+  h11 0.16.0, certifi 2026.7.22, idna 3.19, uv.lock. Contrôleur toujours importable sans
+  extra ni moteur. Locks TTS/STT actualisés uniquement pour métadonnées du paquet Office,
+  sans changement de leurs versions installées ni installation dans V1.
+- Secret : seule DEEPSEEK_API_KEY du .env explicitement fourni pour Office a été copiée
+  vers config/deepseek.env privé (0600, dossier 0700). Source non écrasée, aucun secret V1
+  recherché, aucune valeur affichée. Aucun secret, audio ou rapport privé dans Git.
+- Conversation : quatre tours confirmés en RAM, contexte 12000 caractères ; entrée/sortie
+  4096, file 64 événements. Généré, remis au consommateur et effectivement affiché/prononcé
+  restent distincts. Confirmation explicite complète/partielle ; interruption notée dans
+  le contexte, aucun échec promu en réponse complète. Reset invalide les confirmations.
+- Texte prononçable : première proposition/phrase, décimales, nombre/unité et abréviations,
+  Markdown/code/URL bornés, timer 0,8 s sans demi-mot, flush final unique. Un lecteur lent
+  fait échouer le tour au plafond de file, sans duplication ni accumulation sans borne.
+- Tests simulés : 62 unittest réussis dans le checkout ET depuis le wheel neuf installé
+  avec dépendances vérifiées par leurs hashes. Suite propre exécutée sous interdiction
+  réseau macOS ; imports sans dépendances inertes, TLS/hostname/redirects testés.
+  Ruff/format, mypy 16 fichiers, trois locks et build wheel/sdist réussis. Le wheel contient
+  22 entrées code/métadonnées seulement. L'installation initiale entièrement hors ligne
+  manquait d'un artefact de cache ; installation des dépendances autorisée via registre,
+  puis tests sans réseau réussis. Aucun appel API ajouté par ces tests.
+- API réelle : **3 requêtes synthétiques sur 5 autorisées**, toutes HTTP 200/PASS,
+  modèle retourné deepseek-v4-flash, fin explicite stop, 193 tokens de sortie au total.
+  Requête → premier contenu : 0,564–0,895 s ; premier segment disponible : 0,693–1,076 s ;
+  fin du texte : 1,100–1,421 s. Ce ne sont pas des latences vocales. La troisième requête
+  a vérifié le transport final sans compression. Métadonnées privées, aucun historique
+  personnel ou audio envoyé. Commande chat réellement exécutée ; pas de poll payant.
+- V1 : Git inchangé (HEAD 67968ed5…, 2 dirty/20 non suivis préexistants), 40 fichiers et
+  74 actifs comparables sans différence. Quatre lanceurs inchangés/non chargés au contrôle
+  final. Contrôle partiel contre inventaire antérieur ; logs/DB et fichiers refusés exclus.
+  Pas de nouveau relevé de services avant phase 04, donc aucune affirmation avant/après
+  exhaustive. Aucun service, modèle, environnement ou réglage V1 modifié par Office.
+- Audit de réutilisation **BLOCKED_USER** : lecture de jarvis/audio/tts/segmenter.py et
+  tests/test_tts_segmenter.py refusée par l'outil, comme quatre adaptateurs en phase 02.
+  Aucun contournement/copie ; segmentation autonome, équivalence V1 non affirmée.
+  Action minimale : autoriser ces lectures ciblées dans le périmètre de l'outil.
+- Blocages précédents conservés : STT turbo seulement provisoire, NO_ACCEPTABLE_STT aux
+  critères stricts ; 50 prises/transcriptions humaines manquantes. Écoute/TV/timbre non
+  validés, droits vocaux et certaines notices/provenances binaires inconnus. Dépôt privé
+  sans licence publique automatique ; THIRD_PARTY_NOTICES.md actualisé en place.
+- Git : codex/04-deepseek basée sur codex/03-stt (PR #3 ouverte, dépendante de PR #2).
+  Checkpoint code 7fb8655 poussé ; [PR #4](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/4)
+  ouverte. Premier contrôle CI arrêté sur le format du bloc Python README, corrigé dans
+  d6f15c8 ; les deux contrôles GitHub ont ensuite réussi. Aucune fusion, protection ou
+  visibilité modifiée.
+  Suppression locale utilisateur de .env.example préservée hors commit ; .env reste ignoré.
+- Inventaire privé unique mis à jour ; mémoires Serena actualisées pour les contrats
+  durables. Navigation symbolique indisponible, aucun langage actif. Aucun réglage global
+  Codex modifié. Prochaine étape : revue du checkpoint et clôture des validations humaines/
+  audits restants ; phase 05 uniquement sur nouvelle demande.

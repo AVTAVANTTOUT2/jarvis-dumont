@@ -5,3 +5,7 @@
 - Only the explicit benchmark loads two candidates, sequentially with unload verified. The nominal adapter loads one selected bundle and warms up outside requests. CPU compute_type is queried and checked, never inferred as Metal.
 - Caches belong to Office. macOS OS network denial plus Python audit guards supplement local-only loading. Micro preflight uses native permission/CoreAudio input queries plus targeted V1 launchers; it is an instant snapshot.
 - Clean-wheel tests use NumPy/SoXR only and require no MLX/STT engines, models, device or key. Hardware and human qualification are separate evidence.
+- DeepSeek uses the optional chat extra (HTTPX 0.28.1), loaded lazily by the text command. No OpenAI SDK/key, no audio engine in the chat path. Fixed TLS endpoint, disabled thinking, bounded max_tokens and no automatic retry.
+- SSE is parsed as bytes/complete events, not TCP chunks. A segmentation timer must keep the pending network read alive. Require finish_reason=stop and [DONE]; usage-only frames are metadata, reasoning/tools fail closed.
+- Turn is an async context manager with one consumer queue. Saturation fails and closes the stream. RAM history changes only on explicit confirmation of an issued text prefix, with complete/partial and displayed/spoken distinguished. Reset invalidates stale confirmations.
+- The speech segmenter protects incomplete final words, numbers/units, French abbreviations and split punctuation. Markdown/code/URL state is bounded. No V1 source is copied or imported.
