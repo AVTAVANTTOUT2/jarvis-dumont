@@ -22,3 +22,21 @@ max_tokens = 4096
 startup_timeout = 180.0
 fragment_timeout = 60.0
 drain_timeout = 15.0
+
+# One selected CTranslate2 bundle only: assets/stt/<bundle_id>/model above,
+# with assets/stt/<bundle_id>/vad/silero.onnx. Candidates stay under benchmarks/.
+[speech]
+# python = "/path/to/runtime/stt/.venv/bin/python"
+compute_type = "float32" # CPU backend verified; neither CUDA nor Metal.
+cpu_threads = 4
+beam_size = 1
+input_device = "" # Exact unique input name, checked again at every startup.
+input_rate = 48000 # Must be accepted by the selected device.
+vad_threshold = 0.5
+pre_roll_ms = 300 # Quantized upwards to 320 ms (512 samples = 32 ms).
+terminal_silence_ms = 500 # Quantized upwards to 512 ms.
+min_speech_ms = 96
+max_utterance_s = 30
+max_input_s = 60
+queue_blocks = 32
+reconnect_attempts = 2

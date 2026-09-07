@@ -27,12 +27,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     inspect = assets.add_parser("inspect")
     importer = assets.add_parser("import")
     importer.add_argument("--dry-run", action="store_true", help="inspect and hash; no writes")
+    stt_importer = assets.add_parser("import-stt")
+    for name in ("model", "vad", "notice"):
+        stt_importer.add_argument("--" + name, type=Path, required=True)
+    stt_importer.add_argument("--target", choices=("benchmark", "selected"), default="benchmark")
+    stt_importer.add_argument("--dry-run", action="store_true")
+    stt = sub.add_parser("stt-test")
+    stt.add_argument("--input", type=Path, required=True)
+    bench = sub.add_parser("stt-bench")
+    for name in ("manifest", "small", "turbo"):
+        bench.add_argument("--" + name, type=Path, required=True)
+    bench.add_argument("--repeat", type=int, default=3)
+    mic = sub.add_parser("mic-check")
+    corpus = sub.add_parser("corpus-init")
+    corpus.add_argument("--output", type=Path, required=True)
+    capture = sub.add_parser("capture")
+    capture.add_argument("--output", type=Path, required=True)
+    capture.add_argument("--seconds", type=float, required=True)
+    capture.add_argument("--rate", type=int, choices=(16000, 44100, 48000))
+    for command in (mic, capture):
+        command.add_argument("--device")
+    for command in (stt, bench, capture):
+        command.add_argument("--report", type=Path)
     tts = sub.add_parser("tts-test")
     tts.add_argument("--text", required=True)
     tts.add_argument("--output", required=True, type=Path)
     tts.add_argument("--repeat", type=int, default=1)
     tts.add_argument("--report", type=Path, help="explicit private JSON metrics destination")
-    for command in (doctor, inspect, importer, tts):
+    for command in (doctor, inspect, importer, stt_importer, tts, stt, bench, mic, capture, corpus):
         command.add_argument("--json", action="store_true", help="structured redacted output")
         command.add_argument("--config", type=Path, help="explicit local TOML configuration")
     command_name = "cli"
@@ -40,6 +62,53 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         command_name = args.command if args.command != "assets" else "assets " + args.action
         config = load_config(args.config)
+        if command_name == "corpus-init":
+            from jarvis_office.corpus import prepare_human_corpus
+
+            print(json.dumps(prepare_human_corpus(args.output)))
+            return 0
+        if command_name in {"stt-test", "stt-bench", "mic-check", "capture"}:
+            from jarvis_office.speech_cli import launch
+
+            launch(config, vars(args))
+        if command_name == "assets import-stt":
+            from jarvis_office.assets import AssetError, atomic_json, import_stt, private_root
+
+            destination = private_root() / (
+                "benchmarks/stt/assets" if args.target == "benchmark" else "assets/stt"
+            )
+            inspected = import_stt(args.model, args.vad, args.notice, destination, dry_run=True)
+            if (
+                args.target == "selected"
+                and destination.exists()
+                and any(p.name != inspected["bundle_id"] for p in destination.iterdir())
+            ):
+                raise AssetError("production_allows_one_stt_model")
+            result = (
+                inspected
+                if args.dry_run
+                else import_stt(args.model, args.vad, args.notice, destination)
+            )
+            if not args.dry_run:
+                inventory_file = private_root() / "inventory.phase01.json"
+                if inventory_file.is_symlink() or (
+                    inventory_file.exists() and inventory_file.stat().st_size > 4 * 1024 * 1024
+                ):
+                    raise AssetError("invalid_inventory")
+                inventory = (
+                    json.loads(inventory_file.read_text()) if inventory_file.exists() else {}
+                )
+                imports = inventory.setdefault("phase03", {}).setdefault("imports", {})
+                imports[args.target + ":" + result["bundle_id"]] = {
+                    **result,
+                    "source_model": str(args.model.resolve()),
+                    "source_vad": str(args.vad.resolve()),
+                    "source_notice": str(args.notice.resolve()),
+                    "destination": str(destination / result["bundle_id"]),
+                }
+                atomic_json(inventory_file, inventory)
+            print(json.dumps({**result, "status": "PASS", "exit_code": 0}))
+            return 0
         if command_name == "assets import":
             from jarvis_office.assets import import_bundle, private_root, record_import
 

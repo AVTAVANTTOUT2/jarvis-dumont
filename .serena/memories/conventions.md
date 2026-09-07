@@ -1,6 +1,9 @@
 - CLI diagnostics use constant allowlisted names/reasons; never emit input text, personal paths, secrets or raw OS exceptions.
-- Asset structural PASS, model loaded, nonempty warmup, actual PCM synthesis, playback and human voice identity are separate claims.
+- Asset structural PASS, model loaded, warmup, actual synthesis/transcription, playback and human voice identity/quality are separate claims.
 - Relative paths resolve against the TOML parent, not process cwd.
-- Import is explicit: dry-run has no writes, independent regular files are hashed before/after and atomically published; no shared model hardlinks or production links to V1.
-- One TTS request per worker. Use contextlib.aclosing for stream consumers and await client.close(). Cancellation stops delivery, drains the identified request under the same lock, or terminates only the owned worker on timeout/protocol uncertainty.
-- Retain the whole PCM tail; do not claim that stopping delivery interrupts MLX computation.
+- Import is explicit: dry-run has no writes, independent regular files are hashed before/after and atomically published. No shared model hardlinks or production links to V1. Benchmark assets stay separate; selected STT root allows one bundle.
+- One TTS request per worker. Use contextlib.aclosing and await client.close(). Cancellation stops delivery, drains the identified request under the same lock, or terminates only the owned worker on timeout/protocol uncertainty. Retain the whole PCM tail; stopping delivery is not stopping computation.
+- Silero frames are exactly 512 samples at 16 kHz (32 ms), state resets per session. Continuous SoXR preserves rate-conversion state. Sample counters distinguish speech bounds, VAD finalization and hardware timestamps; replay never claims hardware latency.
+- Capture is explicitly triggered and bounded. Exact unique device name is rechecked, never persist its index. Any discontinuity discards the whole take before bounded reconnection. Never modify TCC or stop V1.
+- No substring blacklist of ordinary French. WER keeps accents/digits and does not equate written numbers with words; conservative critical alerts need human review. Raw speech is only in explicit private reports, never nominal rejected-speech logs.
+- At least 50 independently human-recorded/transcribed samples with quiet/noise and holdout are required for qualification. Synthetic references are technical evidence only. NO_ACCEPTABLE_STT is explicit; provisional engineering choice is not homologation.

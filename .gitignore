@@ -29,6 +29,7 @@ models/
 *.ogg
 *.pcm
 *.safetensors
+*.npy
 *.onnx
 *.pt
 *.bin

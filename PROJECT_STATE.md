@@ -1,55 +1,58 @@
 # État du projet
 
-**PHASE_02_TTS_WORKING** — synthèse Qwen3 autonome mesurée sur M4 ; pas de qualification
-du timbre, de la TV ou de production. Phase 03 non commencée.
+**PHASE_03_CODE_TESTED — QUALIFICATION_BLOCKED_USER**. Capture/VAD/STT autonomes
+fonctionnels sur M4 ; aucun STT homologué, phase 04 non commencée.
 
-- Code terminé : import explicite `assets import [--dry-run]`, copie indépendante
-  idempotente vérifiée/atomique ; worker Qwen3 persistant, protocole borné, annulation
-  avec drainage, `tts-test --text … --output … [--repeat 3] [--report …]`.
-  Diagnostics toujours passifs ; aucun micro, STT, LLM distant, téléchargement de poids
-  ou repli vocal. Une conversation, un tour actif, semi-duplex ; pas d'orchestrateur.
-- Environnements : contrôleur Python 3.12 sans dépendance runtime ; worker Python 3.14.6,
-  mlx-audio 0.4.5, MLX/Metal 0.31.2, mlx-lm 0.31.3, lock séparé. 3 296 fichiers Python
-  comparés à l'environnement de référence : aucun écart ; RECORD installés vérifiés.
-  Cela ne prouve pas l'absence de tout patch natif V1.
-- Actifs réels : 17 fichiers, 1 852 083 849 octets importés et revérifiés sans lien partagé.
-  Qwen3 révision MLX `4e44ed4bcee28a0f89a493e07bde16e6dccd43eb`, tokenizer complet,
-  profil sélectionné par configuration : WAV mono 24 kHz, 16,02 s et transcript non vide.
-  Inventaire unique enrichi en place, trois WAV et mesures dans les rapports privés.
-- Tests simulés : 22 unittest réussis, également depuis le wheel installé hors ligne
-  dans un venv propre sans dépendances ; import du CLI/worker sans moteur vérifié.
-  Ruff, format, mypy (8 fichiers), build wheel/sdist réussis. Commandes dans README.md.
-- Tests M4 réels : trois longueurs × trois répétitions, zéro erreur, 24 kHz mono.
-  Premier PCM livré après warmup : court 348–351 ms, moyen 351–355 ms, long 402–413 ms.
-  Calcul : 0,98–1,11 / 5,74–6,35 / 17,00–17,72 s ; audio : 1,52–1,76 /
-  11,12–12,32 / 33,04–34,56 s. RTF 0,51–0,65 ; pic RSS enfant ~2,07 Go,
-  pic MLX 3,45 Go (mesures distinctes, pas à additionner).
-  Démarrages de processus + warmup : 2,71–5,84 s, sans purge du cache disque.
-- Cycle de vie réel : annulation après un fragment, drainage 3,54 s, seconde requête
-  réussie dans le même enfant, arrêt complet constaté. Calcul non interrompu pendant
-  drainage. Tentative socket réellement refusée par sandbox macOS et test audit Python.
-  Mesures de contention échantillonnées : aucun processus candidat V1 détecté par chemins ;
-  autres charges système non entièrement attribuées, aucun service arrêté.
-- V1 : HEAD `67968ed5bd4dee2cf402efe5088f6ac48bc94d19`, état Git inchangé (deux dirty,
-  vingt non suivis préexistants). 41 fichiers et 74 actifs comparés au relevé phase 01 :
-  aucune différence ; quatre lanceurs inchangés/non chargés. Contrôle partiel : logs/DB
-  exclus, quatre adaptateurs non relus et une empreinte dirty initiale indisponible.
-- Blocage d'audit **BLOCKED_USER** : l'outil refuse la lecture détaillée de
-  `native_audio/qwen3_local.py`, `native_audio/sidecar_protocol.py`,
-  `jarvis/audio/tts/backends/qwen3_local.py` et `jarvis/audio/tts/backends/sidecar.py`.
-  Aucun contournement. Paramètres constatés + API MLX officielle utilisés ; aucun code V1
-  copié, équivalence exhaustive de sa recette non affirmée. Action minimale : autoriser
-  leur lecture ciblée dans le périmètre de l'outil pour clôturer cet audit.
-- Licences : cartes Qwen Apache-2.0 préservées ; amont exact de conversion, certains
-  composants binaires et droits vocaux restent non vérifiés (THIRD_PARTY_NOTICES.md).
-  Dépôt privé sans octroi de licence publique ; poids/voix jamais dans le push.
-- Matériel/validation humaine : lecture sonore **NOT_RUN**, TV non qualifiée, timbre
-  **NOT_RUN**. Trois démos disponibles pour une écoute explicite ultérieure.
-- Git : phase 01 fusionnée par PR #1 (`268271e`). Phase 02 sur `codex/02-tts`,
-  checkpoint code `de4e00c` poussé ; [PR #2](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/2).
-  CI Linux du code réussie ; chaque mise à jour doit passer avant fusion.
-  Aucune protection ou visibilité modifiée.
-- Mémoires Serena : séparation runtime, API Qwen, import et cycle de vie actualisés.
-  Navigation symbolique indisponible (serveur sans langage actif), inspection ciblée.
-  Aucun réglage global Codex modifié. Prochaine étape indépendante : revue/écoute des
-  démos et clôture de l'audit bloqué ; phase 03 uniquement sur nouvelle demande.
+- Code terminé : import STT explicite/idempotent/atomique avec SHA-256 ; un adaptateur
+  faster-whisper CPU, modèle chargé/préchauffé une fois, Silero ONNX seul segmente.
+  Capture sounddevice bornée, SoXR continu, pré-roll 320 ms et silence terminal 512 ms,
+  files/pertes/reconnexion contrôlées. Aucun réseau, fallback, serveur V1 ou LLM distant.
+- Environnement STT neuf : Python 3.12.13, faster-whisper 1.2.1, CTranslate2 4.8.1,
+  ONNX Runtime 1.27.0, sounddevice 0.5.5, SoXR 1.1.0, NumPy 2.5.1 ; lock séparé.
+  Backend effectif CPU float32, 4 threads, beam 1 ; ni CUDA ni Metal. Paramètres privés
+  d'énoncé/entrée limités à 60 s pour le corpus ; capture explicite limitée à 30 s.
+- Actifs : small (révision 536b066…) et turbo (0a363e9…) CTranslate2/tokenizers complets,
+  Silero 6.2.1 ONNX et LICENSE copiés indépendamment sous les benchmarks privés.
+  Seul large-v3-turbo est aussi copié sous assets/stt et configuré, **PROVISOIRE pour
+  développement**, jamais homologué. Aucun nouveau poids téléchargé ou modèle V1 effacé.
+- Mesures réelles finales : 5 fichiers distincts, dont seulement 3 phrases synthétiques
+  Qwen et 2 silence/bruit artificiel, 3 répétitions par candidat (15 essais chacun).
+  WER synthétique small 9,03 %, turbo 2,78 % ; dev/holdout séparés dans le rapport privé.
+  P95 inférence dev/holdout : small 1,726/3,460 s ; turbo 5,476/6,947 s.
+  Zéro erreur d'inférence, phrase perdue ou sortie sur silence/bruit de ce petit jeu.
+  Aucun bruit de bureau réel ni parole humaine qualifiés par ces résultats.
+- Critères stricts : **NO_ACCEPTABLE_STT** (sortie benchmark 1 attendue) : small dépasse
+  5 % ; les deux candidats signalent trois alertes critiques de représentation des nombres
+  sur les répétitions de la phrase longue (« 1, 2, 3, 4 » versus mots). Aucune négation
+  perdue observée ; interprétation sémantique à revoir humainement. Les seuils ne sont pas
+  relâchés. Turbo reste seulement le meilleur candidat technique, plus lent ; latence
+  conversationnelle globale non validée. Pic RSS processus ~1,64/4,46 Go, maximum cumulé.
+- Micro M4 réel : Blue Snowball, permission déjà accordée, aucune autre entrée active au
+  contrôle. Trois prises explicites de 2 s à 48/44,1/16 kHz réussies, chacune 32 000
+  échantillons mono 16 kHz après conversion ; signal non nul, aucun débordement/reconnexion,
+  aucune parole détectée. Postflight sans entrée active. Pas de modification de fréquence
+  globale, permission, sortie ou service. Contrôles instantanés, pas surveillance permanente.
+- Tests : 40 unittest réussis dans le checkout ET dans le wheel installé hors ligne dans
+  un venv neuf (NumPy/SoXR seulement pour tests). Ruff/format, mypy 13 fichiers et build
+  wheel/sdist hors ligne réussis. Imports CLI sans moteur/NumPy vérifiés. Socket native
+  réellement refusée sous sandbox et garde Python testée. doctor/assets inspect et
+  stt-test du seul modèle sélectionné réussis. Commandes reproductibles dans README.md.
+- Corpus humain **BLOCKED_USER** : manifeste privé de 50 prises planifiées (25 phrases
+  calme/bruit, 10 holdout), aucune fausse référence et aucun enregistrement automatique.
+  Action minimale : prises déclenchées individuellement, transcription/validation humaine,
+  annotation des noms/nombres/négations et vocabulaire métier, puis benchmark inchangé.
+- V1 : HEAD 67968ed5bd4dee2cf402efe5088f6ac48bc94d19, état Git inchangé (2 dirty et
+  20 non suivis préexistants) ; 41 fichiers et 74 actifs comparés sans différence.
+  Quatre lanceurs inchangés/non chargés. Contrôle partiel : logs/DB exclus, quatre
+  adaptateurs refusés par l'outil et une empreinte dirty initiale indisponible.
+- Phase 02 conservée : Qwen3 local isolé fonctionne (3 longueurs × 3 répétitions,
+  annulation/drainage réels testés). Écoute/TV/timbre **NOT_RUN**, droits vocaux inconnus.
+  Audit détaillé de quatre adaptateurs V1 toujours **BLOCKED_USER**, aucun contournement ;
+  autoriser leur lecture ciblée pour clôture. Notices de conversion/binaires incomplètes,
+  voir THIRD_PARTY_NOTICES.md. Aucun octroi de licence publique, aucun WAV dans Git.
+- Git : phase 01 fusionnée par PR #1 ; phase 02 PR #2 ouverte, CI réussie.
+  Phase 03 sur codex/03-stt, basée sur codex/02-tts ; checkpoint/PR en cours de livraison.
+  Aucune protection/visibilité/identité globale modifiée.
+- Inventaire privé unique mis à jour en place ; mesures et corpus hors Git. Mémoires
+  Serena actualisées, navigation symbolique toujours indisponible (aucun langage actif).
+  Prochain jalon : qualification humaine STT et revues restantes ; pas de client DeepSeek.

@@ -43,10 +43,29 @@ class TTS:
 
 
 @dataclass(frozen=True)
+class Speech:
+    python: Path | None = None
+    compute_type: str = "float32"
+    cpu_threads: int = 4
+    beam_size: int = 1
+    input_device: str = ""
+    input_rate: int = 48000
+    vad_threshold: float = 0.5
+    pre_roll_ms: int = 300
+    terminal_silence_ms: int = 500
+    min_speech_ms: int = 96
+    max_utterance_s: int = 30
+    max_input_s: int = 60
+    queue_blocks: int = 32
+    reconnect_attempts: int = 2
+
+
+@dataclass(frozen=True)
 class Config:
     assets: Assets = Assets()
     source_present: bool = False
     tts: TTS = TTS()
+    speech: Speech = Speech()
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -73,7 +92,7 @@ def load_config(path: Path | None = None) -> Config:
         if len(raw) > MAX_CONFIG_BYTES:
             raise ConfigError("configuration_too_large")
         data = tomllib.loads(raw.decode("utf-8"))
-        if set(data) - {"assets", "tts"}:
+        if set(data) - {"assets", "tts", "speech"}:
             raise ConfigError("unknown_configuration_field")
         assets = data.get("assets", {})
         if not isinstance(assets, dict) or set(assets) - set(Assets.__dataclass_fields__):
@@ -122,7 +141,42 @@ def load_config(path: Path | None = None) -> Config:
                 raise ConfigError("invalid_tts_python")
             python = Path(settings.python).expanduser()
             values["python"] = python if python.is_absolute() else source.parent / python
-        return Config(Assets(**paths), source_present=True, tts=TTS(**values))
+        speech_values = data.get("speech", {})
+        if not isinstance(speech_values, dict) or set(speech_values) - set(
+            Speech.__dataclass_fields__
+        ):
+            raise ConfigError("invalid_speech_configuration")
+        speech = Speech(**speech_values)
+        if speech.compute_type not in {"float32", "int8", "int8_float32"}:
+            raise ConfigError("invalid_cpu_compute_type")
+        if not isinstance(speech.input_device, str) or len(speech.input_device) > 256:
+            raise ConfigError("invalid_input_device")
+        if type(speech.vad_threshold) not in (int, float) or not 0 < speech.vad_threshold < 1:
+            raise ConfigError("invalid_vad_threshold")
+        for value, low, high in (
+            (speech.cpu_threads, 1, 16),
+            (speech.beam_size, 1, 5),
+            (speech.pre_roll_ms, 0, 1000),
+            (speech.terminal_silence_ms, 100, 2000),
+            (speech.min_speech_ms, 32, 500),
+            (speech.max_utterance_s, 1, 60),
+            (speech.max_input_s, 1, 120),
+            (speech.queue_blocks, 2, 128),
+            (speech.reconnect_attempts, 0, 2),
+        ):
+            if type(value) is not int or not low <= value <= high:
+                raise ConfigError("invalid_speech_parameter")
+        if type(speech.input_rate) is not int or speech.input_rate not in {16000, 44100, 48000}:
+            raise ConfigError("invalid_input_rate")
+        if speech.python is not None:
+            value = speech.python
+            if not isinstance(value, str) or not value or "\x00" in value or "://" in value:
+                raise ConfigError("invalid_speech_python")
+            target = Path(value).expanduser()
+            speech_values["python"] = target if target.is_absolute() else source.parent / target
+        return Config(
+            Assets(**paths), source_present=True, tts=TTS(**values), speech=Speech(**speech_values)
+        )
     except PermissionError:
         raise ConfigError("configuration_permission_denied", blocked=True) from None
     except (tomllib.TOMLDecodeError, UnicodeError):

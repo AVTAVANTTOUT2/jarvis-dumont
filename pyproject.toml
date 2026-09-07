@@ -14,7 +14,7 @@ dependencies = []
 jarvis-office = "jarvis_office.cli:main"
 
 [dependency-groups]
-dev = ["mypy==2.3.1", "ruff==0.16.6"]
+dev = ["mypy==2.3.1", "ruff==0.16.6", "numpy==2.5.1", "soxr==1.1.0"]
 
 [tool.ruff]
 target-version = "py312"
@@ -29,5 +29,5 @@ strict = true
 files = ["src/jarvis_office"]
 
 [[tool.mypy.overrides]]
-module = ["mlx.*", "mlx_audio.*", "numpy"]
+module = ["mlx.*", "mlx_audio.*", "numpy", "soxr", "sounddevice", "onnxruntime", "faster_whisper", "ctranslate2"]
 ignore_missing_imports = true

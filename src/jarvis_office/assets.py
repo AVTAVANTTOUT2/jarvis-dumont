@@ -8,11 +8,12 @@ import shutil
 import stat
 import tempfile
 import wave
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from jarvis_office.config import Config
-from jarvis_office.diagnostics import inspect_tts, inspect_voice
+from jarvis_office.diagnostics import inspect_stt, inspect_tts, inspect_vad, inspect_voice
 
 
 class AssetError(Exception):
@@ -24,7 +25,8 @@ def stat_identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
 
 
 def private_root() -> Path:
-    return Path.home() / "Library/Application Support/JarvisOffice"
+    explicit = os.environ.get("JARVIS_OFFICE_DATA")
+    return Path(explicit) if explicit else Path.home() / "Library/Application Support/JarvisOffice"
 
 
 def fingerprint(path: Path) -> dict[str, Any]:
@@ -90,6 +92,26 @@ def source_files(model: Path, voice: Path) -> dict[str, Path]:
     return result
 
 
+def stt_sources(model: Path, vad: Path, notice: Path) -> dict[str, Path]:
+    inspect_stt(model)
+    inspect_vad(vad)
+    if (
+        not notice.is_file()
+        or notice.stat().st_size > 1024 * 1024
+        or not notice.read_bytes().strip()
+    ):
+        raise AssetError("vad_notice_required")
+    sources = {"vad/silero.onnx": vad, "vad/LICENSE": notice}
+    for base, dirs, files in os.walk(model, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d not in {".cache", ".git", "__pycache__"})
+        if any((Path(base) / d).is_symlink() for d in dirs):
+            raise AssetError("source_directory_link")
+        for name in sorted(files):
+            file = Path(base) / name
+            sources["model/" + file.relative_to(model).as_posix()] = file
+    return sources
+
+
 def atomic_json(path: Path, value: object) -> None:
     """Replace only an explicitly selected private report, never a source asset."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -131,7 +153,7 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
             not rel.parts
             or rel.is_absolute()
             or ".." in rel.parts
-            or rel.parts[0] not in {"model", "voice"}
+            or rel.parts[0] not in {"model", "voice", "vad"}
         ):
             raise AssetError("invalid_import_manifest")
         file = bundle / rel
@@ -139,9 +161,13 @@ def verify_bundle(bundle: Path) -> dict[str, Any]:
             raise AssetError("import_is_not_independent")
         if fingerprint(file) != expected:
             raise AssetError("import_checksum_mismatch")
-    inspect_tts(bundle / "model")
-    validate_profile(bundle / "voice")
-    if set(source_files(bundle / "model", bundle / "voice")) != set(entries):
+    if manifest.get("kind", "tts") == "tts":
+        actual = source_files(bundle / "model", bundle / "voice")
+    elif manifest.get("kind") == "stt":
+        actual = stt_sources(bundle / "model", bundle / "vad/silero.onnx", bundle / "vad/LICENSE")
+    else:
+        raise AssetError("unknown_bundle_kind")
+    if set(actual) != set(entries):
         raise AssetError("import_file_list_mismatch")
     return manifest
 
@@ -153,7 +179,30 @@ def import_bundle(config: Config, destination: Path, *, dry_run: bool = False) -
     destination = destination.expanduser().resolve()
     if any(destination.is_relative_to(folder.resolve()) for folder in (model, voice)):
         raise AssetError("destination_overlaps_source")
-    sources = source_files(model, voice)
+    return _import_files(lambda: source_files(model, voice), destination, dry_run=dry_run)
+
+
+def import_stt(
+    model: Path, vad: Path, notice: Path, destination: Path, *, dry_run: bool = False
+) -> dict[str, Any]:
+    destination = destination.expanduser().resolve()
+    if destination.is_relative_to(model.resolve()) or any(
+        file.resolve().is_relative_to(destination) for file in (vad, notice)
+    ):
+        raise AssetError("destination_overlaps_source")
+    return _import_files(
+        lambda: stt_sources(model, vad, notice), destination, kind="stt", dry_run=dry_run
+    )
+
+
+def _import_files(
+    enumerate_sources: Callable[[], dict[str, Path]],
+    destination: Path,
+    *,
+    kind: str = "tts",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    sources = enumerate_sources()
     identities = {
         name: (stat_identity(file.stat()), str(file.resolve())) for name, file in sources.items()
     }
@@ -161,6 +210,8 @@ def import_bundle(config: Config, destination: Path, *, dry_run: bool = False) -
     bundle_id = hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
     target = destination / bundle_id
     manifest = {"schema_version": 1, "bundle_id": bundle_id, "files": entries}
+    if kind != "tts":
+        manifest["kind"] = kind
     result = {
         "bundle_id": bundle_id,
         "files": len(entries),
@@ -198,7 +249,7 @@ def import_bundle(config: Config, destination: Path, *, dry_run: bool = False) -
                 raise AssetError("source_changed_during_copy")
         atomic_json(staging / "manifest.json", manifest)
         verify_bundle(staging)
-        if source_files(model, voice) != sources:
+        if enumerate_sources() != sources:
             raise AssetError("source_file_list_changed")
         for name, source in sources.items():
             if (

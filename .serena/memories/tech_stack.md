@@ -1,5 +1,7 @@
-- Office controller Python 3.12 uses only the standard library; its uv.lock covers dev tools. The build backend is independently pinned.
-- Qwen3 runs in an owned persistent child with a separate Python 3.14 environment locked by runtime/tts/uv.lock. Never install into or import modules from V1.
-- The worker accepts only a verified independent imported bundle, French ICL with WAV plus nonempty transcript. mlx-audio 0.4.5 uses lang_code (not language) and clamps the ICL repetition penalty to at least 1.5.
-- Worker caches belong to Office. On macOS, OS network denial plus a Python audit guard supplement local-only/offline loading.
-- Clean-wheel checks need no MLX, model, audio device, or key. Runtime MLX tests are separate hardware evidence.
+- Office controller Python 3.12 has no runtime dependencies. Root uv.lock covers dev tools plus NumPy/SoXR for portable audio tests; the build backend is pinned.
+- Qwen3 uses an owned persistent Python 3.14 child locked by runtime/tts/uv.lock. Never install into or import modules from V1.
+- The TTS worker accepts only a verified independent bundle, French ICL with WAV and nonempty transcript. mlx-audio 0.4.5 uses lang_code and clamps ICL repetition penalty to at least 1.5.
+- STT uses a separate Python 3.12 runtime locked by runtime/stt/uv.lock: faster-whisper/CTranslate2 CPU, Silero ONNX Runtime, sounddevice capture, continuous SoXR HQ. No Torch, PyAudio, second VAD or engine fallback.
+- Only the explicit benchmark loads two candidates, sequentially with unload verified. The nominal adapter loads one selected bundle and warms up outside requests. CPU compute_type is queried and checked, never inferred as Metal.
+- Caches belong to Office. macOS OS network denial plus Python audit guards supplement local-only loading. Micro preflight uses native permission/CoreAudio input queries plus targeted V1 launchers; it is an instant snapshot.
+- Clean-wheel tests use NumPy/SoXR only and require no MLX/STT engines, models, device or key. Hardware and human qualification are separate evidence.
