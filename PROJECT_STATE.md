@@ -51,7 +51,9 @@ fonctionnels sur M4 ; aucun STT homologué, phase 04 non commencée.
   autoriser leur lecture ciblée pour clôture. Notices de conversion/binaires incomplètes,
   voir THIRD_PARTY_NOTICES.md. Aucun octroi de licence publique, aucun WAV dans Git.
 - Git : phase 01 fusionnée par PR #1 ; phase 02 PR #2 ouverte, CI réussie.
-  Phase 03 sur codex/03-stt, basée sur codex/02-tts ; checkpoint/PR en cours de livraison.
+  Phase 03 sur codex/03-stt, checkpoint code bbf5926 poussé ;
+  [PR #3](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/3) ouverte, empilée sur
+  codex/02-tts. Les deux exécutions CI Linux du code ont réussi ; aucune fusion effectuée.
   Aucune protection/visibilité/identité globale modifiée.
 - Inventaire privé unique mis à jour en place ; mesures et corpus hors Git. Mémoires
   Serena actualisées, navigation symbolique toujours indisponible (aucun langage actif).
