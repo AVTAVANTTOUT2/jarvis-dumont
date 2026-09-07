@@ -1,7 +1,8 @@
 # Jarvis Office
 
-Assistant vocal personnel indépendant. Phase 04 : DeepSeek textuel en streaming et
-segments prononçables ; capture/STT/Qwen3 restent séparés, aucun pipeline vocal assemblé.
+Assistant vocal personnel indépendant. Phase 05 : boucle semi-duplex locale intégrée,
+avec DeepSeek en streaming et Qwen3 isolé. Qualification STT/voix et essai micro → TV
+restent ouverts ; voir PROJECT_STATE.md. Aucun service de production installé.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
 
@@ -242,7 +243,7 @@ async def demo():
             async for event in turn:
                 if event.kind == "delta":
                     print(event.text, end="", flush=True)
-                # Les événements segment serviront au TTS dans une phase ultérieure.
+                # run livre les événements segment au TTS ; chat reste textuel.
             turn.confirm(turn.delivered_text, channel="displayed", complete=True)
     finally:
         await client.close()
@@ -285,6 +286,87 @@ fin explicite du texte. **Aucune n'est une latence vocale**. Les tests HTTPX sim
 aucun réseau ; les tests API réels de cette phase se limitent à trois requêtes synthétiques
 sur cinq autorisées, 256 tokens maximum chacune. Résultats dans l'inventaire privé et l'état.
 
+## Boucle vocale et contrôle local — phase 05
+
+```sh
+# Démarrage en pause, micro fermé. Aucun téléchargement au démarrage.
+.venv/bin/jarvis-office run
+# Ouvrir http://127.0.0.1:8768 puis Reprendre pour un essai borné.
+# Autre déclenchement explicite : 30 secondes d'armement, deux demandes au maximum.
+.venv/bin/jarvis-office run --arm --seconds 30 --turns 2
+# Test synthétique sans micro ET sans lecture, un seul tour :
+.venv/bin/jarvis-office run --text "Jarvis, explique le réseau local." --no-play \
+  --report "$HOME/Library/Application Support/JarvisOffice/reports/integration-test.json"
+```
+
+Renseigner `[voice].output_device` dans le TOML privé avec le **nom exact et unique**
+de la TV. La sortie est revérifiée, avec fréquence et canaux configurés ; aucun repli
+vers le Mac, changement de volume ou sortie globale. Sans sélection explicite, la
+lecture et l'armement échouent. Retirer `--no-play` du test textuel autorise sa lecture
+sur cette sortie seulement. Un rapport exige un nouveau chemin privé explicite.
+
+La page est servie uniquement sur `127.0.0.1`, port configurable 8768 ; collision = erreur,
+jamais arrêt du propriétaire. Aucun build frontend ni dépendance ajoutée. Amorçage via
+POST de même origine ; lecture et commandes exigent Host/Origin/Fetch Metadata stricts,
+en-tête local et cookie HttpOnly/SameSite=Strict. Aucune action sur GET, CORS, secret dans
+l'URL ou journal d'accès. Les réponses sont rendues avec `textContent`. Le second onglet
+ou une reconnexion relit le même état sans ouvrir de micro, modèle ou conversation.
+
+Topologie : contrôleur HTTPX/UI ; enfant STT/Silero/sounddevice/SoXR en Python 3.12 ;
+enfant Qwen3 MLX en Python 3.14. Les deux locks audio restent isolés et inchangés.
+Moteurs chargés et préchauffés une fois par session, pas par phrase. Une signature du
+code des workers vérifie le checkout réellement exécuté ; aucun `sys.path` vers V1.
+Workers sans clé ni réseau (sandbox macOS plus garde Python), caches Office seulement.
+
+Le départ est en pause. Reprendre arme un essai limité par `arm_seconds` et `arm_turns`.
+Le STT traite **localement toute parole** pendant cet armement ; seule une adresse en
+début de transcription, « Jarvis », peut déclencher DeepSeek. Ce n'est ni un wake word
+acoustique ni une identification du locuteur : une voix diffusée peut prononcer l'adresse.
+Les propos sans adresse sont abandonnés sans affichage ni journalisation. Un simple
+« Jarvis » donne un état local, sans LLM, son ou mesure de vraie réponse.
+
+La capture est fermée avant STT/réponse : aucun backlog ou barge-in. Un énoncé Silero
+déjà finalisé ne repasse pas par un second VAD. Après la lecture, délai acoustique de
+0,35 s par défaut, nouvelles capture/file/normalisation et remise à zéro Silero. Une
+pause volontaire n'est jamais annulée par un `finally`. Pause et Annuler arrêtent le
+tour et restent en pause ; Reprendre est explicite. Effacer invalide la session et son
+historique RAM, sans prétendre supprimer les données déjà envoyées à DeepSeek.
+Arrêter ou Ctrl+C ferme le serveur et seulement les enfants possédés.
+
+Le lecteur SSE progresse indépendamment du TTS ; segments en ordre, file de texte
+limitée à 2048 caractères (segment actif inclus). Saturation = erreur, aucun mot perdu.
+PCM : un fragment IPC borné en vol et un tampon float32 de deux secondes au format de
+sortie réel. Crédits de capacité avant chaque envoi, attente maximale trois secondes ;
+consommateur bloqué ou dépassement = erreur. Le SoXR de sortie conserve sa traîne entre
+segments ; un seul stream sounddevice par réponse, aucun WAV temporaire ou `afplay`.
+Sous-alimentation, discontinuité ou contention sont visibles et interdisent une
+confirmation complète. Fin normale : drain/stop/close de l'objet possédé ; annulation :
+abort/close et purge, fermeture HTTP, drainage Qwen borné ou arrêt du seul worker Office.
+Interrompre la livraison n'est pas une preuve d'arrêt immédiat du calcul MLX.
+
+L'historique confirme au plus les **segments entièrement terminés** selon l'échéance
+DAC estimée. Généré, remis au TTS, PCM remis au pilote et lecture estimée sont distincts.
+Une annulation conserve au plus le préfixe de segments terminé, marqué incomplet.
+Ni pourcentage d'octets ni affichage de la réponse ne prouvent les mots entendus.
+Les callbacks utilisent un tampon préalloué et ne font ni inférence, réseau, disque
+ou attente bloquante. Les opérations natives/pipe bloquantes sont hors boucle de contrôle.
+
+Les horloges ADC/application sont rapprochées explicitement ; si indisponibles, pas de
+latence depuis la parole. Le délai VAD fait partie du temps ressenti. PCM produit par
+MLX (relatif à sa synthèse), premier PCM livré, remise au pilote et échéance DAC estimée
+ne sont pas un son acoustiquement vérifié. Les objectifs p50 ≤2,5 s/p95 ≤4 s ne sont pas
+revendiqués : aucun tour micro → TV mesuré pour l'instant. Dix tours avec doubles ne
+sont pas dix conversations matérielles. L'identité vocale reste une validation humaine.
+
+Budget phase 05 : **20 tentatives réelles maximum**, commun à `chat`, `run` et aux
+relances, réservé avant HTTP dans `config/phase05-api-budget.json` privé (0600).
+Pas de reset/retry automatique ; un crash peut surcompter, jamais renouveler le quota.
+Utiliser seulement des demandes synthétiques/non sensibles de validation, 256 tokens
+maximum. Les tests usuels utilisent un transport simulé sans réserver de requête réelle.
+Rapports explicites : métadonnées seulement, jamais historique courant, clés ou propos
+du bureau. Codes `run` : succès/arrêt normal 0, opération 1, configuration 2, clé 3,
+interruption par signal du test 130. Un arrêt normal n'homologue pas le matériel.
+
 ## Configuration et vie privée
 
 Le fichier par défaut est `~/Library/Application Support/JarvisOffice/config.toml`.
@@ -304,7 +386,7 @@ L'inventaire contient les chemins
 résolus et les SHA-256 calculés en flux, avec état d'instabilité ; PROJECT_STATE.md en
 donne uniquement une synthèse expurgée.
 
-Les futures requêtes DeepSeek transmettront uniquement la transcription adressée à
+Les requêtes DeepSeek transmettent uniquement la transcription adressée à
 Jarvis et un historique limité, jamais le flux audio ou le profil vocal. La production
 future sera sous `Application Support/JarvisOffice/releases/<version>-<sha>/` avec
 pointeur `current`, sans exécuter durablement le checkout de développement.

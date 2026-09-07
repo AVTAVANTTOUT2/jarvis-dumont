@@ -1,5 +1,6 @@
 """Explicit single-key import; never source dotenv, inspect a vault or log a value."""
 
+import json
 import os
 import stat
 from pathlib import Path
@@ -59,6 +60,53 @@ def _read_key(path: Path, *, private: bool) -> str:
 def load_key() -> str:
     """Only the Office private file; no implicit V1 or environment lookup at runtime."""
     return _read_key(secret_path(), private=True)
+
+
+def reserve_validation_request() -> int:
+    """Phase 05 hard ceiling, shared by chat/run and restarts. No text or key recorded.
+
+    Reserve BEFORE HTTP, including attempts that fail or are cancelled. A crash may
+    overcount; it can never silently replenish the budget. No automatic reset.
+    """
+    import fcntl
+
+    path = private_root() / "config/phase05-api-budget.json"
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        if path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
+            raise ConfigError("validation_budget_permissions")
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        with os.fdopen(fd, "r+", encoding="utf-8") as handle:
+            info = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_size > 4096
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+            ):
+                raise ConfigError("validation_budget_invalid")
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            raw = handle.read(4097)
+            data = json.loads(raw) if raw else {"phase": 5, "limit": 20, "attempts": 0}
+            if (
+                not isinstance(data, dict)
+                or data.get("phase") != 5
+                or data.get("limit") != 20
+                or type(data.get("attempts")) is not int
+                or not 0 <= data["attempts"] <= 20
+            ):
+                raise ConfigError("validation_budget_invalid")
+            if data["attempts"] >= 20:
+                raise ConfigError("validation_budget_exhausted")
+            data["attempts"] += 1
+            handle.seek(0)
+            json.dump(data, handle)
+            handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+            return int(data["attempts"])
+    except (OSError, ValueError):
+        raise ConfigError("validation_budget_unavailable") from None
 
 
 def import_key(source: Path) -> dict[str, object]:

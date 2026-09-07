@@ -77,12 +77,28 @@ class Chat:
 
 
 @dataclass(frozen=True)
+class Voice:
+    output_device: str = ""
+    output_rate: int = 48000
+    output_channels: int = 2
+    port: int = 8768
+    acoustic_delay: float = 0.35
+    text_queue_chars: int = 2048
+    pcm_seconds: float = 2.0
+    prefill_seconds: float = 0.12
+    arm_seconds: int = 60
+    arm_turns: int = 3
+    stt_timeout: float = 60.0
+
+
+@dataclass(frozen=True)
 class Config:
     assets: Assets = Assets()
     source_present: bool = False
     tts: TTS = TTS()
     speech: Speech = Speech()
     chat: Chat = Chat()
+    voice: Voice = Voice()
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -109,7 +125,7 @@ def load_config(path: Path | None = None) -> Config:
         if len(raw) > MAX_CONFIG_BYTES:
             raise ConfigError("configuration_too_large")
         data = tomllib.loads(raw.decode("utf-8"))
-        if set(data) - {"assets", "tts", "speech", "chat"}:
+        if set(data) - {"assets", "tts", "speech", "chat", "voice"}:
             raise ConfigError("unknown_configuration_field")
         assets = data.get("assets", {})
         if not isinstance(assets, dict) or set(assets) - set(Assets.__dataclass_fields__):
@@ -220,12 +236,52 @@ def load_config(path: Path | None = None) -> Config:
                 or not 0.01 <= value <= 120
             ):
                 raise ConfigError("invalid_chat_timeout")
+        voice_values = data.get("voice", {})
+        if not isinstance(voice_values, dict) or set(voice_values) - set(
+            Voice.__dataclass_fields__
+        ):
+            raise ConfigError("invalid_voice_configuration")
+        voice = Voice(**voice_values)
+        if (
+            not isinstance(voice.output_device, str)
+            or len(voice.output_device) > 256
+            or any(ord(c) < 32 for c in voice.output_device)
+        ):
+            raise ConfigError("invalid_output_device")
+        for value, low, high in (
+            (voice.port, 1024, 65535),
+            (voice.text_queue_chars, 256, 4096),
+            (voice.arm_seconds, 1, 300),
+            (voice.arm_turns, 1, 10),
+        ):
+            if type(value) is not int or not low <= value <= high:
+                raise ConfigError("invalid_voice_limit")
+        if (
+            type(voice.output_rate) is not int
+            or voice.output_rate not in {24000, 44100, 48000}
+            or type(voice.output_channels) is not int
+            or voice.output_channels not in {1, 2}
+        ):
+            raise ConfigError("invalid_output_format")
+        for value, lower, upper in (
+            (voice.acoustic_delay, 0.1, 2.0),
+            (voice.pcm_seconds, 0.5, 4.0),
+            (voice.prefill_seconds, 0.04, 0.4),
+            (voice.stt_timeout, 1.0, 120.0),
+        ):
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not lower <= value <= upper
+            ):
+                raise ConfigError("invalid_voice_parameter")
         return Config(
             Assets(**paths),
             source_present=True,
             tts=TTS(**values),
             speech=Speech(**speech_values),
             chat=chat,
+            voice=voice,
         )
     except PermissionError:
         raise ConfigError("configuration_permission_denied", blocked=True) from None

@@ -3,3 +3,5 @@
 - configure-deepseek --from-env explicitly imports only DEEPSEEK_API_KEY into the private config/deepseek.env (0600). The chat runtime never reads V1 or ambient env keys. Never print the key or place it in process arguments.
 - chat --text sends only the explicit text plus confirmed RAM history; optional --report writes metadata only under the private reports directory. No microphone or audio playback.
 - Missing assets/keys intentionally return 3 and do not initiate downloads. Full tests require NumPy/SoXR and the chat extra, no models, device or remote key.
+- run starts paused on loopback; run --arm --seconds 30 --turns 2 is an explicitly bounded hardware trial. An exact output name in private [voice] is mandatory; never infer which display is the TV. Ctrl+C or Stop owns complete shutdown.
+- run --text "Jarvis, explique le réseau local." --no-play exercises the response without mic/playback. No automatic API retry or quota reset; the phase validation budget is shared across commands and restarts in the private config directory.

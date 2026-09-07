@@ -17,7 +17,14 @@ from typing import Any
 import numpy as np
 
 from jarvis_office.assets import fingerprint, verify_bundle
-from jarvis_office.audio_input import AudioError, Samples, Silero, read_wav, segment_audio
+from jarvis_office.audio_input import (
+    AudioError,
+    Samples,
+    Silero,
+    Utterance,
+    read_wav,
+    segment_audio,
+)
 from jarvis_office.config import Speech
 
 
@@ -218,6 +225,35 @@ class Recognizer:
                 "processing_s": time.perf_counter() - started,
                 "hardware_latency": "NOT_RUN",
                 "avg_logprob_interpretation": "mean_log_probability_not_percentage",
+            }
+        finally:
+            self.lock.release()
+
+    def transcribe_utterance(self, utterance: Utterance) -> dict[str, Any]:
+        """Already segmented by this stream's Silero: never apply a second VAD."""
+        audio = utterance.audio
+        if (
+            utterance.reason != "terminal_silence"
+            or audio.ndim != 1
+            or not len(audio)
+            or len(audio) > (self.settings.max_utterance_s + 2) * 16000
+            or not np.isfinite(audio).all()
+        ):
+            raise AudioError("invalid_or_truncated_utterance")
+        if not self.lock.acquire(blocking=False):
+            raise AudioError("one_stt_request_at_a_time")
+        started = time.perf_counter()
+        try:
+            text, _ = self._decode(audio)
+            accepted, reason = accept_text(text)
+            if len(text) > 4096:
+                raise AudioError("transcript_too_large")
+            return {
+                "text": text,
+                "accepted": accepted,
+                "reason": reason,
+                "stt_started": started,
+                "stt_finished": time.perf_counter(),
             }
         finally:
             self.lock.release()

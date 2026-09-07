@@ -251,6 +251,16 @@ class Turn:
                     "stream_options": {"include_usage": True},
                 },
             )
+            if self.owner.real_transport:
+                from jarvis_office.config import ConfigError
+                from jarvis_office.credentials import reserve_validation_request
+
+                try:
+                    self.metrics["phase05_attempt"] = await asyncio.to_thread(
+                        reserve_validation_request
+                    )
+                except ConfigError as exc:
+                    raise ChatError(exc.reason) from None
             self.metrics["requests"] = 1
             try:
                 async with asyncio.timeout(
@@ -436,6 +446,7 @@ class DeepSeek:
         if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{8,512}", key):
             raise ChatError("invalid_key")
         self._key, self.settings = key, settings
+        self.real_transport = transport is None
         self.http = httpx.AsyncClient(
             verify=True,
             follow_redirects=False,

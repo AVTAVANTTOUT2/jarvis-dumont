@@ -1,7 +1,16 @@
-# Composants tiers — constats des phases 01 à 04
+# Composants tiers — constats des phases 01 à 05
 
 Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
 Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
+
+Phase 05 : intégration originale des composants Office, sans nouvel extrait V1,
+dépendance Python/binaire, poids ou tokenizer. Les versions et avis ci-dessous restent
+applicables. La page HTML/JS originale est incluse dans le wheel ; aucun framework,
+asset tiers ou runtime d'orchestration ajouté. sounddevice 0.5.5 est désormais raccordé
+à la sortie progressive (formats interrogés, objets stop/abort/close inspectés) ; aucune
+lecture physique réalisée tant que la sortie n'est pas explicitement sélectionnée.
+Les droits vocaux, notices binaires et provenances inconnues ne sont pas résolus par
+l'intégration. Aucune redistribution publique ni release de production dans cette phase.
 
 Phase 04 : le segmenteur Office est nouveau. Lecture de `jarvis/audio/tts/segmenter.py`
 et `tests/test_tts_segmenter.py` V1 refusée par l'outil ; aucune reprise de code ni

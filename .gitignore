@@ -6,6 +6,7 @@
 config.toml
 *.local.*
 inventory*.json
+*-api-budget.json
 reports/
 secrets/
 *.pem

@@ -5,6 +5,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Never
 
@@ -60,6 +61,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="jarvis-office", description="Jarvis Office: passive diagnostics and explicit tests"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    voice = sub.add_parser("run", help="paused local voice controller; explicit bounded arming")
+    voice.add_argument("--config", type=Path)
+    voice.add_argument("--arm", action="store_true")
+    voice.add_argument("--seconds", type=int, choices=range(1, 301))
+    voice.add_argument("--turns", type=int, choices=range(1, 11))
+    voice.add_argument("--text", help="explicit addressed synthetic test; no microphone")
+    voice.add_argument(
+        "--no-play", action="store_true", help="with --text: synthesize/discard PCM only"
+    )
+    voice.add_argument("--report", type=Path, help="new private metadata-only report")
     chat = sub.add_parser("chat")
     chat.add_argument("--text", required=True)
     chat.add_argument("--report", type=Path, help="new private metadata-only JSON report")
@@ -107,6 +118,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         command_name = args.command if args.command != "assets" else "assets " + args.action
         config = load_config(args.config)
+        if command_name == "run":
+            from jarvis_office.assets import private_root
+            from jarvis_office.voice import run_command
+
+            config = replace(
+                config,
+                voice=replace(
+                    config.voice,
+                    arm_seconds=args.seconds or config.voice.arm_seconds,
+                    arm_turns=args.turns or config.voice.arm_turns,
+                ),
+            )
+            return asyncio.run(
+                run_command(
+                    config,
+                    args.config or private_root() / "config.toml",
+                    text=args.text,
+                    no_play=args.no_play,
+                    arm=args.arm,
+                    report=args.report,
+                )
+            )
         if command_name == "chat":
             return asyncio.run(chat_command(config.chat, args.text, args.report))
         if command_name == "configure-deepseek":

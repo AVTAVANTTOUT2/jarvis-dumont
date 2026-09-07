@@ -311,11 +311,15 @@ class TTSClient:
                 except TimeoutError:
                     with contextlib.suppress(ProcessLookupError):
                         process.kill()
-                    await process.wait()
+                    await asyncio.wait_for(process.wait(), 3)
             if process.stdin is not None:
                 process.stdin.close()
             if self._stderr_task is not None:
-                await self._stderr_task
+                try:
+                    await asyncio.wait_for(self._stderr_task, 3)
+                except TimeoutError:
+                    self._stderr_task.cancel()
+                    await asyncio.gather(self._stderr_task, return_exceptions=True)
                 self._stderr_task = None
         self.ready = {}
 

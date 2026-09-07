@@ -137,6 +137,7 @@ class Block:
     adc_time: float
     received_wall: float
     data: Samples
+    callback_current_time: float | None = None
 
 
 class CaptureQueue:
@@ -162,6 +163,7 @@ class CaptureQueue:
                     float(times.inputBufferAdcTime),
                     time.perf_counter(),
                     data.copy(),
+                    float(times.currentTime) if hasattr(times, "currentTime") else None,
                 )
             )
         except queue.Full:
