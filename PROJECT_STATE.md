@@ -47,7 +47,9 @@ Intégration livrable ; ce n'est pas un PHASE_05_READY matériel intégral.
 - Git : `codex/05-voice-loop` depuis `3c2e333`, qui contient `7481ee4`.
   PR #2/#3/#4 déjà fusionnées dans leurs bases respectives ; main ne contient pas la
   phase 04. PR de cette phase vers `codex/03-stt`, sans réécrire/fusionner les précédentes.
-  Checkpoint et CI distants en cours de livraison. Suppression utilisateur de
+  Checkpoint code `f4afda1` poussé ; [PR #5](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/5)
+  ouverte vers la base contenant la phase 04, deux contrôles CI réussis. Aucune fusion.
+  Suppression utilisateur de
   `.env.example` préservée hors commit ; `.env` et clé privée non suivis.
 - Rapport structuré privé et inventaire unique actualisés, mémoires Serena durables
   mises à jour. Budget partagé sous config privée, sans reset/retry automatique.
