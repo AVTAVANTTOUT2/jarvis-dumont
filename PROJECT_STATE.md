@@ -1,6 +1,7 @@
 # État du projet
 
-Phase 01 — fondations implémentées et vérifiées localement ; revue finale et CI distante en cours.
+**PHASE_01_READY** — fondations implémentées et vérifiées localement et en CI Linux.
+Ce verdict ne qualifie pas le fonctionnement vocal.
 
 - Décisions : paquet `jarvis_office`, CLI `jarvis-office`, Python 3.12 dédié, uv.lock,
   aucune dépendance d'exécution. Un choix par fonction ; aucun STT Office sélectionné.
@@ -28,7 +29,14 @@ Phase 01 — fondations implémentées et vérifiées localement ; revue finale 
   Aucun actif copié. Droits vocaux, révision amont exacte de conversion et certaines
   notices binaires inconnus : voir THIRD_PARTY_NOTICES.md, à résoudre avant leur réutilisation.
 - Git : dépôt privé `AVTAVANTTOUT2/jarvis-office`, amorçage `0dd7f7c` sur main,
-  travail sur `codex/01-bootstrap`. Push/PR et validation distante à terminer.
+  travail sur `codex/01-bootstrap`, code livré au checkpoint `d7e9336`.
+  Push effectué ; [PR #1](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/1) créée.
+  CI push et PR réussies pour le code ; la CI de chaque mise à jour doit passer avant fusion.
+  Main constatée sans protection ; aucune protection ou visibilité modifiée. L'API de
+  rulesets répond 403 (offre GitHub), la protection de branche a été vérifiée séparément.
 - Validation humaine : écoute et choix matériel non exécutés ; aucune qualification vocale.
   Prochain jalon, sur nouvelle demande : phase 02, import privé des seuls actifs utiles
   et Qwen3 isolé. Cette phase n'est pas commencée.
+- Mémoires Serena : conventions de diagnostic, séparation des environnements et commandes
+  fiables enregistrées. Navigation symbolique indisponible dans cette session (serveur
+  sans langage actif) ; inspection locale ciblée utilisée. Aucun réglage global Codex modifié.
