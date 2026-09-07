@@ -1,4 +1,4 @@
-# Composants tiers — constat de phase 01
+# Composants tiers — constats des phases 01 et 02
 
 Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
 Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
@@ -8,7 +8,8 @@ inventaire, pas une autorisation de redistribution des actifs ou de la voix.
 
 ## Poids, tokenizers et code source examiné
 
-Tous les éléments de ce tableau restent hors de la distribution Jarvis Office.
+Tous ces actifs restent hors Git et hors du wheel Office. Qwen3/tokenizers et le profil
+seulement sont désormais copiés dans les données privées Office, avec leur fiche locale.
 
 | Composant / révision constatée | Licence constatée et source officielle | Usage / limites |
 | --- | --- | --- |
@@ -19,9 +20,9 @@ Tous les éléments de ce tableau restent hors de la distribution Jarvis Office.
 | faster-whisper-small et tokenizer `536b0662742c02347bc0e980a01041f333bce120` | MIT annoncée dans la [fiche figée](https://huggingface.co/Systran/faster-whisper-small/blob/536b0662742c02347bc0e980a01041f333bce120/README.md). | Poids CTranslate2 présents ; candidat, pas sélectionné pour Office. |
 | faster-whisper-large-v3-turbo et tokenizer `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` | MIT annoncée dans la [fiche figée](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/blob/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/README.md). | Poids CTranslate2 présents dans le cache utilisé par V1 ; cache HF distinct incomplet. |
 | Silero VAD 6.2.1, poids JIT/ONNX embarqués | MIT dans les métadonnées installées ; [source](https://github.com/snakers4/silero-vad). | Présent dans un environnement V1 alternatif, absent du venv des lanceurs. Aucun chargement. |
-| Profil vocal local (WAV, transcript, métadonnées) | Droits et consentement **inconnus**, distincts de la licence Qwen. Aucune source publique affirmée. | Privé/local ; aucune copie, génération ou diffusion. |
+| Profil vocal local (WAV, transcript, métadonnées) | Droits et consentement **non vérifiés**, distincts de la licence Qwen. La métadonnée déclare un usage local fourni par le propriétaire ; ce n'est pas une preuve indépendante. | Copie et synthèses privées demandées par l'utilisateur ; aucune diffusion, écoute humaine non effectuée. |
 
-## Environnements audio existants — rien installé dans Office
+## Environnements audio existants — inventaire de phase 01
 
 Les versions multiples correspondent à des environnements séparés. Les paquets et leurs
 binaires restent dans la V1/runtime MLX ; ils ne sont ni vendus ni embarqués par cette phase.
@@ -56,5 +57,31 @@ accompagnant les distributions installées sont conservées dans l'environnement
 | pathspec 1.1.1 | MPL-2.0 dans LICENSE installé ; [source](https://github.com/cpburnz/python-pathspec). | Dépendance transitive de mypy, non embarquée. |
 | typing_extensions 4.16.0 | PSF-2.0, métadonnées installées ; [source](https://github.com/python/typing_extensions). | Dépendance transitive de mypy, non embarquée. |
 
-Avant phase 02 : confirmer les droits du profil vocal et compléter les notices des seuls
-composants effectivement importés. La licence de modèle ne vaut pas consentement vocal.
+## Runtime TTS installé pour Office — phase 02
+
+Python 3.14.6, environnement neuf verrouillé dans `runtime/tts/uv.lock`. Les paquets
+et avis restent dans cet environnement local, aucun binaire ni poids dans le wheel/Git.
+3 296 fichiers Python MLX/MLX-LM/mlx-audio/Transformers/Tokenizers identiques aux paquets
+épinglés réinstallés : aucun patch Python détecté dans ce périmètre. Le code Office est
+nouveau, utilise l'API publique ; pas de copie du code V1. Lecture détaillée des quatre
+adaptateurs V1 bloquée par le périmètre de l'outil, donc équivalence exhaustive non affirmée.
+
+| Composants installés / versions | Licence constatée / source officielle | Usage et limites |
+| --- | --- | --- |
+| mlx / mlx-metal 0.31.2 ; mlx-audio 0.4.5 ; mlx-lm 0.31.3 | MIT ; [MLX](https://github.com/ml-explore/mlx), [Audio versionnée](https://github.com/Blaizzy/mlx-audio/tree/v0.4.5), [LM](https://github.com/ml-explore/mlx-lm). | Moteur local ; extension MLX, libmlx/libjaccl et bibliothèque Metal installées. |
+| transformers 5.9.0 ; huggingface-hub 1.16.4 ; tokenizers 0.22.2 ; safetensors 0.7.0 ; hf-xet 1.5.0 | Apache-2.0 ; [Transformers](https://github.com/huggingface/transformers), [Hub](https://github.com/huggingface/huggingface_hub), [Tokenizers](https://github.com/huggingface/tokenizers), [Safetensors](https://github.com/huggingface/safetensors), [Xet](https://github.com/huggingface/xet-core). | Chargement local ; extensions Rust installées, réseau interdit. Notices transitives Rust non exhaustivement qualifiées. |
+| sentencepiece 0.2.1 | Licence absente du wheel constaté : **inconnue pour ce binaire** ; [source](https://github.com/google/sentencepiece). | Extension native installée transitivement ; pas une autorisation de redistribution. |
+| numpy 2.4.6 ; scipy 1.18.0 | NumPy : BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 ; SciPy : BSD et avis tiers installés. [NumPy](https://numpy.org), [SciPy](https://scipy.org). | Extensions natives ; avis installés conservés, pas réduits à la licence du wrapper. |
+| OpenBLAS/LAPACK ; libgcc/libgfortran/libquadmath des wheels NumPy/SciPy | BSD-3-Clause / BSD-3-Clause-Open-MPI ; GPL-3.0-or-later WITH GCC-exception-3.1 ; LGPL-2.1-or-later dans leurs LICENSE.txt. [OpenBLAS](https://www.openblas.net), [LAPACK](https://www.netlib.org/lapack/), [GCC](https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html). | Binaires installés ; versions source exactes **inconnues**. ABI des fichiers et empreintes privées ne les établissent pas. |
+| miniaudio 1.71 ; sounddevice 0.5.5 | MIT wrappers ; [miniaudio Python](https://github.com/irmen/pyminiaudio), [sounddevice](https://github.com/spatialaudio/python-sounddevice). | Décodage WAV par miniaudio ; aucun stream audio ouvert. Version/avis exacts du cœur miniaudio embarqué et de PortAudio **inconnus**. |
+| cffi 2.1.0 ; protobuf 7.35.0 ; PyYAML 6.0.3 ; regex 2026.5.9 ; MarkupSafe 3.0.3 | MIT-0 ; BSD-3-Clause ; MIT ; Apache-2.0 AND CNRI-Python ; BSD-3-Clause. [CFFI](https://github.com/python-cffi/cffi), [Protobuf](https://github.com/protocolbuffers/protobuf), [YAML](https://pyyaml.org), [Regex](https://github.com/mrabarnett/mrab-regex), [MarkupSafe](https://github.com/pallets/markupsafe). | Extensions binaires transitives installées ; versions natives embarquées non déduites des versions Python. |
+| certifi 2026.5.20 ; tqdm 4.67.3 ; packaging 26.2 ; typing_extensions 4.15.0 | MPL-2.0 ; MPL-2.0 AND MIT ; Apache-2.0 OR BSD-2-Clause ; PSF-2.0. [Certifi](https://github.com/certifi/python-certifi), [tqdm](https://github.com/tqdm/tqdm), [Packaging](https://github.com/pypa/packaging), [Typing](https://github.com/python/typing_extensions). | Dépendances Python, certificats inclus mais aucun appel réseau. |
+| anyio 4.13.0 ; h11 0.16.0 ; httpcore 1.0.9 ; httpx 0.28.1 ; idna 3.16 | MIT ; MIT ; BSD-3-Clause ; BSD-3-Clause ; BSD-3-Clause. [AnyIO](https://github.com/agronholm/anyio), [h11](https://github.com/python-hyper/h11), [Core](https://github.com/encode/httpcore), [HTTPX](https://github.com/encode/httpx), [IDNA](https://github.com/kjd/idna). | Transitifs du Hub, installés mais réseau interdit. |
+| click 8.4.1 ; fsspec 2026.4.0 ; Jinja2 3.1.6 ; pycparser 3.0 ; Pygments 2.20.0 | BSD-3-Clause, sauf Jinja2 : BSD (métadonnée), Pygments : BSD-2-Clause. [Click](https://github.com/pallets/click), [Fsspec](https://github.com/fsspec/filesystem_spec), [Jinja](https://github.com/pallets/jinja), [Parser](https://github.com/eliben/pycparser), [Pygments](https://pygments.org). | Utilitaires Python transitifs. |
+| annotated-doc 0.0.4 ; filelock 3.29.0 ; markdown-it-py 4.2.0 ; mdurl 0.1.2 ; rich 15.0.0 ; typer 0.25.1 ; shellingham 1.5.4 | MIT sauf shellingham ISC. [Annotated](https://github.com/fastapi/annotated-doc), [Filelock](https://github.com/tox-dev/py-filelock), [Markdown](https://github.com/executablebooks/markdown-it-py), [Mdurl](https://github.com/executablebooks/mdurl), [Rich](https://github.com/Textualize/rich), [Typer](https://github.com/fastapi/typer), [Shellingham](https://github.com/sarugaku/shellingham). | Utilitaires Python transitifs. |
+
+Qwen3/tokenizers : fiche Apache-2.0 copiée intacte ; absence de LICENSE autonome confirmée
+aux révisions vérifiées. Révision amont exacte de conversion toujours inconnue. Le texte
+Apache-2.0 de référence est conservé à côté du bundle privé, sans inventer d'avis titulaire.
+Avant redistribution/release : résoudre les notices binaires manquantes et les droits
+du profil. La licence de modèle ne vaut ni consentement vocal ni validation humaine.

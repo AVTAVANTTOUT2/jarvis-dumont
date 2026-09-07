@@ -6,3 +6,19 @@ tts_model = ""
 stt_model = ""
 voice_profile = ""
 vad_model = ""
+
+# For tts-test only: a dedicated interpreter installed from runtime/tts/uv.lock.
+# After an explicit import, use assets/<bundle_id>/model and /voice above.
+[tts]
+# python = "/path/to/dedicated/python"
+language = "french"
+clone_mode = "icl"
+temperature = 0.5
+top_p = 0.9
+top_k = 30
+streaming_interval = 0.4
+repetition_penalty = 1.05 # mlx-audio 0.4.5 ICL applies max(value, 1.5).
+max_tokens = 4096
+startup_timeout = 180.0
+fragment_timeout = 60.0
+drain_timeout = 15.0

@@ -1,3 +1,6 @@
-- CLI output is an allowlist of constant check names/reasons, never sanitized exception strings or paths.
-- PASS for an asset means structure only. Inference, audio permission, consent and device usability require separate evidence.
-- Relative asset paths resolve against the TOML parent, not process cwd.
+- CLI diagnostics use constant allowlisted names/reasons; never emit input text, personal paths, secrets or raw OS exceptions.
+- Asset structural PASS, model loaded, nonempty warmup, actual PCM synthesis, playback and human voice identity are separate claims.
+- Relative paths resolve against the TOML parent, not process cwd.
+- Import is explicit: dry-run has no writes, independent regular files are hashed before/after and atomically published; no shared model hardlinks or production links to V1.
+- One TTS request per worker. Use contextlib.aclosing for stream consumers and await client.close(). Cancellation stops delivery, drains the identified request under the same lock, or terminates only the owned worker on timeout/protocol uncertainty.
+- Retain the whole PCM tail; do not claim that stopping delivery interrupts MLX computation.

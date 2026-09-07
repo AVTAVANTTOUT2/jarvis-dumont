@@ -1,3 +1,5 @@
-- Office Python 3.12 is independent of the existing Python 3.14 MLX runtime. Do not merge their environments.
-- Runtime uses only the standard library. uv.lock covers dev dependencies; build backend has an exact independent pin in pyproject.toml.
-- A wheel with no dependencies is the artifact used to verify clean installation.
+- Office controller Python 3.12 uses only the standard library; its uv.lock covers dev tools. The build backend is independently pinned.
+- Qwen3 runs in an owned persistent child with a separate Python 3.14 environment locked by runtime/tts/uv.lock. Never install into or import modules from V1.
+- The worker accepts only a verified independent imported bundle, French ICL with WAV plus nonempty transcript. mlx-audio 0.4.5 uses lang_code (not language) and clamps the ICL repetition penalty to at least 1.5.
+- Worker caches belong to Office. On macOS, OS network denial plus a Python audit guard supplement local-only/offline loading.
+- Clean-wheel checks need no MLX, model, audio device, or key. Runtime MLX tests are separate hardware evidence.

@@ -5,9 +5,9 @@ build-backend = "uv_build"
 [project]
 name = "jarvis-office"
 version = "0.1.0"
-description = "Local, read-only diagnostics for Jarvis Office"
+description = "Offline diagnostics and isolated local Qwen3 TTS for Jarvis Office"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = []
 
 [project.scripts]
@@ -27,3 +27,7 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 files = ["src/jarvis_office"]
+
+[[tool.mypy.overrides]]
+module = ["mlx.*", "mlx_audio.*", "numpy"]
+ignore_missing_imports = true
