@@ -46,7 +46,9 @@ du timbre, de la TV ou de production. Phase 03 non commencée.
 - Matériel/validation humaine : lecture sonore **NOT_RUN**, TV non qualifiée, timbre
   **NOT_RUN**. Trois démos disponibles pour une écoute explicite ultérieure.
 - Git : phase 01 fusionnée par PR #1 (`268271e`). Phase 02 sur `codex/02-tts`,
-  checkpoint/PR en préparation après revue ; aucune protection ou visibilité modifiée.
+  checkpoint code `de4e00c` poussé ; [PR #2](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/2).
+  CI Linux du code réussie ; chaque mise à jour doit passer avant fusion.
+  Aucune protection ou visibilité modifiée.
 - Mémoires Serena : séparation runtime, API Qwen, import et cycle de vie actualisés.
   Navigation symbolique indisponible (serveur sans langage actif), inspection ciblée.
   Aucun réglage global Codex modifié. Prochaine étape indépendante : revue/écoute des
