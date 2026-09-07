@@ -1,6 +1,6 @@
 # Jarvis Office
 
-Assistant vocal personnel indépendant. Phase 01 : inventaire privé et diagnostics locaux uniquement.
+Assistant vocal personnel indépendant. Phase 02 : diagnostics, import vérifié et Qwen3 local isolé.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
 
@@ -9,7 +9,7 @@ Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTIC
 Python 3.12.13 et uv 0.11.29 ont été vérifiés localement. Le paquet n'a aucune dépendance
 d'exécution ; les outils de développement sont verrouillés dans `uv.lock`, avec leurs
 empreintes de distributions. Le backend de build est épinglé séparément dans
-`pyproject.toml`. Ne pas fusionner cet environnement avec celui de la V1 ou du futur TTS.
+`pyproject.toml`. Le worker TTS possède un environnement distinct ; la V1 reste inchangée.
 
 ```sh
 uv sync --locked --no-python-downloads
@@ -46,7 +46,7 @@ contenu, identifiant de compte, valeur d'environnement ou exception système bru
 Un `FAIL` prend priorité sur `BLOCKED_USER`. L'absence de configuration par défaut
 est `NOT_RUN` ; ses actifs non configurés sont `BLOCKED_USER`. Ainsi, sans configuration,
 les deux commandes retournent 3 sur le Mac cible. Cela ne constitue pas un échec des
-fondations : les actifs ne seront importés/configurés qu'aux phases suivantes.
+fondations : les chemins nécessaires ne sont simplement pas encore configurés.
 
 `doctor` vérifie Python/macOS arm64, les métadonnées des distributions du Python courant
 et les actifs configurés. MLX et les moteurs absents sont `NOT_RUN`, car optionnels pour
@@ -64,18 +64,71 @@ valide les tenseurs ou les poids binaires STT/VAD : `PASS` signifie structure lo
 contrôlée, pas authenticité, qualité vocale ou aptitude à l'inférence. Les droits vocaux
 ne sont jamais déduits d'un champ de métadonnées.
 
+## Import explicite et TTS isolé
+
+```sh
+# Python 3.14.6 arm64 déjà installé ; aucun téléchargement de Python ou de poids.
+uv sync --project runtime/tts --locked --python /chemin/python3.14 --no-python-downloads
+jarvis-office assets import --config "/chemin privé/source.toml" --dry-run --json
+jarvis-office assets import --config "/chemin privé/source.toml" --json
+jarvis-office tts-test --text "Bonjour, le système vocal est prêt." \
+  --output "/chemin privé/demo.wav" --repeat 3 --report "/chemin privé/mesures.json"
+```
+
+Le TOML source renseigne seulement `assets.tts_model` et `assets.voice_profile` réels.
+L'import publie `assets/<bundle_id>/` sous Application Support/JarvisOffice : `model`,
+`voice` et manifeste SHA-256. Il copie les fichiers des symlinks HF, jamais leurs liens,
+ignore les caches `.npy`, conserve les avis et refuse les fichiers instables. Publication
+du dossier temporaire par renommage atomique, sans hardlink partagé avec la source.
+Une copie existante est revérifiée, pas dupliquée. `--dry-run` hache/contrôle mais n'écrit
+rien. L'import met à jour l'inventaire privé existant.
+
+Dans le TOML Office, pointer vers les deux dossiers importés et définir `tts.python`
+vers `runtime/tts/.venv/bin/python`. Le contrôleur ne télécharge ni n'installe rien.
+`runtime/tts/uv.lock` fige les versions observées : mlx-audio 0.4.5, MLX/Metal 0.31.2,
+mlx-lm 0.31.3 et leurs dépendances. Aucun écart sur les 3 296 fichiers Python comparés
+avec l'environnement de référence ; cette vérification ne couvre pas les patches natifs.
+
+Une commande supervise un enfant persistant, chargé/préchauffé une fois pour ses répétitions.
+La référence WAV et son transcript sont obligatoires ; français explicite, ICL, température
+0,5, top-p 0,9, top-k 30, intervalle 0,4 s. La pénalité configurée 1,05 est effectivement
+bornée à 1,5 par ICL dans mlx-audio 0.4.5. Aucun repli vers une voix générique.
+Chargement, warmup PCM non vide et identité vocale humaine sont trois états distincts.
+
+Le protocole borné est documenté dans `tts.py` : identifiant, PCM S16LE mono 24 kHz,
+fin et erreur distinctes ; stderr drainé en continu, rétention maximale 32 Kio.
+Une requête à la fois. L'annulation coupe la livraison, puis draine sous verrou ; le calcul
+MLX continue jusqu'à la fin ou au délai maximal, après lequel seul l'enfant possédé est
+terminé. Utiliser `contextlib.aclosing(client.stream(...))` et toujours `await client.close()`.
+Aucun tampon de traîne ni seuil d'amplitude ne retire les consonnes faibles.
+
+Les caches appartiennent à Office, l'environnement de l'enfant est expurgé. Sur macOS,
+`sandbox-exec` interdit le réseau ; un audit Python interdit aussi sockets/sous-processus.
+Un test de connexion réellement refusée complète les variables offline, qui ne sont pas
+une preuve à elles seules. Les diagnostics n'importent toujours aucun moteur.
+
+`tts-test` exige un nouveau WAV explicite et ne lit jamais de son (`--play` non proposé à
+ce jalon). Répétitions 1 à 5, dernier WAV conservé, toutes les mesures dans le JSON :
+chargement, warmup, premier PCM MLX/converti/livré, calcul, durée, RTF et pics RSS/MLX.
+Le premier PCM utilisateur depuis la commande inclut le démarrage. « Froid » signifie
+nouveau processus, pas cache disque macOS vidé. RTF inférieur à 1 = calcul plus rapide
+que la durée audio, pas garantie de fidélité vocale. Sortie/rapport existants refusés ;
+erreurs d'opération = 1, configuration/arguments = 2. Aucune preuve d'écoute humaine.
+
 ## Configuration et vie privée
 
 Le fichier par défaut est `~/Library/Application Support/JarvisOffice/config.toml`.
 `config.toml.example` décrit quatre chemins locaux optionnels, vides au départ. Les chemins
 relatifs sont résolus depuis le dossier du fichier TOML ; espaces et `~` sont acceptés.
-Les clés inconnues, valeurs non textuelles et URL sont refusées. `.env.example` contient
+Les chemins doivent être textuels/locaux ; les paramètres TTS sont typés et bornés.
+Les clés inconnues et URL sont refusées. `.env.example` contient
 seulement `DEEPSEEK_API_KEY=` ; aucun `.env` n'est chargé par cette phase.
 
 Développement : `~/Developer/jarvis-office`. Inventaire privé unique :
 `~/Library/Application Support/JarvisOffice/inventory.phase01.json`. Journaux futurs :
 `~/Library/Logs/JarvisOffice/`. Audio, transcripts, poids, secrets, caches et inventaires
-restent hors Git. Aucun actif de la V1 n'a été copié. L'inventaire contient les chemins
+restent hors Git. Seuls Qwen3/tokenizers et le profil utile ont été copiés indépendamment.
+L'inventaire contient les chemins
 résolus et les SHA-256 calculés en flux, avec état d'instabilité ; PROJECT_STATE.md en
 donne uniquement une synthèse expurgée.
 
