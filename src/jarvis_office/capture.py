@@ -100,6 +100,39 @@ def microphone_preflight() -> dict[str, Any]:
         return {"status": "BLOCKED_USER", "reason": "microphone_preflight_unavailable"}
 
 
+def list_devices(sd: Any, direction: str) -> dict[str, Any]:
+    """Query PortAudio formats only; availability is not proof of an opened stream."""
+    if direction not in {"input", "output"}:
+        raise AudioError("invalid_device_direction")
+    devices = []
+    for index, item in enumerate(sd.query_devices()):
+        channels = int(item["max_" + direction + "_channels"])
+        if not channels:
+            continue
+        formats = []
+        for rate in (16000, 24000, 44100, 48000):
+            for count in range(1, min(channels, 2) + 1):
+                for dtype in ("int16", "float32"):
+                    try:
+                        getattr(sd, "check_" + direction + "_settings")(
+                            device=index, channels=count, samplerate=rate, dtype=dtype
+                        )
+                        formats.append({"rate": rate, "channels": count, "dtype": dtype})
+                    except sd.PortAudioError:
+                        pass
+        devices.append(
+            {
+                "name": item["name"],
+                "max_channels": channels,
+                "default_rate": item["default_samplerate"],
+                "formats": formats,
+                "availability": "FORMAT_SUPPORTED" if formats else "NO_TESTED_FORMAT",
+                "stream": "NOT_RUN",
+            }
+        )
+    return {"status": "PASS", "exit_code": 0, "direction": direction, "devices": devices}
+
+
 def resolve_input(sd: Any, name: str, rate: int) -> tuple[int, dict[str, Any]]:
     if not name:
         raise AudioError("explicit_input_device_required")

@@ -1,7 +1,7 @@
 # Jarvis Office
 
 Assistant vocal personnel indépendant. Phase 05 : boucle semi-duplex locale intégrée,
-avec DeepSeek en streaming et Qwen3 isolé. Qualification STT/voix et essai micro → TV
+avec DeepSeek en streaming et Qwen3 isolé. Qualification STT/voix et essai micro → sortie Mac
 restent ouverts ; voir PROJECT_STATE.md. Aucun service de production installé.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
@@ -299,11 +299,21 @@ sur cinq autorisées, 256 tokens maximum chacune. Résultats dans l'inventaire p
   --report "$HOME/Library/Application Support/JarvisOffice/reports/integration-test.json"
 ```
 
-Renseigner `[voice].output_device` dans le TOML privé avec le **nom exact et unique**
-de la TV. La sortie est revérifiée, avec fréquence et canaux configurés ; aucun repli
-vers le Mac, changement de volume ou sortie globale. Sans sélection explicite, la
+Renseigner `[speech].input_device` et `[voice].output_device` dans le TOML privé avec
+les **noms exacts et uniques** du micro branché et de la sortie locale Mac choisis.
+Les périphériques sont revérifiés, avec fréquence et canaux configurés ; aucun repli,
+changement de volume ou sortie globale. Sans sélection explicite, la
 lecture et l'armement échouent. Retirer `--no-play` du test textuel autorise sa lecture
 sur cette sortie seulement. Un rapport exige un nouveau chemin privé explicite.
+
+Phase 05B : TV **DEFERRED — future phase**, pas un blocage de ce jalon Mac.
+`input-list --json` et `output-list --json` interrogent PortAudio dans le runtime audio
+existant : noms, canaux, fréquence par défaut et formats testés (16/24/44,1/48 kHz,
+int16/float32, un ou deux canaux selon disponibilité). Aucun stream, moteur ou appel
+API n'est démarré. Un format accepté par l'interrogation ne prouve ni ouverture ni écoute.
+`mic-check --json` vérifie séparément permissions et accès micro concurrents ; même
+le vumètre des Réglages Système peut maintenir une entrée active. Fermer ce panneau
+manuellement, sans contourner le contrôle ou arrêter un service tiers.
 
 La page est servie uniquement sur `127.0.0.1`, port configurable 8768 ; collision = erreur,
 jamais arrêt du propriétaire. Aucun build frontend ni dépendance ajoutée. Amorçage via
@@ -355,8 +365,11 @@ Les horloges ADC/application sont rapprochées explicitement ; si indisponibles,
 latence depuis la parole. Le délai VAD fait partie du temps ressenti. PCM produit par
 MLX (relatif à sa synthèse), premier PCM livré, remise au pilote et échéance DAC estimée
 ne sont pas un son acoustiquement vérifié. Les objectifs p50 ≤2,5 s/p95 ≤4 s ne sont pas
-revendiqués : aucun tour micro → TV mesuré pour l'instant. Dix tours avec doubles ne
-sont pas dix conversations matérielles. L'identité vocale reste une validation humaine.
+revendiqués : cinq tours matériels 05C donnent 4,085–4,420 s entre fin de parole estimée
+et première écriture pilote, sans calibration acoustique ni statistique solide sur ce petit N.
+Le jalon audio Mac est validé avec confirmation humaine de l'écoute et du timbre ;
+l'homologation générale STT reste **NO_ACCEPTABLE_STT / STT_QUALIFICATION_PENDING**.
+Dix tours avec doubles ne sont pas dix conversations matérielles. La phase 06 n'est pas ouverte.
 
 Budget phase 05 : **20 tentatives réelles maximum**, commun à `chat`, `run` et aux
 relances, réservé avant HTTP dans `config/phase05-api-budget.json` privé (0600).
@@ -366,6 +379,12 @@ maximum. Les tests usuels utilisent un transport simulé sans réserver de requ�
 Rapports explicites : métadonnées seulement, jamais historique courant, clés ou propos
 du bureau. Codes `run` : succès/arrêt normal 0, opération 1, configuration 2, clé 3,
 interruption par signal du test 130. Un arrêt normal n'homologue pas le matériel.
+
+Les mesures distinguent maintenant le premier PCM converti du premier callback de
+sortie, le format réellement rapporté par le stream, l'éligibilité au réarmement et
+la réouverture effective suivante. La capture rapporte RMS, pertes, pré-roll mesuré,
+silence terminal et fréquence normalisée sans sauvegarder l'audio. Ces données ne
+remplacent ni confirmation d'écoute ni qualification humaine du STT/du timbre.
 
 ## Configuration et vie privée
 

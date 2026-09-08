@@ -64,11 +64,13 @@ class VoiceLoop:
             "engines_ready": self.ready,
             "output_verified": bool(self.output_device),
             "ready": self.ready and bool(self.output_device) and self.error is None,
-            "qualification": "PROVISIONAL — NO_ACCEPTABLE_STT; voix/TV non homologuées",
+            "qualification": "PROVISIONAL — NO_ACCEPTABLE_STT; voix/écoute non homologuées",
             "microphone": self.microphone,
             "level": self.level,
             "input": self.input_device,
             "output": self.output_device,
+            "selected_input": self.config.speech.input_device,
+            "selected_output": self.config.voice.output_device,
             "transcription": self.accepted,
             "response": self.answer,
             "playback": self.playback,
@@ -76,7 +78,8 @@ class VoiceLoop:
             "error": self.error,
             "armed": self.armed,
             "notice": (
-                "Écoute armée : STT local de toute parole. Adresse textuelle Jarvis, "
+                ("Écoute armée. " if self.armed else "Écoute non armée. ")
+                + "Pendant l'armement : STT local de toute parole. Adresse textuelle Jarvis, "
                 "ni wake word acoustique ni identification du locuteur."
             ),
         }
@@ -93,6 +96,10 @@ class VoiceLoop:
         elif event["event"] == "listening" and self.armed:
             self.state, self.microphone = "listening", "open"
             self.input_device = data["device"]
+            if self.results and "rearm_eligible" in self.results[-1]:
+                opened = data.get("opened_at")
+                if opened is not None:
+                    self.results[-1].setdefault("rearmed", opened + self.audio_offset)
         elif event["event"] == "reconnecting":
             self.state, self.microphone = "starting", "closed"
 
@@ -127,13 +134,15 @@ class VoiceLoop:
         if completed != list(range(1, len(completed) + 1)):
             raise LoopError("invalid_playback_confirmation")
         self.completed = list(completed)
-        for key in ("first_driver", "first_dac_estimate", "last_dac_estimate"):
+        for key in ("first_converted", "first_driver", "first_dac_estimate", "last_dac_estimate"):
             value = result.get(key)
             if value is not None:
                 self.metrics[key] = value + self.audio_offset
         for key in ("pcm_driver_bytes", "pcm_peak_bytes", "underflows"):
             if key in result:
                 self.metrics[key] = result[key]
+        if result.get("stream_format"):
+            self.metrics["output_stream_format"] = result["stream_format"]
         if result.get("first_driver") is not None:
             self.state, self.playback = "speaking", "playing_estimated"
 
@@ -376,7 +385,13 @@ class VoiceLoop:
                 self.remaining -= 1
                 timing = result.get("timing", {})
                 self.metrics = {**timing, "input_kind": "microphone"}
-                for key in ("speech_end_estimate", "vad_finalized", "stt_started", "stt_finished"):
+                for key in (
+                    "speech_start_estimate",
+                    "speech_end_estimate",
+                    "vad_finalized",
+                    "stt_started",
+                    "stt_finished",
+                ):
                     value = result.get(key, timing.get(key))
                     self.metrics[key] = value + self.audio_offset if value is not None else None
                 if self.metrics["vad_finalized"] is not None:
@@ -387,6 +402,8 @@ class VoiceLoop:
                 # Remain inhibited until playback ended, then acoustic hold, new stream/VAD/SoXR.
                 await asyncio.sleep(self.config.voice.acoustic_delay)
                 self.metrics["rearm_eligible"] = time.perf_counter()
+                if self.results and self.results[-1].get("turn") == identifier:
+                    self.results[-1]["rearm_eligible"] = self.metrics["rearm_eligible"]
         except asyncio.CancelledError:
             raise
         except Exception as exc:

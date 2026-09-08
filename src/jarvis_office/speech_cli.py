@@ -45,11 +45,18 @@ class BoundedMessages(io.TextIOBase):
 
 
 def run(config: Config, args: dict[str, Any]) -> dict[str, Any]:
+    command = args["command"]
+    if command in {"input-list", "output-list"}:
+        import sounddevice as sd
+
+        from jarvis_office.capture import list_devices
+
+        return list_devices(sd, command.split("-")[0])
+
     from jarvis_office.audio_input import AudioError, Silero, read_wav
     from jarvis_office.capture import capture_wav, microphone_preflight, resolve_input
     from jarvis_office.stt import Recognizer, benchmark, load_corpus, select_candidate
 
-    command = args["command"]
     report_path = Path(args["report"]) if args.get("report") else None
     if report_path:
         if report_path.exists() or report_path.is_symlink():
