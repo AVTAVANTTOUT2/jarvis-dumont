@@ -1,7 +1,7 @@
 # Jarvis Office — règles durables
 
 - Périmètre minimal : une conversation, un tour actif, semi-duplex. Un STT, un TTS local, un LLM distant ; Silero détecte la parole. Aucun orchestrateur au produit.
-- Phase 05 : intégrer les composants existants, Flash sans réflexion, sans phase 06. Au plus 20 tentatives API réelles courtes, budget commun persistant ; tests usuels hors réseau. Démarrage en pause, capture/lecture explicitement armées et bornées. Diagnostics toujours passifs. Aucun nouveau poids.
+- Phase 05B : validation matérielle locale Mac des composants existants, sans phase 06. TV : DEFERRED — future phase. Au plus cinq requêtes courtes pour ce jalon, dans le budget phase 05 partagé de 20, jamais réinitialisé. Sortie isolée et confirmation humaine avant capture ; essais explicitement armés et bornés. Diagnostics passifs, aucun nouveau poids ni changement de sortie globale.
 - V1 strictement en lecture seule : aucun import de ses modules, script, modification d'environnement, Git, service, permissions ou périphérique. Ne jamais sourcer ses fichiers .env.
 - Secrets, voix, transcripts, poids, inventaires et chemins personnels hors Git. Ne jamais afficher les valeurs de configuration ou les exceptions brutes dans les diagnostics.
 - Aucun téléchargement au runtime, routeur multimodèle ou repli silencieux. Pas de RAG, MCP produit, mémoire persistante, base de données, Android ou infrastructure supplémentaire.

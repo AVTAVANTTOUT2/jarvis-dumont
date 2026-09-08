@@ -176,6 +176,40 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.audio.calls.count("begin"), 10)
         self.assertEqual(self.audio.calls.count("drained"), 10)
 
+    async def test_rearm_and_conversion_metrics_use_mapped_clocks_and_reject_stale_events(self):
+        self.voice.audio_offset = 5
+        self.voice._progress({"first_converted": 10, "first_driver": 11})
+        self.assertEqual(self.voice.metrics["first_converted"], 15)
+        self.assertEqual(self.voice.metrics["first_driver"], 16)
+        self.voice.results = [{"turn": "previous", "rearm_eligible": 20}]
+        self.voice.turn, self.voice.armed = "current", True
+        event = {
+            "session": self.voice.session,
+            "turn": "old",
+            "event": "listening",
+            "data": {"device": {"name": "local mic"}, "opened_at": 22},
+        }
+        self.voice.audio_event(event)
+        self.assertNotIn("rearmed", self.voice.results[-1])
+        event["turn"] = "current"
+        self.voice.audio_event(event)
+        self.assertEqual(self.voice.results[-1]["rearmed"], 27)
+        event["data"]["opened_at"] = 30
+        self.voice.audio_event(event)
+        self.assertEqual(self.voice.results[-1]["rearmed"], 27)
+
+    async def test_paused_ui_names_selection_without_claiming_listening_or_verification(self):
+        self.voice.config = replace(
+            self.voice.config,
+            voice=replace(self.voice.config.voice, output_device="local speaker"),
+        )
+        snapshot = self.voice.snapshot()
+        self.assertEqual(snapshot["state"], "paused")
+        self.assertNotIn("Écoute armée", snapshot["notice"])
+        self.assertEqual(snapshot["selected_output"], "local speaker")
+        self.assertFalse(snapshot["output_verified"])
+        self.assertEqual(snapshot["output"], {})
+
     async def test_unaddressed_and_bare_name_never_call_llm(self):
         for text in [
             "Merci pour ta réponse, explique-moi la suite",
@@ -581,6 +615,7 @@ class OutputTests(unittest.TestCase):
                     out, frames, SimpleNamespace(outputBufferDacTime=1, currentTime=1), False
                 )
             self.assertEqual(p.delivered, round(0.1 * rate))
+            self.assertLessEqual(p.first_converted, p.first_driver)
             self.assertGreater(float(np.max(out)), 0)
             p.stream.active = False
             with patch(

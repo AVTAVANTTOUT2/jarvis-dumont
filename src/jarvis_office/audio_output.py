@@ -89,6 +89,8 @@ class Playback:
         self.ended = self.aborted = False
         self.error: str | None = None
         self.first_driver: float | None = None
+        self.first_converted: float | None = None
+        self.stream_format: dict[str, Any] = {}
         self.first_dac: float | None = None
         self.last_dac: float | None = None
         self.markers: deque[tuple[int, int]] = deque()
@@ -99,6 +101,8 @@ class Playback:
 
     def _append(self, mono: Any) -> None:
         count = len(mono)
+        if count and self.first_converted is None:
+            self.first_converted = time.perf_counter()
         with self.lock:
             if self.aborted or self.error:
                 raise AudioError(self.error or "playback_aborted")
@@ -131,6 +135,11 @@ class Playback:
             else None,
         )
         self.stream.start()
+        self.stream_format = {
+            "rate": getattr(self.stream, "samplerate", None),
+            "channels": getattr(self.stream, "channels", None),
+            "latency_s": getattr(self.stream, "latency", None),
+        }
 
     def feed(self, pcm: bytes) -> None:
         if self.ended or len(pcm) > 48_000 or len(pcm) % 2:
@@ -240,6 +249,8 @@ class Playback:
             * 2,
             "underflows": self.underflows,
             "first_driver": self.first_driver,
+            "first_converted": self.first_converted,
+            "stream_format": dict(self.stream_format),
             "first_dac_estimate": self.first_dac,
             "last_dac_estimate": self.last_dac,
             "playback_clock": "perf_counter_mapped_from_PortAudio_callback_estimate",

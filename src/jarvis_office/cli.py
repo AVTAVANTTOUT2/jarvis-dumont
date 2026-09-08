@@ -95,6 +95,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         bench.add_argument("--" + name, type=Path, required=True)
     bench.add_argument("--repeat", type=int, default=3)
     mic = sub.add_parser("mic-check")
+    inputs = sub.add_parser("input-list", help="passive PortAudio input formats; no capture")
+    outputs = sub.add_parser("output-list", help="passive PortAudio output formats; no playback")
     corpus = sub.add_parser("corpus-init")
     corpus.add_argument("--output", type=Path, required=True)
     capture = sub.add_parser("capture")
@@ -110,7 +112,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     tts.add_argument("--output", required=True, type=Path)
     tts.add_argument("--repeat", type=int, default=1)
     tts.add_argument("--report", type=Path, help="explicit private JSON metrics destination")
-    for command in (doctor, inspect, importer, stt_importer, tts, stt, bench, mic, capture, corpus):
+    for command in (
+        doctor,
+        inspect,
+        importer,
+        stt_importer,
+        tts,
+        stt,
+        bench,
+        mic,
+        capture,
+        corpus,
+        inputs,
+        outputs,
+    ):
         command.add_argument("--json", action="store_true", help="structured redacted output")
         command.add_argument("--config", type=Path, help="explicit local TOML configuration")
     command_name = "cli"
@@ -152,7 +167,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             print(json.dumps(prepare_human_corpus(args.output)))
             return 0
-        if command_name in {"stt-test", "stt-bench", "mic-check", "capture"}:
+        if command_name in {
+            "stt-test",
+            "stt-bench",
+            "mic-check",
+            "capture",
+            "input-list",
+            "output-list",
+        }:
             from jarvis_office.speech_cli import launch
 
             launch(config, vars(args))

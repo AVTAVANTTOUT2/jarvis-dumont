@@ -17,8 +17,14 @@ import test_diagnostics
 
 from jarvis_office.assets import AssetError, import_stt, verify_bundle
 from jarvis_office.audio_input import AudioError, Normalizer, Segmenter, Silero, read_wav
-from jarvis_office.capture import CaptureQueue, capture_wav, microphone_preflight, resolve_input
-from jarvis_office.config import ConfigError, Speech, load_config
+from jarvis_office.capture import (
+    CaptureQueue,
+    capture_wav,
+    list_devices,
+    microphone_preflight,
+    resolve_input,
+)
+from jarvis_office.config import Config, ConfigError, Speech, load_config
 from jarvis_office.stt import Recognizer, accept_text, load_corpus, summarize, word_errors, words
 
 
@@ -162,6 +168,67 @@ class FileAndImportTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_device_lists_are_passive_format_queries_not_stream_availability(self):
+        class PortAudioError(Exception):
+            pass
+
+        calls = []
+
+        def check(**args):
+            calls.append(args)
+            if args["samplerate"] == 44100:
+                raise PortAudioError("private driver error must not escape")
+
+        sd = types.SimpleNamespace(
+            PortAudioError=PortAudioError,
+            query_devices=lambda: [
+                {
+                    "name": "local device",
+                    "max_input_channels": 1,
+                    "max_output_channels": 2,
+                    "default_samplerate": 48000,
+                },
+                {
+                    "name": "unavailable",
+                    "max_input_channels": 0,
+                    "max_output_channels": 0,
+                    "default_samplerate": 48000,
+                },
+            ],
+            check_input_settings=check,
+            check_output_settings=check,
+        )
+        from jarvis_office.speech_cli import run
+
+        for direction, channels in (("input", 1), ("output", 2)):
+            with patch.dict(sys.modules, sounddevice=sd):
+                result = run(Config(), {"command": direction + "-list"})
+            self.assertEqual(result["status"], "PASS")
+            self.assertEqual(len(result["devices"]), 1)
+            device = result["devices"][0]
+            self.assertEqual(device["max_channels"], channels)
+            self.assertEqual(device["stream"], "NOT_RUN")
+            self.assertEqual({f["rate"] for f in device["formats"]}, {16000, 24000, 48000})
+            self.assertNotIn("index", device)
+        self.assertTrue(calls)
+        with self.assertRaises(AudioError):
+            list_devices(sd, "invalid")
+
+    def test_device_list_fresh_import_never_loads_engines_or_network(self):
+        script = """
+import sys, types
+from jarvis_office.speech_cli import run, deny_network
+from jarvis_office.config import Config
+deny_network()
+sys.modules['sounddevice'] = types.SimpleNamespace(query_devices=lambda: [])
+for command in ('input-list', 'output-list'):
+    assert run(Config(), {'command': command})['devices'] == []
+assert not {'faster_whisper', 'ctranslate2', 'onnxruntime', 'mlx', 'httpx',
+            'jarvis_office.stt', 'jarvis_office.tts_worker'} & sys.modules.keys()
+"""
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", script], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="speech capture ")
         self.addCleanup(self.temporary.cleanup)

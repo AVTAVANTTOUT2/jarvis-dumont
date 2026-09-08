@@ -1,5 +1,10 @@
 # Composants tiers — constats des phases 01 à 05
 
+Phase 05B, 8 septembre 2026 : sortie locale sounddevice/SoXR exercée avec Qwen3
+et le profil Office existants ; aucun paquet, poids, tokenizer ou code tiers ajouté.
+Lecture technique et arrêt/reprise de sortie testés ; reconnaissance humaine du timbre
+encore en attente. Les inconnues de droits/provenance ci-dessous restent ouvertes.
+
 Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
 Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
 

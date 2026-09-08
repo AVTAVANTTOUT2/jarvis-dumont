@@ -59,7 +59,7 @@ for(const b of document.querySelectorAll('button'))b.onclick=async()=>{try{await
 async function poll(){try{const s=await api('/snapshot');
 for(const k of ['state','notice','qualification','transcription','response','playback','error'])document.getElementById(k).textContent=s[k]||'';
 
-document.getElementById('devices').textContent=JSON.stringify({micro:s.microphone,input:s.input,output:s.output});
+document.getElementById('devices').textContent=JSON.stringify({micro:s.microphone,selection:{input:s.selected_input,output:s.selected_output},verification:{input:s.input,output:s.output}});
 
 document.getElementById('metrics').textContent=JSON.stringify(s.metrics,null,2);
 document.getElementById('level').value=s.level||0;

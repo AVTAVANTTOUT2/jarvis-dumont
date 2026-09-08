@@ -59,7 +59,7 @@ queue_events = 64
 
 # Phase 05. run starts paused. No fallback or change to macOS global output.
 [voice]
-output_device = "" # Required exact unique output name; do not infer which screen is the TV.
+output_device = "" # Required exact unique local output name; no system-wide change.
 output_rate = 48000
 output_channels = 2
 port = 8768 # 127.0.0.1 only; collision is an error.

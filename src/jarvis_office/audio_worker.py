@@ -81,6 +81,7 @@ class AudioEngine:
                     segmenter = Segmenter(settings, realtime=True)
                     self.recognizer.vad.reset()
                     sequence = expected = 0
+                    energy = 0.0
                     adc_previous: float | None = None
                     origin: float | None = None
                     last_block = level_at = time.perf_counter()
@@ -99,7 +100,14 @@ class AudioEngine:
                             ),
                         )
                         self.input.start()
-                    self.emit("listening", {"device": device, "microphone": "open"})
+                        device.update(
+                            stream_rate=getattr(self.input, "samplerate", None),
+                            stream_channels=getattr(self.input, "channels", None),
+                        )
+                    self.emit(
+                        "listening",
+                        {"device": device, "microphone": "open", "opened_at": time.perf_counter()},
+                    )
                     while time.perf_counter() < deadline and not self.cancelled.is_set():
                         if channel.lost:
                             raise AudioError("capture_discontinuity")
@@ -121,6 +129,7 @@ class AudioEngine:
                             raise AudioError("capture_discontinuity")
                         sequence = block.sequence
                         expected += len(block.data)
+                        energy += float(np.sum(block.data**2, dtype=np.float64))
                         adc_previous = block.adc_time + len(block.data) / settings.input_rate
                         if sequence == 1 and block.callback_current_time is not None:
                             lag = block.callback_current_time - block.adc_time
@@ -145,6 +154,9 @@ class AudioEngine:
                                 else None
                             )
                             timing = {
+                                "speech_start_estimate": origin + utterance.speech_start / 16000
+                                if origin is not None
+                                else None,
                                 "speech_end_estimate": speech_end,
                                 "vad_finalized": utterance.finalized_wall,
                                 "vad_delay_s": (utterance.finalized - utterance.speech_end) / 16000,
@@ -152,6 +164,14 @@ class AudioEngine:
                                 if origin is not None
                                 else "UNAVAILABLE",
                                 "reconnects": attempt,
+                                "pre_roll_s": (utterance.speech_start - utterance.audio_start)
+                                / 16000,
+                                "terminal_silence_ms": settings.terminal_silence_ms,
+                                "normalized_rate": 16000,
+                                "vad_frame_samples": 512,
+                                "input_samples": expected,
+                                "callback_dropped": channel.dropped,
+                                "rms_capture": (energy / expected) ** 0.5,
                             }
                             self.emit("transcribing", {"microphone": "closed", "timing": timing})
                             with self.lock:
