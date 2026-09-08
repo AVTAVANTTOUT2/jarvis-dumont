@@ -1,6 +1,6 @@
 # État du projet
 
-**PHASE_05_MAC_AUDIO_BLOCKED** — phrase micro/STT complète non validée ; zéro tour E2E.
+**PHASE_05_MAC_AUDIO_BLOCKED** — micro/STT isolé exploitable ; deux tours E2E encore manquants.
 **STT_QUALIFICATION_PENDING**. TV : **DEFERRED — future phase**, pas un blocage.
 
 - Phase 05B : micro déjà sélectionné conservé ; haut-parleurs locaux Mac sélectionnés
@@ -17,16 +17,18 @@
   actif à cet instant. Test Qwen3 → sortie locale rejoué : 1,52 s, zéro sous-alimentation,
   stream et worker fermés. L'utilisateur confirme **AUDIO_MAC=oui, VOIX_JARVIS=oui,
   ARTEFACT=non** pour ce replay ; cela ne résout pas les droits/provenances.
-- Micro réel 05C : deux prises isolées, sans LLM ni WAV, mono 48 kHz effectifs,
-  normalisation 16 kHz, Silero puis STT CPU float32. Première prise : adresse seule,
-  contenu principal absent ; 0 perte, RMS 0,0129 (pic observé 0,0540), pré-roll 0,320 s,
-  silence terminal 0,512 s sur trames ; fin parole estimée → VAD 0,553 s,
-  attente STT 0,128 s, inférence 2,148 s. Deuxième prise : expiration sans parole détectée.
-  Pas de troisième capture sans disponibilité explicite de l'opérateur. Workers fermés.
-  Aucun nouveau réglage, modèle, correctif source ou appel DeepSeek ; compteur 1/20.
-  Prochaine action : opérateur prêt devant le micro pour une phrase complète isolée,
-  puis seulement deux tours E2E dans la même session. Ni streaming ni semi-duplex
-  matériels complets homologués par ces deux prises.
+- Micro réel 05C : après deux prises incomplètes (adresse seule puis silence), opérateur
+  prêt et troisième prise exploitable : adresse et contenu principal reconnus. Aucun LLM
+  ni WAV ; mono 48 kHz effectifs, normalisation 16 kHz, Silero puis STT CPU float32.
+  Zéro perte, RMS 0,0167 (maximum RMS observé 0,0554), pré-roll 0,320 s,
+  silence terminal 0,512 s sur trames ; fin parole estimée → VAD 0,566 s,
+  attente STT 0,133 s, inférence 2,158 s. Validation technique ponctuelle, pas homologation.
+  `run --arm --seconds 60 --turns 2` ensuite exercé : moteurs préchauffés, UI et entrée
+  réelles, mais fenêtre terminée sans tour adressé reconnu. Aucun nouvel appel DeepSeek ;
+  compteur 1/20. Le PASS de sortie du processus ne signifie pas PASS E2E.
+  Capture/workers fermés ; aucun correctif source, réglage ou modèle changé.
+  Prochaine action : coordonner les deux phrases E2E avec l'opérateur. Streaming,
+  semi-duplex et réarmement après réponse restent non vérifiés matériellement.
 - Corrections ciblées : métriques premier PCM converti, format réel du stream, RMS/pertes,
   pré-roll et réarmement observé conservé dans le rapport. UI en pause n'annonce plus
   une écoute armée ; sélection configurée distincte de la vérification matérielle.
@@ -65,8 +67,8 @@
 - Serveur local réellement exercé en pause : moteurs prêts, micro fermé ; accès tiers,
   absence de cookie et GET de contrôle refusés ; reconnexion sans appel/capture.
   Arrêt code 0. Connexion réseau explicitement refusée par macOS dans les deux runtimes.
-- Conversation micro → sortie locale Mac : **NOT_RUN**, zéro tour réel dans ce jalon.
-  Après validation de la phrase isolée : `run --arm --seconds 30 --turns 2`.
+- Conversation micro → sortie locale Mac : **NOT_VALIDATED**, zéro tour complet malgré
+  l'armement réel borné. Commande disponible : `run --arm --seconds 30 --turns 2`.
   Démarrage normal `run` en pause ; arrêt par Arrêter/Ctrl+C. Aucun enregistrement conservé.
 - Qualifications conservées : turbo provisoire, **NO_ACCEPTABLE_STT** au banc strict
   antérieur ; 50 prises/transcriptions humaines manquantes. Timbre/écoute du replay
