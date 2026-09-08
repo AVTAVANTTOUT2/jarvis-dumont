@@ -2,8 +2,9 @@
 
 import math
 import stat
+import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 MAX_CONFIG_BYTES = 65_536
@@ -275,7 +276,7 @@ def load_config(path: Path | None = None) -> Config:
                 or not lower <= value <= upper
             ):
                 raise ConfigError("invalid_voice_parameter")
-        return Config(
+        config = Config(
             Assets(**paths),
             source_present=True,
             tts=TTS(**values),
@@ -283,6 +284,16 @@ def load_config(path: Path | None = None) -> Config:
             chat=chat,
             voice=voice,
         )
+        # Installed wheels resolve their sibling environments, never development
+        # interpreters left in the shared private TOML. Assets/settings stay shared.
+        release = Path(sys.prefix).parent
+        if (release / "release.json").is_file():
+            config = replace(
+                config,
+                tts=replace(config.tts, python=release / "tts/bin/python"),
+                speech=replace(config.speech, python=release / "stt/bin/python"),
+            )
+        return config
     except PermissionError:
         raise ConfigError("configuration_permission_denied", blocked=True) from None
     except (tomllib.TOMLDecodeError, UnicodeError):

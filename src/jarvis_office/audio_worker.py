@@ -213,6 +213,18 @@ class AudioEngine:
             return {"clock": time.perf_counter()}
         if op == "abort":
             return self.abort()
+        if op == "preflight":
+            from jarvis_office.capture import microphone_preflight, resolve_input
+
+            output_preflight()
+            _, output_device = resolve_output(self.sd, self.config.voice)
+            _, input_device = resolve_input(
+                self.sd, self.config.speech.input_device, self.config.speech.input_rate
+            )
+            check = microphone_preflight()
+            if check["status"] != "PASS":
+                raise AudioError("microphone_preflight_blocked")
+            return {"input": input_device, "output": output_device, "capture": "NOT_RUN"}
         if op == "check":
             output_preflight()
             _, device = resolve_output(self.sd, self.config.voice)

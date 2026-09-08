@@ -215,6 +215,30 @@ class CredentialTests(unittest.TestCase):
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_connection_trace_retains_only_four_timestamps(self):
+        async def handler(request):
+            callback = request.extensions["trace"]
+            for name in (
+                "connection.connect_tcp.started",
+                "connection.connect_tcp.complete",
+                "connection.start_tls.started",
+                "connection.start_tls.complete",
+                "http11.send_request_headers.started",
+            ):
+                await callback(name, {"Authorization": "private_trace_secret"})
+            return httpx.Response(401)
+
+        client = DeepSeek("test_key_only", transport=httpx.MockTransport(handler))
+        try:
+            async with client.turn("Question synthétique.") as turn:
+                with self.assertRaises(ChatError):
+                    async for _ in turn:
+                        pass
+            self.assertEqual(len(turn.metrics["connection_trace"]), 4)
+            self.assertNotIn("private_trace_secret", json.dumps(turn.metrics))
+        finally:
+            await client.close()
+
     async def test_tls_verification_enabled_without_proxy_environment(self):
         client = DeepSeek(FAKE_KEY)
         self.clients.append(client)

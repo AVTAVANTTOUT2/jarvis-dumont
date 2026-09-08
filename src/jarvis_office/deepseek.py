@@ -232,6 +232,19 @@ class Turn:
         settings = self.owner.settings
         response: httpx.Response | None = None
         pending: asyncio.Future[bytes] | None = None
+        connections: dict[str, float] = {}
+
+        async def trace(name: str, info: dict[str, Any]) -> None:
+            # Never retain trace info: it can contain headers, URLs and exceptions.
+            if name in {
+                "connection.connect_tcp.started",
+                "connection.connect_tcp.complete",
+                "connection.start_tls.started",
+                "connection.start_tls.complete",
+            }:
+                connections[name] = time.perf_counter() - self.started
+
+        self.metrics["connection_trace"] = connections
         try:
             messages = self.owner._messages(self.input)
             request = self.owner.http.build_request(
@@ -250,13 +263,14 @@ class Turn:
                     "max_tokens": settings.max_tokens,
                     "stream_options": {"include_usage": True},
                 },
+                extensions={"trace": trace},
             )
             if self.owner.real_transport:
                 from jarvis_office.config import ConfigError
                 from jarvis_office.credentials import reserve_validation_request
 
                 try:
-                    self.metrics["phase05_attempt"] = await asyncio.to_thread(
+                    self.metrics["phase06_attempt"] = await asyncio.to_thread(
                         reserve_validation_request
                     )
                 except ConfigError as exc:

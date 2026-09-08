@@ -63,14 +63,14 @@ def load_key() -> str:
 
 
 def reserve_validation_request() -> int:
-    """Phase 05 hard ceiling, shared by chat/run and restarts. No text or key recorded.
+    """Phase 06 hard ceiling, shared by chat/run and restarts. Phase 05 is preserved.
 
     Reserve BEFORE HTTP, including attempts that fail or are cancelled. A crash may
     overcount; it can never silently replenish the budget. No automatic reset.
     """
     import fcntl
 
-    path = private_root() / "config/phase05-api-budget.json"
+    path = private_root() / "config/phase06-api-budget.json"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         if path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
@@ -87,10 +87,10 @@ def reserve_validation_request() -> int:
                 raise ConfigError("validation_budget_invalid")
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             raw = handle.read(4097)
-            data = json.loads(raw) if raw else {"phase": 5, "limit": 20, "attempts": 0}
+            data = json.loads(raw) if raw else {"phase": 6, "limit": 20, "attempts": 0}
             if (
                 not isinstance(data, dict)
-                or data.get("phase") != 5
+                or data.get("phase") != 6
                 or data.get("limit") != 20
                 or type(data.get("attempts")) is not int
                 or not 0 <= data["attempts"] <= 20

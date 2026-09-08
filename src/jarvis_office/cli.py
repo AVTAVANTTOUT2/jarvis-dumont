@@ -61,6 +61,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="jarvis-office", description="Jarvis Office: passive diagnostics and explicit tests"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    status_parser = sub.add_parser("status", help="passive owned-instance health; no engines")
+    status_parser.add_argument("--json", action="store_true")
+    status_parser.add_argument("--config", type=Path)
+    service = sub.add_parser("service", help="owned user LaunchAgent, always starts paused")
+    service.add_argument(
+        "action", choices=("install", "start", "stop", "restart", "status", "uninstall")
+    )
+    service.add_argument("--config", type=Path)
+    service.add_argument("--json", action="store_true")
+    release = sub.add_parser("release", help="verified local candidate lifecycle")
+    release.add_argument("action", choices=("build", "verify", "list", "activate", "rollback"))
+    release.add_argument("name", nargs="?")
+    release.add_argument("--source", type=Path, default=Path.cwd())
+    release.add_argument("--uv", type=Path)
+    release.add_argument("--config", type=Path)
+    release.add_argument("--json", action="store_true")
     voice = sub.add_parser("run", help="paused local voice controller; explicit bounded arming")
     voice.add_argument("--config", type=Path)
     voice.add_argument("--arm", action="store_true")
@@ -133,6 +149,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         command_name = args.command if args.command != "assets" else "assets " + args.action
         config = load_config(args.config)
+        if command_name in {"status", "service", "release"}:
+            from jarvis_office import release as releases
+            from jarvis_office.runtime import status
+            from jarvis_office.service import manage
+
+            if command_name == "status":
+                operation = status()
+            elif command_name == "service":
+                operation = manage(args.action)
+            elif args.action == "build":
+                if args.uv is None or not args.uv.is_file():
+                    raise ConfigError("explicit_uv_executable_required")
+                operation = releases.build(args.source, args.uv.absolute(), config)
+            elif args.action == "list":
+                operation = {
+                    "status": "PASS",
+                    "current": releases.active_name(),
+                    "releases": sorted(
+                        p.name
+                        for p in releases.releases().glob("*")
+                        if releases.NAME.fullmatch(p.name)
+                    ),
+                }
+            elif args.action == "rollback":
+                operation = releases.rollback()
+            elif args.name is None:
+                raise ConfigError("release_name_required")
+            else:
+                operation = (releases.verify if args.action == "verify" else releases.activate)(
+                    args.name
+                )
+            print(json.dumps(operation, sort_keys=True))
+            return 1 if operation["status"] == "FAIL" else 0
         if command_name == "run":
             from jarvis_office.assets import private_root
             from jarvis_office.voice import run_command

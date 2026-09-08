@@ -160,12 +160,12 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.voice.control("stop")
 
-    async def test_progressive_order_and_ten_successive_turns(self):
-        for _ in range(10):
+    async def test_progressive_order_and_hundred_successive_turns(self):
+        for _ in range(100):
             await self.voice.test_text("Jarvis, explique la suite.", no_play=False)
             self.assertEqual(self.voice.metrics["status"], "PASS")
             self.assertEqual(self.voice.metrics["confirmed_segments"], 3)
-        self.assertEqual(len(self.streams), 10)
+        self.assertEqual(len(self.streams), 100)
         self.assertTrue(all(s.closed for s in self.streams))
         self.assertLessEqual(len(self.chat.history), 4)
         self.assertEqual(self.tts.texts[:3], [t.strip() for t in self.texts])
@@ -173,8 +173,8 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
             self.voice.metrics["first_pcm_delivered"],
             self.voice.metrics["request_started"] + self.voice.metrics["llm"]["text_end_s"],
         )
-        self.assertEqual(self.audio.calls.count("begin"), 10)
-        self.assertEqual(self.audio.calls.count("drained"), 10)
+        self.assertEqual(self.audio.calls.count("begin"), 100)
+        self.assertEqual(self.audio.calls.count("drained"), 100)
 
     async def test_rearm_and_conversion_metrics_use_mapped_clocks_and_reject_stale_events(self):
         self.voice.audio_offset = 5
@@ -686,7 +686,7 @@ class OutputTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(ConfigError, "budget_exhausted"):
                     reserve_validation_request()
-                report = Path(root) / "config/phase05-api-budget.json"
+                report = Path(root) / "config/phase06-api-budget.json"
                 self.assertEqual(report.stat().st_mode & 0o777, 0o600)
             env = worker_environment(Path(root) / "cache")
             self.assertFalse(any("KEY" in k or k == "PYTHONPATH" for k in env))

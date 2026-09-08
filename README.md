@@ -1,10 +1,71 @@
 # Jarvis Office
 
-Assistant vocal personnel indépendant. Phase 05 : boucle semi-duplex locale intégrée,
-avec DeepSeek en streaming et Qwen3 isolé. Qualification STT/voix et essai micro → sortie Mac
-restent ouverts ; voir PROJECT_STATE.md. Aucun service de production installé.
+Assistant vocal personnel indépendant : Blue Snowball → Silero → faster-whisper turbo
+CPU → DeepSeek Flash streaming → Qwen3/profil privé → haut-parleurs Mac mini.
+Cinq tours matériels et le timbre ont été validés humainement en phase 05C.
+Phase 06 : candidate locale ; qualification STT, latence et droits/provenances restent
+ouverts. Voir PROJECT_STATE.md. TV et Echo Show : DEFERRED.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
+
+## Release locale et exploitation
+
+Construire depuis un commit identifié, avec les actifs Office déjà importés et les
+paquets des trois locks en cache. Aucun poids téléchargé. Le build ignore les changements
+non committés sans les modifier ; les environnements sont créés à leur emplacement final,
+jamais déplacés ni editables. Les notices des distributions restent installées.
+
+```sh
+jarvis-office release build --source "$PWD" --uv "$(command -v uv)"
+jarvis-office release list
+jarvis-office release verify 0.1.0-<sha12>
+jarvis-office release activate 0.1.0-<sha12>
+```
+
+`verify` contrôle tous les fichiers installés et les bundles privés (hashes séquentiels).
+Le manifest privé `release.json` identifie commit, locks, packages, interpréteurs, actifs
+et provenance connue. Contrat de reconstruction contrôlée, pas reproductibilité binaire.
+`current` n'est remplacé atomiquement qu'après vérification ; une instance active bloque
+l'activation. `release rollback` vérifie et réactive la candidate précédente sans suppression.
+Le Python de base installé sur le Mac reste un prérequis explicite du manifest.
+
+Depuis un répertoire neutre, utiliser l'exécutable **de la release** :
+
+```sh
+OFFICE="$HOME/Library/Application Support/JarvisOffice"
+"$OFFICE/current/main/bin/jarvis-office" doctor --json
+"$OFFICE/current/main/bin/jarvis-office" status --json
+"$OFFICE/current/main/bin/jarvis-office" run
+# http://127.0.0.1:8768 — départ en pause, Reprendre arme un essai borné.
+# Ou armement explicite :
+"$OFFICE/current/main/bin/jarvis-office" run --arm --seconds 30 --turns 2
+```
+
+Configurer les noms exacts non ambigus dans le TOML privé (`speech.input_device`,
+`voice.output_device`) ; `input-list`/`output-list` restent passifs. Les interpréteurs
+STT/TTS de la release remplacent automatiquement les anciens chemins de développement
+du TOML ; les actifs, voix et paramètres ne changent pas. La clé reste exclusivement
+dans `config/deepseek.env` (0600), jamais dans le plist. Le budget phase 06 est distinct :
+20 tentatives au maximum, sans reset automatique ; le compteur phase 05 reste conservé.
+
+```sh
+"$OFFICE/current/main/bin/jarvis-office" service install
+"$OFFICE/current/main/bin/jarvis-office" service start
+"$OFFICE/current/main/bin/jarvis-office" service status
+"$OFFICE/current/main/bin/jarvis-office" service stop
+```
+
+LaunchAgent utilisateur `com.jarvisoffice.voice`, aucun auto-arm ni boucle de redémarrage.
+`restart` réalise stop/start ; `uninstall` retire uniquement le plist, pas les données.
+L'installation ne démarre pas le service. Le statut distingue vivant, workers/périphériques
+prêts, configuration conversationnelle prête et écoute réelle ; aucune conversation payante
+de santé. Une restriction macOS reste une erreur explicite, jamais un contournement TCC.
+Arrêter par l'UI, Ctrl+C ou `service stop` ; verrou noyau unique avant moteurs/capture.
+Logs JSON sans paroles ni réponses, rotation 1 Mo × 4 fichiers sous Logs/JarvisOffice.
+
+Limites : semi-duplex, aucun barge-in, adresse « Jarvis » vérifiée **après STT local**,
+pas de wake word acoustique ni identification du locuteur. Le texte adressé et quelques
+tours RAM vont à DeepSeek ; aucun audio/profil, aucune mémoire persistante ou outil d'action.
 
 ## Installation et vérification
 

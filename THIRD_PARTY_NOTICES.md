@@ -1,4 +1,15 @@
-# Composants tiers — constats des phases 01 à 05
+# Composants tiers — constats des phases 01 à 06
+
+Phase 06 : installation locale candidate des distributions figées par les trois locks,
+sans nouveau composant, moteur, poids ou code V1. Contrairement au wheel Office seul,
+le répertoire de release contient les environnements et leurs binaires/notices ; les
+actifs Office restent partagés hors release. Les tableaux « Runtime TTS », « Runtime STT »
+et « Extra HTTP » ci-dessous décrivent ces composants requis/installés. L'ancien inventaire
+V1 est historique, pas une liste de distribution. PyAudio, Torch et le serveur V1 ne sont
+pas requis par la release. Le manifest privé enregistre les versions/licences effectivement
+réinstallées et les empreintes de leurs fichiers, sans transformer UNKNOWN en autorisation.
+Les obligations des codecs PyAV, versions natives embarquées, sentencepiece, notices
+transitives et droits du profil vocal restent ouvertes ; aucune redistribution publique.
 
 Phases 05B/05C, 8 septembre 2026 : sortie locale sounddevice/SoXR exercée avec Qwen3
 et le profil Office existants ; aucun paquet, poids, tokenizer ou code tiers ajouté.

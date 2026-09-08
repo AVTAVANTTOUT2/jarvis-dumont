@@ -1,5 +1,26 @@
 # État du projet
 
+## Phase 06 — en cours
+
+- Base `d95e0a8` (merge #6, même arbre que `dfbda8b`), branche `codex/06-release`.
+  Main/03 ne contiennent pas la clôture 05C ; PR prévue vers `codex/05-voice-loop`.
+- RCA des 5 tours : médiane logicielle 4,361 s, min 4,085, max/p95 exploratoire 4,420.
+  Contributions moyennes par tour : STT 51,1 %, VAD 12,8 %, DeepSeek 17,9 %,
+  segmentation 4,5 %, TTS 8,9 %, sortie 1,1 % ; reliquat files/dispatch 3,7 %.
+  LATENCY_TARGET_NOT_MET. Aucun seuil/actif/paramètre vocal modifié sur intuition.
+- Nouveau banc technique : 5 fixtures synthétiques/silence/bruit × 3 × 2 candidats,
+  aucun appel réseau. Small plus rapide mais WER 8–9 %, turbo 0–3,74 % ; erreurs
+  critiques de holdout présentes. Turbo CPU float32/beam 1 conservé provisoirement.
+  Corpus humain : manifeste seul, zéro prise disponible ; benchmark humain 20 phrases
+  et qualification formelle restent BLOCKED_USER, NO_ACCEPTABLE_STT conservé.
+- Durcissement : verrou noyau unique, état de santé distinct, logs metadata-only bornés,
+  trace connexion HTTP sans contenu, budget 06 distinct 20 (historique 05 = 6 conservé).
+  Release/service en préparation et non encore validés. Aucun armement automatique.
+- Campagne 100 replays/30 minutes en cours : VAD/STT et Qwen réels, LLM/sortie simulés,
+  micro fermé. Ce n'est ni une session micro ni 100 appels cloud.
+
+## Preuve matérielle conservée — phase 05C
+
 **PHASE_05_MAC_AUDIO_VALIDATED** — cinq tours réels sur le Mac, écoute confirmée humainement.
 **STT_QUALIFICATION_PENDING**. TV : **DEFERRED — future phase**, pas un blocage.
 

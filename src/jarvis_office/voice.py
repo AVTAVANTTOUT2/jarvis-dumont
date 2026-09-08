@@ -13,6 +13,7 @@ from typing import Any
 from jarvis_office.audio_client import AudioClient, LoopError, source_signature
 from jarvis_office.config import Config
 from jarvis_office.deepseek import ChatError, DeepSeek
+from jarvis_office.runtime import Instance, RuntimeLog
 from jarvis_office.tts import TTSClient, TTSError
 
 
@@ -64,7 +65,9 @@ class VoiceLoop:
             "engines_ready": self.ready,
             "output_verified": bool(self.output_device),
             "ready": self.ready and bool(self.output_device) and self.error is None,
-            "qualification": "PROVISIONAL — NO_ACCEPTABLE_STT; voix/écoute non homologuées",
+            "conversation_ready": self.ready and not self.chat.closed and self.error is None,
+            "remote_health": "NOT_RUN — no paid health poll",
+            "qualification": "STT_QUALIFICATION_PENDING — NO_ACCEPTABLE_STT",
             "microphone": self.microphone,
             "level": self.level,
             "input": self.input_device,
@@ -496,6 +499,37 @@ class VoiceLoop:
 async def run_command(
     config: Config, path: Path, *, text: str | None, no_play: bool, arm: bool, report: Path | None
 ) -> int:
+    instance = Instance()  # Before credentials, port, workers or capture.
+    log: RuntimeLog | None = None
+    try:
+        log = RuntimeLog()
+        return await _run_owned(
+            config,
+            path,
+            text=text,
+            no_play=no_play,
+            arm=arm,
+            report=report,
+            instance=instance,
+            log=log,
+        )
+    finally:
+        if log is not None:
+            log.close()
+        instance.close()
+
+
+async def _run_owned(
+    config: Config,
+    path: Path,
+    *,
+    text: str | None,
+    no_play: bool,
+    arm: bool,
+    report: Path | None,
+    instance: Instance,
+    log: RuntimeLog,
+) -> int:
     from jarvis_office.assets import atomic_json, private_root
     from jarvis_office.config import ConfigError
     from jarvis_office.credentials import load_key
@@ -511,6 +545,7 @@ async def run_command(
         raise ConfigError("voice_report_requires_new_private_path")
     chat = DeepSeek(load_key(), config.chat)
     voice = VoiceLoop(config, path, chat)
+    instance.publish(voice.session, config.voice.port)
     ui = LocalUI(voice, config.voice.port)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -531,6 +566,9 @@ async def run_command(
                 code = 130
                 return 130
             await boot
+            devices = await voice.audio.call("preflight", timeout=25)
+            voice.input_device = devices.get("input", {})
+            voice.output_device = devices.get("output", {})
         finally:
             stopping.cancel()
             await asyncio.gather(stopping, return_exceptions=True)
@@ -555,6 +593,9 @@ async def run_command(
                 )
                 await voice.control("resume")
             while not stop.is_set() and not voice.closed:
+                if instance.record["session"] != voice.session:
+                    instance.publish(voice.session, config.voice.port)
+                log.update(voice.snapshot())
                 if arm and voice.task is not None and voice.task.done():
                     break
                 await asyncio.sleep(0.1)
@@ -570,6 +611,7 @@ async def run_command(
         tts_runtime = dict(voice.tts.ready)
         await voice.control("stop")
         await ui.close()
+        log.update(voice.snapshot())
         if not voice.shutdown_verified:
             code = 1
         if report is not None:
@@ -577,7 +619,7 @@ async def run_command(
                 atomic_json,
                 report,
                 {
-                    "phase": 5,
+                    "phase": 6,
                     "status": "PASS" if code == 0 else "FAIL",
                     "error": voice.error,
                     "conditions": "explicit_synthetic_text"

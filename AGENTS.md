@@ -1,7 +1,8 @@
 # Jarvis Office — règles durables
 
 - Périmètre minimal : une conversation, un tour actif, semi-duplex. Un STT, un TTS local, un LLM distant ; Silero détecte la parole. Aucun orchestrateur au produit.
-- Phase 05B : validation matérielle locale Mac des composants existants, sans phase 06. TV : DEFERRED — future phase. Au plus cinq requêtes courtes pour ce jalon, dans le budget phase 05 partagé de 20, jamais réinitialisé. Sortie isolée et confirmation humaine avant capture ; essais explicitement armés et bornés. Diagnostics passifs, aucun nouveau poids ni changement de sortie globale.
+- Phase 06 : profiling avant optimisation, stabilité et release locale Mac. Budget distinct de 20 nouvelles tentatives DeepSeek maximum, compteur phase 05 conservé. TV/Echo Show : DEFERRED. Essais micro explicitement armés et bornés, aucun nouveau poids ni changement de sortie globale. STT_QUALIFICATION_PENDING et les inconnues de provenance restent ouverts sans preuve.
+- Release : wheel non editable, environnements créés à leur emplacement final, actifs Office partagés et vérifiés. Activation atomique après vérification, aucune suppression automatique. LaunchAgent utilisateur distinct démarrant en pause ; verrou d'instance avant moteurs/capture et arrêt limité aux enfants Office. Aucun runtime depuis le checkout.
 - V1 strictement en lecture seule : aucun import de ses modules, script, modification d'environnement, Git, service, permissions ou périphérique. Ne jamais sourcer ses fichiers .env.
 - Secrets, voix, transcripts, poids, inventaires et chemins personnels hors Git. Ne jamais afficher les valeurs de configuration ou les exceptions brutes dans les diagnostics.
 - Aucun téléchargement au runtime, routeur multimodèle ou repli silencieux. Pas de RAG, MCP produit, mémoire persistante, base de données, Android ou infrastructure supplémentaire.
