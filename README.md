@@ -365,8 +365,11 @@ Les horloges ADC/application sont rapprochées explicitement ; si indisponibles,
 latence depuis la parole. Le délai VAD fait partie du temps ressenti. PCM produit par
 MLX (relatif à sa synthèse), premier PCM livré, remise au pilote et échéance DAC estimée
 ne sont pas un son acoustiquement vérifié. Les objectifs p50 ≤2,5 s/p95 ≤4 s ne sont pas
-revendiqués : aucun tour micro → sortie locale Mac validé pour l'instant. Dix tours avec doubles ne
-sont pas dix conversations matérielles. L'identité vocale reste une validation humaine.
+revendiqués : cinq tours matériels 05C donnent 4,085–4,420 s entre fin de parole estimée
+et première écriture pilote, sans calibration acoustique ni statistique solide sur ce petit N.
+Le jalon audio Mac est validé avec confirmation humaine de l'écoute et du timbre ;
+l'homologation générale STT reste **NO_ACCEPTABLE_STT / STT_QUALIFICATION_PENDING**.
+Dix tours avec doubles ne sont pas dix conversations matérielles. La phase 06 n'est pas ouverte.
 
 Budget phase 05 : **20 tentatives réelles maximum**, commun à `chat`, `run` et aux
 relances, réservé avant HTTP dans `config/phase05-api-budget.json` privé (0600).

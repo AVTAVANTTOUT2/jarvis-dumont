@@ -1,9 +1,10 @@
 # Composants tiers — constats des phases 01 à 05
 
-Phase 05B, 8 septembre 2026 : sortie locale sounddevice/SoXR exercée avec Qwen3
+Phases 05B/05C, 8 septembre 2026 : sortie locale sounddevice/SoXR exercée avec Qwen3
 et le profil Office existants ; aucun paquet, poids, tokenizer ou code tiers ajouté.
-Lecture technique et arrêt/reprise de sortie testés ; reconnaissance humaine du timbre
-encore en attente. Les inconnues de droits/provenance ci-dessous restent ouvertes.
+Lecture technique et arrêt/reprise de sortie testés ; écoute et timbre reconnus humainement,
+puis cinq tours micro → sortie Mac réussis. Cela ne prouve aucun consentement ni droit vocal.
+Les inconnues de droits/provenance ci-dessous restent ouvertes.
 
 Vérifié le 7 septembre 2026. Aucun octroi automatique de licence publique au code original.
 Le dépôt privé ne dispense d'aucune obligation tierce. Aucun extrait de la V1 n'est repris.
@@ -40,7 +41,7 @@ les snapshots STT locaux. Une annonce MIT n'établit pas toute la provenance de 
 | faster-whisper-small et tokenizer `536b0662742c02347bc0e980a01041f333bce120` | MIT annoncée dans la [fiche figée](https://huggingface.co/Systran/faster-whisper-small/blob/536b0662742c02347bc0e980a01041f333bce120/README.md). | Copie CTranslate2 complète, benchmark seulement ; amont exact de conversion inconnu. |
 | faster-whisper-large-v3-turbo et tokenizer `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` | MIT annoncée dans la [fiche figée](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/blob/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/README.md). | Copie CTranslate2 complète ; seul actif STT sélectionné, provisoire/non homologué. Amont exact de conversion inconnu. |
 | Silero VAD 6.2.1, ONNX SHA-256 `1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3` | MIT, LICENSE local conservé dans chaque copie ; [source versionnée](https://github.com/snakers4/silero-vad/tree/v6.2.1). | Inférence ONNX CPU, interface Office écrite pour cet ABI ; paquet Torch/Silero non installé dans Office. |
-| Profil vocal local (WAV, transcript, métadonnées) | Droits et consentement **non vérifiés**, distincts de la licence Qwen. La métadonnée déclare un usage local fourni par le propriétaire ; ce n'est pas une preuve indépendante. | Copie et synthèses privées demandées par l'utilisateur ; aucune diffusion, écoute humaine non effectuée. |
+| Profil vocal local (WAV, transcript, métadonnées) | Droits et consentement **non vérifiés**, distincts de la licence Qwen. La métadonnée déclare un usage local fourni par le propriétaire ; ce n'est pas une preuve indépendante. | Copie et synthèses privées demandées par l'utilisateur ; aucune diffusion. Écoute et timbre confirmés humainement en phase 05C, sans résoudre les droits. |
 
 ## Environnements audio existants — inventaire de phase 01
 

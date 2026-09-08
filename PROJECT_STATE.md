@@ -1,6 +1,6 @@
 # État du projet
 
-**PHASE_05_MAC_AUDIO_BLOCKED** — micro/STT isolé exploitable ; deux tours E2E encore manquants.
+**PHASE_05_MAC_AUDIO_VALIDATED** — cinq tours réels sur le Mac, écoute confirmée humainement.
 **STT_QUALIFICATION_PENDING**. TV : **DEFERRED — future phase**, pas un blocage.
 
 - Phase 05B : micro déjà sélectionné conservé ; haut-parleurs locaux Mac sélectionnés
@@ -23,12 +23,25 @@
   Zéro perte, RMS 0,0167 (maximum RMS observé 0,0554), pré-roll 0,320 s,
   silence terminal 0,512 s sur trames ; fin parole estimée → VAD 0,566 s,
   attente STT 0,133 s, inférence 2,158 s. Validation technique ponctuelle, pas homologation.
-  `run --arm --seconds 60 --turns 2` ensuite exercé : moteurs préchauffés, UI et entrée
-  réelles, mais fenêtre terminée sans tour adressé reconnu. Aucun nouvel appel DeepSeek ;
-  compteur 1/20. Le PASS de sortie du processus ne signifie pas PASS E2E.
-  Capture/workers fermés ; aucun correctif source, réglage ou modèle changé.
-  Prochaine action : coordonner les deux phrases E2E avec l'opérateur. Streaming,
-  semi-duplex et réarmement après réponse restent non vérifiés matériellement.
+  Une première fenêtre de `run` était restée sans tour reconnu malgré une parole signalée ;
+  cause non établie, aucun correctif ni changement de seuil/modèle pour forcer le résultat.
+- Clôture 05C : armement local par l'utilisateur, **5 tours PASS dans une même session**,
+  dont deux consécutifs sans redémarrage. Micro réel → Silero/STT → Flash streaming →
+  Qwen3/profil Office → haut-parleurs locaux ; réponses entendues et fonctionnement
+  confirmé par l'utilisateur. Aucun texte des cinq échanges naturels conservé/reconstitué.
+  Zéro perte capture, sous-alimentation sortie, erreur, reprise TTS ou retry signalé.
+  Toutes les réponses sont confirmées intégralement selon l'échéance DAC estimée ;
+  l'écoute humaine est une preuve distincte. Aucun auto-écho signalé ; les débuts de parole
+  des tours acceptés suivent la fin de lecture précédente. Réarmement éligible après
+  0,351 s environ ; réouvertures automatiques observées après 0,783–0,812 s.
+  Les intervalles avec reprise manuelle ne sont pas une latence de réarmement automatique.
+  Deux réponses commencent le TTS avant la fin DeepSeek (avance 0,066/0,103 s).
+  Fin parole estimée → première écriture pilote, tours 1–5 : **4,361 / 4,085 / 4,420 /
+  4,283 / 4,405 s**. Objectifs non atteints sur ce petit N, aucun p50/p95 solide revendiqué.
+  STT 2,165–2,223 s ; PCM livré → pilote 0,047–0,048 s. PCM produit MLX relatif à sa
+  synthèse, pas un timestamp acoustique ; tableau complet dans le rapport JSON privé.
+  Budget : **5 nouvelles requêtes, 6/20 cumulées**. Aucun essai réseau supplémentaire.
+  Capture, contrôleur, workers et port local fermés après la confirmation humaine.
 - Corrections ciblées : métriques premier PCM converti, format réel du stream, RMS/pertes,
   pré-roll et réarmement observé conservé dans le rapport. UI en pause n'annonce plus
   une écoute armée ; sélection configurée distincte de la vérification matérielle.
@@ -50,7 +63,8 @@
 - Tests simulés du checkpoint 05B : **90 tests réussis**, dont dix tours successifs, erreurs/reprise,
   annulation/file pleine, enfant bloqué tué/récolté, trames, reset et protections UI.
   Rejoués en 05C : **90/90** sous interdiction réseau macOS ; Ruff/format et mypy passent.
-  Aucun correctif source en 05C ; build/installation propre restent les preuves de 05B.
+  Clôture 05C : build wheel/sdist et installation propre à nouveau réussis hors réseau,
+  dépendances installées avec hashes, 90 tests depuis le wheel et import sans moteur.
   Suite exécutée sous interdiction réseau macOS dans le checkout et depuis un wheel
   neuf installé avec hashes, entièrement hors ligne cette fois, chemin avec espaces.
   Imports inertes sans extras ; 28 entrées wheel dont control.html, aucun actif privé.
@@ -59,29 +73,29 @@
   synthétique/deux phrases). Silence/bruit non transcrits ; 0 erreur sur 37 mots
   synthétiques, N insuffisant pour homologation. Inférences parole 2,328 s et 5,173 s.
   Qwen3/profil Office : deux segments, 8,96 s PCM, RTF 0,573/0,565, aucune lecture.
-- API réelle : **1 tentative sur 20**, HTTP 200, Flash sans réflexion, 256 tokens maximum,
-  44 tokens produits. Premier contenu 0,915 s ; segment 1,350 s ; PCM livré depuis la
-  requête 1,915 s. Aucune latence micro → sortie locale ni percentile matériel revendiqué.
+- API réelle : **6 tentatives sur 20**, dont cinq tours matériels 05C ; HTTP 200,
+  deepseek-v4-flash sans réflexion, streaming, 256 tokens maximum, aucune cascade.
   Test supplémentaire Qwen réel/LLM simulé lent : PCM à 0,524 s, texte terminé à 3,106 s ;
   progression avant fin prouvée sans requête API supplémentaire.
 - Serveur local réellement exercé en pause : moteurs prêts, micro fermé ; accès tiers,
   absence de cookie et GET de contrôle refusés ; reconnexion sans appel/capture.
   Arrêt code 0. Connexion réseau explicitement refusée par macOS dans les deux runtimes.
-- Conversation micro → sortie locale Mac : **NOT_VALIDATED**, zéro tour complet malgré
-  l'armement réel borné. Commande disponible : `run --arm --seconds 30 --turns 2`.
+- Conversation micro → sortie locale Mac : **PASS sur les cinq essais 05C**, pas une
+  qualification générale. Commande disponible : `run --arm --seconds 30 --turns 2`.
   Démarrage normal `run` en pause ; arrêt par Arrêter/Ctrl+C. Aucun enregistrement conservé.
 - Qualifications conservées : turbo provisoire, **NO_ACCEPTABLE_STT** au banc strict
   antérieur ; 50 prises/transcriptions humaines manquantes. Timbre/écoute du replay
-  confirmés humainement, qualification E2E et droits vocaux toujours ouverts ; inconnues
+  confirmés humainement, jalon E2E Mac validé mais droits vocaux toujours ouverts ; inconnues
   binaires/provenance conservées dans les notices.
   Lectures V1 historiquement refusées non contournées ; segmenteur autonome réutilisé.
 - V1 : Git et quatre lanceurs ciblés sans différence avant/après (2 dirty/20 non suivis
   préexistants, lanceurs non chargés). Contrôle limité, pas d'audit global ou affirmation
   d'immuabilité exhaustive ; aucun service/modèle/réglage V1 modifié par Office.
 - Git : `codex/05-voice-loop` depuis `3c2e333`, qui contient `7481ee4`.
-  Phase 05B sur `codex/05b-mac-audio-validation` depuis `7117d39` ; code exécuté `3f660bd`,
+  Phase 05B sur `codex/05b-mac-audio-validation` depuis `7117d39` ; exécution 05C `68371a8`
+  (sources inchangées depuis `3f660bd`),
   [PR #6](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/6) vers `codex/05-voice-loop`.
-  Clôture 05C partielle : documentation/preuves seulement, aucune fusion.
+  Clôture 05C : documentation/preuves seulement, aucune correction source ni fusion.
   PR #2/#3/#4 déjà fusionnées dans leurs bases respectives ; main ne contient pas la
   phase 04. PR de cette phase vers `codex/03-stt`, sans réécrire/fusionner les précédentes.
   Checkpoint code `f4afda1` poussé ; [PR #5](https://github.com/AVTAVANTTOUT2/jarvis-office/pull/5)
