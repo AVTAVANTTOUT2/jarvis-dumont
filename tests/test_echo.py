@@ -153,6 +153,7 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
                 "uplink_channels": 1,
                 "downlink_rate": 48000,
                 "downlink_channels": 1,
+                "playback_prefill": True,
             },
         )
         welcome = await self.receive("welcome")
@@ -173,6 +174,7 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.gateway.sessions, {})
 
     async def test_synthetic_duplex_heartbeat_clear_reconnect_and_no_replay(self):
+        self.gateway.settings = replace(self.gateway.settings, playback_prefill_ms=120)
         await self.handshake()
         original = self.session
         now = time.monotonic_ns()
@@ -192,13 +194,14 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         s.context.add("synthetic only")
         await self.send("clear_context")
         self.assertEqual((await self.receive("context_state"))["payload"]["count"], 0)
-        await self.send("test_tone")
+        await self.send("test_tone", {"duration_ms": 440})
         speaking = (await self.receive("speaking_started"))["payload"]
+        self.assertEqual(speaking["prefill_ms"], 120)
         down_stream = speaking["stream_id"]
         await self.send("playback_ready", {"stream_id": down_stream})
         frames = []
         async with asyncio.timeout(3):
-            for n in range(20):
+            for n in range(22):
                 frame = Packet.decode(await self.audio.recv())
                 self.assertEqual(frame.stream, down_stream)
                 self.assertEqual(frame.sequence, n)
@@ -207,6 +210,7 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         await self.receive("audio_end")
         await self.send("playback_drained", {"stream_id": down_stream})
         await self.receive("speaking_finished")
+        self.assertEqual(s.metrics["playback_completed_streams"], 1)
         await self.control.close()
         async with asyncio.timeout(2):
             await self.audio.wait_closed()
@@ -243,6 +247,19 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         )
         await self.send("hello", {"supported_protocol_versions": [99]})
         self.assertEqual((await self.receive("error"))["payload"]["code"], "PROTOCOL_INCOMPATIBLE")
+
+    async def test_prefill_requires_explicit_client_capability(self):
+        self.gateway.settings = replace(self.gateway.settings, playback_prefill_ms=100)
+        self.control = await connect(
+            self.url + "/control", additional_headers=self.headers, proxy=None
+        )
+        await self.send("hello", {"supported_protocol_versions": [1]})
+        self.assertEqual((await self.receive("error"))["payload"]["code"], "PROTOCOL_INCOMPATIBLE")
+
+    async def test_tone_duration_is_bounded(self):
+        await self.handshake()
+        await self.send("test_tone", {"duration_ms": 30020})
+        self.assertEqual((await self.receive("error"))["payload"]["code"], "INVALID_TEST_DURATION")
 
     async def test_uplink_deadline_overrun_fails_session(self):
         await self.handshake()

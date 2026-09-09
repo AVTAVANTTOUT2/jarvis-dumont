@@ -46,6 +46,7 @@ class Settings:
     context_chars: int = 20000
     context_utterances: int = 100
     max_audio_ms: int = 200
+    playback_prefill_ms: int = 20
 
     def validate(self) -> None:
         address = ipaddress.ip_address(self.bind)
@@ -61,6 +62,8 @@ class Settings:
             raise ValueError("TLS_CERTIFICATE_REQUIRED")
         if not self.devices or len(self.devices) > 8 or not 40 <= self.max_audio_ms <= 200:
             raise ValueError("INVALID_ECHO_LIMITS")
+        if self.playback_prefill_ms not in (20, 40, 60, 80, 100, 120, 140):
+            raise ValueError("INVALID_PLAYBACK_PREFILL")
         for device, secret in self.devices.items():
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", device) or not re.fullmatch(
                 r"[A-Za-z0-9_-]{43,128}", secret
@@ -262,6 +265,8 @@ class EchoGateway:
             p = hello["payload"]
             if hello["type"] != "hello" or VERSION not in p.get("supported_protocol_versions", []):
                 raise ValueError("PROTOCOL_INCOMPATIBLE")
+            if self.settings.playback_prefill_ms != 20 and p.get("playback_prefill") is not True:
+                raise ValueError("PROTOCOL_INCOMPATIBLE")
             session.rate, session.channels = p.get("uplink_rate"), p.get("uplink_channels")
             session.down_rate, session.down_channels = (
                 p.get("downlink_rate"),
@@ -394,12 +399,15 @@ class EchoGateway:
             s.first_capture = s.first_receive = 0
             await s.send("audio_probe", {"stream_id": s.up_stream, "rate": s.rate})
         elif kind == "test_tone":
+            duration = p.get("duration_ms", 400)
+            if type(duration) is not int or not 400 <= duration <= 30000 or duration % 20:
+                raise ValueError("INVALID_TEST_DURATION")
             if not self.settings.test_audio:
                 await s.send("error", {"code": "TEST_AUDIO_DISABLED"})
             elif self.owner not in (None, s.id) or (s.turn_task and not s.turn_task.done()):
                 await s.send("error", {"code": "TURN_BUSY"})
             else:
-                s.turn_task = asyncio.create_task(self.tone(s))
+                s.turn_task = asyncio.create_task(self.tone(s, duration_ms=duration))
         elif kind == "audio_stop":
             await self.stop_audio(s)
             await s.send("state", s.snapshot())
@@ -507,7 +515,13 @@ class EchoGateway:
         if notify:
             await s.send("stop_audio", {})
 
-    async def tone(self, s: Session) -> None:
+    async def tone(
+        self, s: Session, *, duration_ms: int = 400, replay_pcm: bytes | bytearray | None = None
+    ) -> None:
+        frame_bytes = s.down_rate * s.down_channels * 2 // 50
+        frames = len(replay_pcm) // frame_bytes if replay_pcm is not None else duration_ms // 20
+        if not 1 <= frames <= 1500 or (replay_pcm is not None and len(replay_pcm) % frame_bytes):
+            raise ValueError("INVALID_TEST_PCM")
         try:
             await self.stop_audio(s)
             if not s.audio or not s.alive:
@@ -524,25 +538,29 @@ class EchoGateway:
                     "turn_id": s.current_turn,
                     "rate": s.down_rate,
                     "channels": s.down_channels,
+                    "prefill_ms": self.settings.playback_prefill_ms,
                 },
             )
             async with asyncio.timeout(3):
                 await s.playback_ready.wait()
             start = time.monotonic()
             count = s.down_rate // 50
-            for sequence in range(20):
+            for sequence in range(frames):
                 await asyncio.sleep(max(0, start + sequence * 0.02 - time.monotonic()))
                 if not s.alive or s.id != session_id or s.down_stream != stream:
                     return
-                # 440 Hz, -30 dBFS, 400 ms including 10 ms ramps; never changes device volume.
-                values = []
-                for i in range(count):
-                    t = (sequence * count + i) / s.down_rate
-                    gain = min(1.0, t / 0.01, max(0, (0.4 - t) / 0.01))
-                    values.extend(
-                        [int(1000 * gain * math.sin(2 * math.pi * 440 * t))] * s.down_channels
-                    )
-                pcm = struct.pack(f"<{len(values)}h", *values)
+                if replay_pcm is not None:
+                    pcm = bytes(replay_pcm[sequence * frame_bytes : (sequence + 1) * frame_bytes])
+                else:
+                    # Quiet continuous 440 Hz, with 10 ms ramps; no global volume change.
+                    values = []
+                    for i in range(count):
+                        t = (sequence * count + i) / s.down_rate
+                        gain = min(1.0, t / 0.01, max(0, (frames * 0.02 - t) / 0.01))
+                        values.extend(
+                            [int(1000 * gain * math.sin(2 * math.pi * 440 * t))] * s.down_channels
+                        )
+                    pcm = struct.pack(f"<{len(values)}h", *values)
                 m3 = time.monotonic_ns()
                 m4 = time.monotonic_ns()
                 packet = Packet(stream, sequence, m3, m4, s.down_rate, s.down_channels, pcm)
@@ -552,9 +570,12 @@ class EchoGateway:
                 s.observe("m3_m4_ms", s.metrics["m3_m4_ms"])
                 s.observe("m4_send_complete_ms", (time.monotonic_ns() - m4) / 1e6)
                 s.metrics["downlink_frames"] = sequence + 1
-            await s.send("audio_end", {"stream_id": stream, "last_sequence": 19})
+            await s.send("audio_end", {"stream_id": stream, "last_sequence": frames - 1})
             async with asyncio.timeout(3):
                 await s.playback_drained.wait()
+            s.metrics["playback_completed_streams"] = (
+                s.metrics.get("playback_completed_streams", 0) + 1
+            )
             s.speaking_until = time.monotonic() + 0.2
             await s.send("speaking_finished", {"stream_id": stream})
         except (ConnectionClosed, TimeoutError):

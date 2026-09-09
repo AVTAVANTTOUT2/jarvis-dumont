@@ -14,6 +14,68 @@ from jarvis_office.echo.gateway import EchoGateway, Session, Settings
 from jarvis_office.echo.protocol import Packet
 
 
+def classify_playback(trace: list[dict]) -> dict:
+    """Classify observed counter increments, never equate the total with audible glitches."""
+    phases = {row["phase"]: row for row in trace if row["phase"] != "U2"}
+    frames = [row for row in trace if row["phase"] == "U2"]
+    required = {"U0", "U1", "U5", "U6_AFTER_PAUSE_FLUSH", "END_DECLARED"}
+    if not required <= phases.keys():
+        return {"complete": False}
+    last = next(
+        (row for row in frames if row["sequence"] == phases["END_DECLARED"]["last_sequence"]), None
+    )
+    if last is None:
+        return {"complete": False}
+    if [row["sequence"] for row in frames] != list(range(last["sequence"] + 1)):
+        return {"complete": False}
+    counts = {key: phases[key]["underruns"] for key in ("U0", "U1", "U5")}
+    counts.update(
+        U3=last["underruns_before"],
+        U4=last["underruns"],
+        U6=phases["U6_AFTER_PAUSE_FLUSH"]["underruns"],
+    )
+    if any(counts[key] < 0 for key in counts) or not (
+        counts["U0"] <= counts["U1"] <= counts["U3"] <= counts["U4"] <= counts["U5"] <= counts["U6"]
+    ):
+        return {"complete": False, "counts": counts}
+    return {
+        "complete": True,
+        "counts": counts,
+        "frames": len(frames),
+        "during_data": counts["U4"] - counts["U1"],
+        "after_last_write": counts["U5"] - counts["U4"],
+        "teardown": counts["U6"] - counts["U5"],
+        "queue_max": max(row["queue_depth"] for row in frames),
+        "u6_operation": "pause_flush_before_release",
+        "audible_artifact": "HUMAN_REQUIRED",
+    }
+
+
+async def replay_ram(raw: bytearray, in_rate: int, out_rate: int, send) -> int:
+    """Diagnostic only: bounded capture and converted PCM are wiped even if playback fails."""
+    import numpy as np
+    import soxr
+
+    capture = np.frombuffer(raw, dtype="<i2").copy()
+    raw[:] = b"\0" * len(raw)
+    raw.clear()
+    converted = None
+    pcm = bytearray()
+    try:
+        converted = soxr.resample(capture, in_rate, out_rate)
+        pcm.extend(converted.astype("<i2", copy=False).tobytes())
+        capture.fill(0)
+        converted.fill(0)
+        await send(pcm)
+        return len(pcm)
+    finally:
+        capture.fill(0)
+        if converted is not None:
+            converted.fill(0)
+        pcm[:] = b"\0" * len(pcm)
+        pcm.clear()
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", required=True)
@@ -21,15 +83,33 @@ async def main() -> None:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument(
         "--phase",
-        choices=["profile", "transport", "tone", "capture", "passive", "outage", "recreate"],
+        choices=[
+            "profile",
+            "transport",
+            "tone",
+            "continuous",
+            "matrix",
+            "capture",
+            "micro_replay",
+            "passive",
+            "outage",
+            "recreate",
+        ],
         required=True,
     )
     parser.add_argument("--rate", type=int, choices=[16000, 48000], default=16000)
     parser.add_argument("--source", type=int, choices=[1, 7], default=7)
-    parser.add_argument("--seconds", type=int, default=6)
+    parser.add_argument("--seconds", type=int, choices=range(1, 31), default=6)
+    parser.add_argument(
+        "--prefill-ms", type=int, choices=[20, 40, 60, 80, 100, 120, 140], default=20
+    )
     parser.add_argument("--capture-file", type=Path)
     args = parser.parse_args()
-    settings = replace(Settings.load(args.config), test_audio=True)
+    if args.phase == "micro_replay" and (args.capture_file or args.seconds > 8):
+        parser.error("micro_replay is RAM-only and limited to eight seconds")
+    settings = replace(
+        Settings.load(args.config), test_audio=True, playback_prefill_ms=args.prefill_ms
+    )
     device_id, secret = next(iter(settings.devices.items()))
 
     async def adb(*command: str, data: bytes | None = None) -> bytes:
@@ -64,21 +144,42 @@ async def main() -> None:
     energy = 0
     samples = 0
     peak = 0
+    clipping = 0
+    silent_frames = 0
+    frame_count = 0
     sample_rates: set[int] = set()
 
     def frame_received(session: Session, frame: Packet, received_ns: int) -> None:
-        nonlocal energy, samples, peak
+        nonlocal energy, samples, peak, clipping, silent_frames, frame_count
         if frame.flags:
             return
         sample_rates.add(frame.rate)
         values = struct.unpack(f"<{len(frame.pcm) // 2}h", frame.pcm)
-        energy += sum(v * v for v in values)
+        frame_energy = sum(v * v for v in values)
+        energy += frame_energy
         samples += len(values)
         peak = max(peak, max(abs(v) for v in values))
-        if args.capture_file and len(raw) < args.rate * 2 * 5:
-            raw.extend(frame.pcm[: args.rate * 2 * 5 - len(raw)])
+        frame_count += 1
+        clipping += sum(abs(v) >= 32767 for v in values)
+        silent_frames += frame_energy / len(values) < 32768**2 * 1e-6  # Below -60 dBFS RMS.
+        limit = args.rate * 2 * (args.seconds if args.phase == "micro_replay" else 5)
+        if (args.capture_file or args.phase == "micro_replay") and len(raw) < limit:
+            raw.extend(frame.pcm[: limit - len(raw)])
 
-    gateway = EchoGateway(settings, on_frame=frame_received)
+    class ReplayGateway(EchoGateway):
+        async def tone(self, session, *, duration_ms=400, replay_pcm=None):
+            async def send(pcm):
+                await super(ReplayGateway, self).tone(session, replay_pcm=pcm)
+
+            try:
+                report["ram_replayed_bytes"] = await replay_ram(
+                    raw, args.rate, session.down_rate, send
+                )
+            finally:
+                report["ram_capture_destroyed"] = not raw
+
+    gateway_type = ReplayGateway if args.phase == "micro_replay" else EchoGateway
+    gateway = gateway_type(settings, on_frame=frame_received)
     server = await gateway.start()
     outage_done = False
     screen_saved = False
@@ -181,7 +282,7 @@ async def main() -> None:
             report["pass"] = report["pass"] and any(
                 s.metrics.get("synthetic_verified_frames") == 50 for s in sessions.values()
             )
-        if args.phase in {"capture", "passive"}:
+        if args.phase in {"capture", "micro_replay", "passive"}:
             report["pass"] = report["pass"] and samples >= args.rate * max(1, args.seconds - 1)
         if args.phase == "outage":
             report["pass"] = report["pass"] and outage_done and len(sessions) >= 2
@@ -189,10 +290,34 @@ async def main() -> None:
             {"state": s.snapshot(), "metrics": s.metrics, "timings": s.timing_summary()}
             for s in sessions.values()
         ]
+        report["underrun_classification"] = [
+            classify_playback(trace)
+            for trace in report.get("android", {}).get("playback_traces", [])
+        ]
+        if args.phase in {"tone", "continuous", "matrix", "micro_replay"}:
+            expected = 10 if args.phase == "matrix" else 5 if args.phase == "tone" else 1
+            complete = len(report["underrun_classification"]) == expected and all(
+                item.get("complete") for item in report["underrun_classification"]
+            )
+            report["audio_stable"] = complete and all(
+                item.get("complete") and item.get("during_data") == 0
+                for item in report["underrun_classification"]
+            )
+            report["pass"] = (
+                report["pass"]
+                and complete
+                and sum(s.metrics.get("playback_completed_streams", 0) for s in sessions.values())
+                == expected
+            )
+        report["prefill_ms"] = args.prefill_ms
         report["microphone"] = {
             "samples": samples,
             "rates": sorted(sample_rates),
             "peak": peak,
+            "frames": frame_count,
+            "duration_seconds": samples / args.rate,
+            "clipped_samples": clipping,
+            "silent_frames_below_minus60_dbfs": silent_frames,
             "rms": math.sqrt(energy / samples) if samples else None,
             "rms_dbfs": 20 * math.log10(math.sqrt(energy / samples) / 32768)
             if energy and samples
@@ -205,6 +330,8 @@ async def main() -> None:
                 capture.write(raw)
             report["private_capture_bytes"] = len(raw)
     finally:
+        raw[:] = b"\0" * len(raw)
+        raw.clear()
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
@@ -221,6 +348,7 @@ async def main() -> None:
         + args.phase
         + " "
         + ("PASS" if report.get("pass") else "FAIL")
+        + (" / audio_stable=" + str(report["audio_stable"]) if "audio_stable" in report else "")
     )
 
 
