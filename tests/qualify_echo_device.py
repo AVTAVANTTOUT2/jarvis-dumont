@@ -106,6 +106,7 @@ async def main() -> None:
     )
     parser.add_argument("--rate", type=int, choices=[16000, 48000], default=16000)
     parser.add_argument("--source", type=int, choices=[1, 7], default=7)
+    parser.add_argument("--playback-usage", type=int, choices=[1, 2], default=2)
     parser.add_argument("--seconds", type=int, choices=range(1, 31), default=6)
     parser.add_argument(
         "--prefill-ms", type=int, choices=[20, 40, 60, 80, 100, 120, 140], default=20
@@ -266,6 +267,9 @@ async def main() -> None:
             "source",
             str(args.source),
             "-e",
+            "playback_usage",
+            str(args.playback_usage),
+            "-e",
             "seconds",
             str(args.seconds),
             "com.jarvisoffice.echo.test/com.jarvisoffice.echo.QualificationInstrumentation",
@@ -281,7 +285,7 @@ async def main() -> None:
             )
         else:
             report["pass"] = False
-            with contextlib.suppress(RuntimeError):
+            with contextlib.suppress(RuntimeError, json.JSONDecodeError):
                 report["android"] = json.loads(
                     await adb(
                         "exec-out",
@@ -323,6 +327,7 @@ async def main() -> None:
                 == expected
             )
         report["prefill_ms"] = args.prefill_ms
+        report["playback_usage"] = args.playback_usage
         report["microphone"] = {
             "samples": samples,
             "rates": sorted(sample_rates),
