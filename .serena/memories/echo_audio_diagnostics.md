@@ -1,0 +1,9 @@
+# Echo audio qualification conventions
+
+Physical speaker metrics never replace owner AUDIO_ECHO/ECHO_ARTIFACT and prescribed microphone replay/MIC_ECHO confirmations. ECHO-02 requires these gates and stable transport before VoiceLoop integration; no independent model/pipeline belongs in echo/.
+
+Use tests/qualify_echo_device.py with explicit device/config/report and --phase continuous (one 30-second stream), matrix (ten 3-second streams, one --prefill-ms value), or micro_replay --seconds 6 (owner-ready, RAM-only, max eight seconds). The harness must own the dedicated Echo port; stop only that listener, never the main Jarvis runtime. Install the physical Android runner built with -PechoQualification=true first. No waveform, transcript or credentials belong in reports committed to Git.
+
+Underrun interpretation requires a complete frame/lifecycle trace. Separate U4-U1 data-window increments, U5-U4 post-final-write drain, and U6-U5 pause/flush teardown. U6 observes pause/flush, not AudioTrack.stop(). Missing checkpoints, gaps, counter resets or truncated traces are incomplete, never zero. Check expected completed-stream count separately from the transport pass flag. Keep per-stream trace memory bounded. Compare Mac pacing and Android receipt before increasing buffers; no inter-machine latency PASS from an offset estimate alone.
+
+RAM replay uses the existing server soxr dependency; Android only receives PCM. Clear mutable capture, normalized array and replay byte buffers even if send fails. CI runs python -m unittest discover -s tests and does not require hardware, models or API secrets.
