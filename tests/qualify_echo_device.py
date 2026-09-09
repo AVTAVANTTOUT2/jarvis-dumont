@@ -226,6 +226,10 @@ async def main() -> None:
 
     class ReplayGateway(EchoGateway):
         async def tone(self, session, *, duration_ms=400, replay_pcm=None):
+            if not raw:
+                await session.send("error", {"code": "MIC_CAPTURE_REQUIRED"})
+                return
+
             async def send(pcm):
                 print("MIC_REPLAY_STARTED", flush=True)
                 await super(ReplayGateway, self).tone(session, replay_pcm=pcm)
@@ -283,6 +287,10 @@ async def main() -> None:
                     and session.metrics.get("uplink_frames", 0) >= 10
                 ):
                     outage_done = True
+                    report["outage_before"] = {
+                        "mode": session.mode,
+                        "uplink_frames": session.metrics["uplink_frames"],
+                    }
                     server.close()
                     await server.wait_closed()
                     await asyncio.sleep(2)
