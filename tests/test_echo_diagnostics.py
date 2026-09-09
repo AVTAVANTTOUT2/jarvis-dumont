@@ -28,6 +28,22 @@ class PlaybackClassificationTests(unittest.TestCase):
 
 
 class RamReplayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_replay_gain_is_peak_bounded(self):
+        import struct
+
+        raw = bytearray(struct.pack("<320h", *([4000] * 320)))
+        peaks = []
+
+        async def inspect(pcm):
+            peaks.append(max(abs(v) for v in struct.unpack(f"<{len(pcm) // 2}h", pcm)))
+
+        size, gain = await replay_ram(raw, 16000, 16000, inspect, gain=8)
+        self.assertEqual(size, 640)
+        self.assertAlmostEqual(gain, 2.048, places=2)  # Resampling can dither by one PCM unit.
+        self.assertGreaterEqual(peaks[0], 8191)
+        self.assertLessEqual(peaks[0], 8192)
+        self.assertFalse(raw)
+
     async def test_replay_resamples_and_destroys_both_buffers_on_failure(self):
         raw = bytearray(b"\0\1" * 320)
         held = []

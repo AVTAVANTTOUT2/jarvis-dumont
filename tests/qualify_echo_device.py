@@ -51,7 +51,9 @@ def classify_playback(trace: list[dict]) -> dict:
     }
 
 
-async def replay_ram(raw: bytearray, in_rate: int, out_rate: int, send) -> int:
+async def replay_ram(
+    raw: bytearray, in_rate: int, out_rate: int, send, *, gain: int = 1
+) -> tuple[int, float]:
     """Diagnostic only: bounded capture and converted PCM are wiped even if playback fails."""
     import numpy as np
     import soxr
@@ -63,11 +65,16 @@ async def replay_ram(raw: bytearray, in_rate: int, out_rate: int, send) -> int:
     pcm = bytearray()
     try:
         converted = soxr.resample(capture, in_rate, out_rate)
+        applied_gain = 1.0
+        if gain > 1:
+            peak = max(abs(int(converted.min(initial=0))), abs(int(converted.max(initial=0))))
+            applied_gain = min(float(gain), 8192 / peak) if peak else 1.0
+            np.multiply(converted, applied_gain, out=converted, casting="unsafe")
         pcm.extend(converted.astype("<i2", copy=False).tobytes())
         capture.fill(0)
         converted.fill(0)
         await send(pcm)
-        return len(pcm)
+        return len(pcm), applied_gain
     finally:
         capture.fill(0)
         if converted is not None:
@@ -104,7 +111,10 @@ async def main() -> None:
         "--prefill-ms", type=int, choices=[20, 40, 60, 80, 100, 120, 140], default=20
     )
     parser.add_argument("--capture-file", type=Path)
+    parser.add_argument("--replay-gain", type=int, choices=[1, 2, 4, 8], default=1)
     args = parser.parse_args()
+    if args.replay_gain != 1 and args.phase != "micro_replay":
+        parser.error("replay gain is only available for micro_replay")
     if args.phase == "micro_replay" and (args.capture_file or args.seconds > 8):
         parser.error("micro_replay is RAM-only and limited to eight seconds")
     settings = replace(
@@ -160,6 +170,8 @@ async def main() -> None:
         samples += len(values)
         peak = max(peak, max(abs(v) for v in values))
         frame_count += 1
+        if args.phase == "micro_replay" and frame_count == 1:
+            print("MIC_CAPTURE_STARTED", flush=True)
         clipping += sum(abs(v) >= 32767 for v in values)
         silent_frames += frame_energy / len(values) < 32768**2 * 1e-6  # Below -60 dBFS RMS.
         limit = args.rate * 2 * (args.seconds if args.phase == "micro_replay" else 5)
@@ -169,11 +181,12 @@ async def main() -> None:
     class ReplayGateway(EchoGateway):
         async def tone(self, session, *, duration_ms=400, replay_pcm=None):
             async def send(pcm):
+                print("MIC_REPLAY_STARTED", flush=True)
                 await super(ReplayGateway, self).tone(session, replay_pcm=pcm)
 
             try:
-                report["ram_replayed_bytes"] = await replay_ram(
-                    raw, args.rate, session.down_rate, send
+                report["ram_replayed_bytes"], report["ram_replay_gain"] = await replay_ram(
+                    raw, args.rate, session.down_rate, send, gain=args.replay_gain
                 )
             finally:
                 report["ram_capture_destroyed"] = not raw
