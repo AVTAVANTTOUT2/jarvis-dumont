@@ -2,6 +2,7 @@ import asyncio
 import json
 import secrets
 import socket
+import struct
 import time
 import unittest
 from dataclasses import replace
@@ -253,6 +254,15 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual((await self.receive("error"))["payload"]["code"], "AUDIO_UPLINK_OVERRUN")
 
+    async def test_synchronized_deadline_rejects_a_delayed_first_frame(self):
+        await self.handshake()
+        await self.send("client_metrics", {"clock_offset_ns": 0, "clock_uncertainty_ms": 5})
+        await self.send("set_mode", {"mode": "ACTIVE"})
+        stream = (await self.receive("audio_start"))["payload"]["stream_id"]
+        old = time.monotonic_ns() - 1_000_000_000
+        await self.audio.send(Packet(stream, 0, old, old, 48000, 1, bytes(1920)).encode())
+        self.assertEqual((await self.receive("error"))["payload"]["code"], "AUDIO_UPLINK_OVERRUN")
+
     async def test_off_never_processes_audio_and_transition_retires_stream(self):
         await self.handshake()
         s = self.gateway.sessions["synthetic"]
@@ -270,6 +280,23 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
         await self.audio.send(Packet(new, 0, now, now, 48000, 1, bytes(1920)).encode())
         await asyncio.sleep(0.02)
         self.assertEqual(s.metrics["uplink_frames"], 1)
+
+    async def test_known_uplink_probe_verifies_every_sample_with_microphone_off(self):
+        await self.handshake()
+        await self.send("test_uplink")
+        probe = (await self.receive("audio_probe"))["payload"]
+        for sequence in range(50):
+            pcm = struct.pack("<960h", *[(sequence + i) % 1024 - 512 for i in range(960)])
+            now = time.monotonic_ns()
+            await self.audio.send(
+                Packet(probe["stream_id"], sequence, now, now, 48000, 1, pcm, 1).encode()
+            )
+        self.assertEqual((await self.receive("uplink_probe_finished"))["payload"]["frames"], 50)
+        session = self.gateway.sessions["synthetic"]
+        self.assertEqual(session.mode, "OFF")
+        self.assertEqual(session.up_stream, 0)
+        self.assertEqual(session.metrics["synthetic_verified_frames"], 50)
+        self.assertLessEqual(len(session.timings["m1_m2_ms"]), 512)
 
 
 if __name__ == "__main__":

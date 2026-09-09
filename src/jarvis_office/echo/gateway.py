@@ -18,6 +18,7 @@ import time
 import tomllib
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
@@ -96,6 +97,7 @@ class Session:
     down_rate: int = 48000
     down_channels: int = 1
     current_turn: str = ""
+    last_error: str = ""
     tx: int = 0
     rx: Sequence = field(default_factory=Sequence)
     up_sequence: Sequence = field(default_factory=Sequence)
@@ -111,6 +113,24 @@ class Session:
     first_capture: int = 0
     first_receive: int = 0
     retired_streams: deque[tuple[int, float]] = field(default_factory=lambda: deque(maxlen=4))
+    diagnostic_uplink: bool = False
+    clock_offset_ns: int | None = None
+    timings: dict[str, deque[float]] = field(default_factory=dict)
+
+    def observe(self, name: str, value: float) -> None:
+        self.timings.setdefault(name, deque(maxlen=512)).append(value)
+
+    def timing_summary(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for name, samples in self.timings.items():
+            ordered = sorted(samples)
+            result[name] = {
+                "n": len(ordered),
+                "p50_ms": ordered[math.ceil(len(ordered) * 0.5) - 1],
+                "p95_ms": ordered[math.ceil(len(ordered) * 0.95) - 1],
+                "max_ms": ordered[-1],
+            }
+        return result
 
     async def send(self, kind: str, payload: dict[str, Any] | None = None) -> None:
         async with self.lock:
@@ -138,15 +158,19 @@ class Session:
             "context_count": self.context.count,
             "turn_id": self.current_turn,
             "server": "TRANSPORT_ONLY",
+            "error": self.last_error,
             "rtt_ms": self.metrics.get("rtt_ms"),
             "last_seen_age_ms": (time.monotonic() - self.last_seen) * 1000,
         }
 
 
 class EchoGateway:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, *, on_frame: Callable[[Session, Packet, int], None] | None = None
+    ) -> None:
         settings.validate()
         self.settings = settings
+        self.on_frame = on_frame
         self.sessions: dict[str, Session] = {}
         self.contexts: dict[str, PassiveContextBuffer] = {}
         self.owner: str | None = None
@@ -324,7 +348,7 @@ class EchoGateway:
             await s.send("context_state", {"count": 0})
         elif kind == "client_metrics":
             # Fixed numeric allowlist; never retain arbitrary text supplied by the client.
-            for key in (
+            keys: tuple[str, ...] = (
                 "rtt_ms",
                 "jitter_ms",
                 "a1_a2_ms",
@@ -334,16 +358,41 @@ class EchoGateway:
                 "queue_depth",
                 "underruns",
                 "clock_uncertainty_ms",
-            ):
+            )
+            measured = (
+                "a1_a2",
+                "read_to_enqueue",
+                "a3_a4",
+                "a4_write",
+                "rtt",
+                "downlink_delivery",
+                "downlink_to_track",
+            )
+            keys += tuple(
+                f"{name}_{q}" for name in measured for q in ("n", "p50_ms", "p95_ms", "max_ms")
+            )
+            for key in keys:
                 value = p.get(key)
                 if type(value) in (float, int) and math.isfinite(value) and abs(value) < 1e9:
                     s.metrics[key] = value
                     if key == "rtt_ms":
                         s.rtts.append(float(value))
+            offset = p.get("clock_offset_ns")
+            if type(offset) is int and abs(offset) < 2**63:
+                s.clock_offset_ns = offset
         elif kind in {"playback_ready", "playback_drained"}:
             if p.get("stream_id") != s.down_stream or not s.down_stream:
                 raise ValueError("STALE_PLAYBACK_ACK")
             (s.playback_ready if kind == "playback_ready" else s.playback_drained).set()
+        elif kind == "test_uplink":
+            if not self.settings.test_audio or not s.audio or s.mode != "OFF":
+                await s.send("error", {"code": "TEST_AUDIO_DISABLED_OR_BUSY"})
+                return
+            s.diagnostic_uplink = True
+            s.up_stream = secrets.randbits(63) or 1
+            s.up_sequence = Sequence()
+            s.first_capture = s.first_receive = 0
+            await s.send("audio_probe", {"stream_id": s.up_stream, "rate": s.rate})
         elif kind == "test_tone":
             if not self.settings.test_audio:
                 await s.send("error", {"code": "TEST_AUDIO_DISABLED"})
@@ -368,7 +417,7 @@ class EchoGateway:
                 if not isinstance(message, bytes):
                     raise ValueError("BINARY_AUDIO_REQUIRED")
                 frame = Packet.decode(message)
-                if s.mode == "OFF" or not s.up_stream:
+                if (s.mode == "OFF" and not s.diagnostic_uplink) or not s.up_stream:
                     # Frames already in flight after STOP are discarded, never routed.
                     continue
                 if any(
@@ -384,12 +433,30 @@ class EchoGateway:
                 ):
                     raise ValueError("STALE_AUDIO_STREAM")
                 s.up_sequence.accept(frame.sequence)
+                if s.diagnostic_uplink:
+                    if frame.flags != 1 or frame.sequence >= 50:
+                        raise ValueError("SYNTHETIC_UPLINK_INVALID")
+                    expected = struct.pack(
+                        f"<{s.rate // 50}h",
+                        *[(frame.sequence + i) % 1024 - 512 for i in range(s.rate // 50)],
+                    )
+                    if frame.pcm != expected:
+                        raise ValueError("SYNTHETIC_UPLINK_CORRUPT")
+                    s.metrics["synthetic_verified_frames"] = frame.sequence + 1
                 if time.monotonic() < s.speaking_until or s.down_stream:
                     continue
                 if not s.first_receive:
                     s.first_receive, s.first_capture = m1, frame.captured_ns
                 # Compare elapsed durations within each clock, never subtract absolute clocks.
                 backlog = (m1 - s.first_receive) - (frame.captured_ns - s.first_capture)
+                s.metrics["uplink_backlog_ms"] = backlog / 1e6
+                s.metrics["capture_to_enqueue_ms"] = (frame.enqueued_ns - frame.captured_ns) / 1e6
+                if s.clock_offset_ns is not None:
+                    # Also reject a delayed first frame; relative backlog alone cannot detect it.
+                    network_age_ms = (m1 - frame.enqueued_ns - s.clock_offset_ns) / 1e6
+                    uncertainty_ms = s.metrics.get("clock_uncertainty_ms", 0)
+                    if network_age_ms > self.settings.max_audio_ms + uncertainty_ms:
+                        raise ValueError("AUDIO_UPLINK_OVERRUN")
                 if (
                     backlog > self.settings.max_audio_ms * 1_000_000
                     or frame.enqueued_ns - frame.captured_ns
@@ -401,9 +468,22 @@ class EchoGateway:
                 s.metrics["uplink_sequence"] = frame.sequence
                 s.metrics["uplink_drops"] = 0
                 s.metrics["m1_m2_ms"] = (time.monotonic_ns() - m1) / 1e6
+                s.observe("m1_m2_ms", s.metrics["m1_m2_ms"])
+                if s.clock_offset_ns is not None:
+                    s.observe(
+                        "synthetic_delivery_ms" if frame.flags else "microphone_delivery_ms",
+                        (m1 - frame.captured_ns - s.clock_offset_ns) / 1e6,
+                    )
+                if self.on_frame is not None:
+                    self.on_frame(s, frame, m1)
+                if s.diagnostic_uplink and frame.sequence == 49:
+                    s.diagnostic_uplink = False
+                    s.up_stream = 0
+                    await s.send("uplink_probe_finished", {"frames": 50})
                 # Transport qualification sink only. PCM is released here; no STT/model/file.
         except ValueError as exc:
             s.metrics["uplink_drops"] = s.metrics.get("uplink_drops", 0) + 1
+            s.last_error = str(exc)
             with contextlib.suppress(ConnectionClosed, TimeoutError):
                 await s.send("error", {"code": str(exc)})
         except (ConnectionClosed, TimeoutError):
@@ -412,6 +492,7 @@ class EchoGateway:
             await self.drop(s)
 
     async def stop_audio(self, s: Session, *, notify: bool = True) -> None:
+        s.diagnostic_uplink = False
         if s.up_stream:
             s.retired_streams.append((s.up_stream, time.monotonic() + 0.2))
         s.up_stream = 0
@@ -468,6 +549,8 @@ class EchoGateway:
                 async with asyncio.timeout(self.settings.max_audio_ms / 1000):
                     await s.audio.send(packet.encode())
                 s.metrics["m3_m4_ms"] = (m4 - m3) / 1e6
+                s.observe("m3_m4_ms", s.metrics["m3_m4_ms"])
+                s.observe("m4_send_complete_ms", (time.monotonic_ns() - m4) / 1e6)
                 s.metrics["downlink_frames"] = sequence + 1
             await s.send("audio_end", {"stream_id": stream, "last_sequence": 19})
             async with asyncio.timeout(3):

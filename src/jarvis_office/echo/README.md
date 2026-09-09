@@ -48,9 +48,20 @@ The [Android repository](https://github.com/AVTAVANTTOUT2/jarvis-office-echo) co
 .venv/bin/mypy src/jarvis_office/echo
 ```
 
-The pinned WebSocket dependency is isolated here to avoid concurrent edits to phase 06's package/lock files. It must be installed explicitly before these tests; release packaging is not yet changed.
+The pinned WebSocket dependency is isolated here to avoid concurrent edits to phase 06's package/lock files. Install it explicitly before these tests and in the dedicated gateway wheel environment. A permanent development gateway must run from a non-editable wheel outside the checkout, with a separate user LaunchAgent; it must not use or restart the phase-06 service.
 
 `tests/echo_android_smoke.py ANDROID_REPO PRIVATE_REPORT` is opt-in and only targets `emulator-5580`. It starts a temporary loopback gateway, generates ephemeral pairing, installs the debug and instrumentation APKs, uses an ADB reverse, then removes that reverse, force-stops the test app and closes the gateway. It does not validate the Echo or LAN latency.
+
+For explicit physical qualification, install the Android APK plus instrumentation built with `-PechoQualification=true`, then:
+
+```sh
+.venv/bin/python tests/qualify_echo_device.py --device EXPLICIT_ADB_ADDRESS \
+  --config /PRIVATE/echo.toml --report /PRIVATE/transport.json --phase transport
+```
+
+Phases: profile, transport (50 known PCM frames), tone (five quiet 400 ms signals), capture, passive, outage (listener unavailable for two seconds), recreate. This uses the real LAN, no ADB reverse or scan. Secrets are provisioned via stdin into ordinary app-private storage; Android encrypts/deletes the temporary pairing. Capture only computes sample counts/RMS/peak in RAM. Explicit `--capture-file /PRIVATE/test.pcm` permits at most five seconds of private diagnostic PCM; the running gateway never saves audio. The harness refuses stale results after an instrumentation crash and stops its app/listener in finally. A human must confirm audibility and prescribed speech; transport counts alone do not prove them.
+
+The real Android 11 Echo accepts native 16 kHz mono uplink and 48 kHz mono playback. Its AudioRecord timestamps are unreliable; read-end-minus-frame estimates must be labeled. Local durations, bounded timing quantiles, synchronized estimates and clock uncertainty are separate. The Android report contains the full sanitized hardware qualification; raw inventory and device identifiers stay outside Git.
 
 ## Next integration boundary
 
