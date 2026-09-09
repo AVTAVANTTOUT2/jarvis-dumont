@@ -52,7 +52,7 @@ def classify_playback(trace: list[dict]) -> dict:
 
 
 async def replay_ram(
-    raw: bytearray, in_rate: int, out_rate: int, send, *, gain: int = 1
+    raw: bytearray, in_rate: int, out_rate: int, send, *, gain: float = 1
 ) -> tuple[int, float]:
     """Diagnostic only: bounded capture and converted PCM are wiped even if playback fails."""
     import numpy as np
@@ -64,8 +64,13 @@ async def replay_ram(
     converted = None
     pcm = bytearray()
     try:
-        converted = soxr.resample(capture, in_rate, out_rate)
+        converted = (
+            capture.copy() if in_rate == out_rate else soxr.resample(capture, in_rate, out_rate)
+        )
         applied_gain = 1.0
+        if gain < 1:
+            applied_gain = gain
+            np.multiply(converted, applied_gain, out=converted, casting="unsafe")
         if gain > 1:
             peak = max(abs(int(converted.min(initial=0))), abs(int(converted.max(initial=0))))
             applied_gain = min(float(gain), 8192 / peak) if peak else 1.0
@@ -81,6 +86,38 @@ async def replay_ram(
             converted.fill(0)
         pcm[:] = b"\0" * len(pcm)
         pcm.clear()
+
+
+def spectrum_metrics(raw: bytearray, rate: int) -> dict:
+    """Whole-capture energy bands, not a speech classifier; retain no waveform or FFT."""
+    import numpy as np
+
+    values = np.frombuffer(raw, dtype="<i2").astype(np.float64)
+    spectrum = None
+    try:
+        if values.size == 0:
+            return {"dc_pcm": 0.0, "bands": {}}
+        dc = float(values.mean())
+        values -= dc
+        values *= np.hanning(values.size)
+        spectrum = np.fft.rfft(values)
+        power = np.abs(spectrum) ** 2
+        frequencies = np.fft.rfftfreq(values.size, 1 / rate)
+        total = float(power.sum())
+        return {
+            "dc_pcm": dc,
+            "bands": {
+                f"{low}_{high}_hz": float(power[(frequencies >= low) & (frequencies < high)].sum())
+                / total
+                if total
+                else 0.0
+                for low, high in ((0, 80), (80, 250), (250, 4000), (4000, rate // 2 + 1))
+            },
+        }
+    finally:
+        values.fill(0)
+        if spectrum is not None:
+            spectrum.fill(0)
 
 
 async def main() -> None:
@@ -113,9 +150,12 @@ async def main() -> None:
     )
     parser.add_argument("--capture-file", type=Path)
     parser.add_argument("--replay-gain", type=int, choices=[1, 2, 4, 8], default=1)
+    parser.add_argument("--compare-levels", action="store_true")
     args = parser.parse_args()
     if args.replay_gain != 1 and args.phase != "micro_replay":
         parser.error("replay gain is only available for micro_replay")
+    if args.compare_levels and (args.phase != "micro_replay" or args.replay_gain != 1):
+        parser.error("level comparison requires micro_replay with original gain 1")
     if args.phase == "micro_replay" and (args.capture_file or args.seconds > 8):
         parser.error("micro_replay is RAM-only and limited to eight seconds")
     settings = replace(
@@ -134,7 +174,12 @@ async def main() -> None:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            async with asyncio.timeout(90):
+            timeout = (
+                None
+                if args.phase == "micro_replay" and command[:3] == ("shell", "am", "instrument")
+                else 90
+            )
+            async with asyncio.timeout(timeout):
                 out, err = await process.communicate(data)
             if process.returncode:
                 report["adb_failure"] = {
@@ -184,8 +229,20 @@ async def main() -> None:
             async def send(pcm):
                 print("MIC_REPLAY_STARTED", flush=True)
                 await super(ReplayGateway, self).tone(session, replay_pcm=pcm)
+                if args.compare_levels and session.alive:
+                    await asyncio.sleep(1)
+
+                    async def send_quieter(data):
+                        print("MIC_REPLAY_MINUS6DB_STARTED", flush=True)
+                        await super(ReplayGateway, self).tone(session, replay_pcm=data)
+
+                    quieter = bytearray(pcm)
+                    report["comparison_bytes"], report["comparison_gain"] = await replay_ram(
+                        quieter, session.down_rate, session.down_rate, send_quieter, gain=0.5
+                    )
 
             try:
+                report["microphone_spectrum"] = spectrum_metrics(raw, args.rate)
                 report["ram_replayed_bytes"], report["ram_replay_gain"] = await replay_ram(
                     raw, args.rate, session.down_rate, send, gain=args.replay_gain
                 )
@@ -272,6 +329,9 @@ async def main() -> None:
             "-e",
             "seconds",
             str(args.seconds),
+            "-e",
+            "replays",
+            "2" if args.compare_levels else "1",
             "com.jarvisoffice.echo.test/com.jarvisoffice.echo.QualificationInstrumentation",
         )
         report["instrumentation"] = output.decode().replace(secret, "[redacted]")
@@ -312,7 +372,15 @@ async def main() -> None:
             for trace in report.get("android", {}).get("playback_traces", [])
         ]
         if args.phase in {"tone", "continuous", "matrix", "micro_replay"}:
-            expected = 10 if args.phase == "matrix" else 5 if args.phase == "tone" else 1
+            expected = (
+                2
+                if args.compare_levels
+                else 10
+                if args.phase == "matrix"
+                else 5
+                if args.phase == "tone"
+                else 1
+            )
             complete = len(report["underrun_classification"]) == expected and all(
                 item.get("complete") for item in report["underrun_classification"]
             )
