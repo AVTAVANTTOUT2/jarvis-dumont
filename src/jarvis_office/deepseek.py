@@ -8,11 +8,12 @@ No retries, health polling, provider routing, audio or V1 imports.
 
 import asyncio
 import contextlib
+import inspect
 import json
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -272,11 +273,14 @@ class Turn:
                 from jarvis_office.credentials import reserve_validation_request
 
                 try:
-                    self.metrics[
-                        "validation_attempt" if self.owner.reserve_request else "phase06_attempt"
-                    ] = await asyncio.to_thread(
+                    reservation = await asyncio.to_thread(
                         self.owner.reserve_request or reserve_validation_request
                     )
+                    if inspect.isawaitable(reservation):
+                        reservation = await reservation
+                    self.metrics[
+                        "validation_attempt" if self.owner.reserve_request else "phase06_attempt"
+                    ] = reservation
                 except ConfigError as exc:
                     raise ChatError(exc.reason) from None
             self.metrics["requests"] = 1
@@ -457,7 +461,7 @@ class DeepSeek:
         settings: Chat | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        reserve_request: Callable[[], int] | None = None,
+        reserve_request: Callable[[], int | Awaitable[int]] | None = None,
     ) -> None:
         settings = settings or Chat()
         if settings.model != "deepseek-v4-flash":

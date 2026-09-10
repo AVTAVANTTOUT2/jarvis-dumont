@@ -31,10 +31,15 @@ SECURITY_HEADERS = {
 
 class DashboardServer:
     def __init__(
-        self, store: OfficeStore, *, snapshot: Callable[[], Awaitable[dict[str, Any]]],
+        self,
+        store: OfficeStore,
+        *,
+        snapshot: Callable[[], Awaitable[dict[str, Any]]],
         command: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
-        context: Callable[[str], Awaitable[dict[str, Any]]], host: str = "127.0.0.1",
-        port: int = 8768, reports: list[dict[str, Any]] | None = None,
+        context: Callable[[str], Awaitable[dict[str, Any]]],
+        host: str = "127.0.0.1",
+        port: int = 8768,
+        reports: list[dict[str, Any]] | None = None,
     ) -> None:
         if host != "127.0.0.1" or type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("DASHBOARD_LOOPBACK_ONLY")
@@ -49,23 +54,34 @@ class DashboardServer:
         self.last_event = -1
         self._requests = 0
         self.app = web.Application(middlewares=[self._security], client_max_size=32768)
-        self.app.add_routes([
-            web.get("/", self._asset), web.get("/index.html", self._asset),
-            web.get("/dashboard.css", self._asset), web.get("/dashboard.js", self._asset),
-            web.get("/styles.css", self._asset), web.get("/app.js", self._asset),
-            web.get("/dashboard/index.html", self._asset),
-            web.get("/dashboard/dashboard.css", self._asset),
-            web.get("/dashboard/dashboard.js", self._asset),
-            web.get("/dashboard/api.js", self._asset),
-            web.get("/api.js", self._asset),
-            web.get("/api/bootstrap", self._bootstrap), web.get("/api/state", self._state),
-            web.get("/api/events", self._events), web.post("/api/command", self._command),
-            web.get("/api/context", self._context), web.get("/api/settings", self._settings),
-            web.post("/api/settings", self._settings), web.get("/api/data/catalog", self._catalog),
-            web.get("/api/data/rows", self._rows), web.get("/api/data/row", self._row),
-            web.post("/api/data/export", self._export), web.post("/api/data/purge", self._purge),
-            web.post("/api/data/backup", self._backup),
-        ])
+        self.app.add_routes(
+            [
+                web.get("/", self._asset),
+                web.get("/index.html", self._asset),
+                web.get("/dashboard.css", self._asset),
+                web.get("/dashboard.js", self._asset),
+                web.get("/styles.css", self._asset),
+                web.get("/app.js", self._asset),
+                web.get("/dashboard/index.html", self._asset),
+                web.get("/dashboard/dashboard.css", self._asset),
+                web.get("/dashboard/dashboard.js", self._asset),
+                web.get("/dashboard/api.js", self._asset),
+                web.get("/api.js", self._asset),
+                web.get("/api/bootstrap", self._bootstrap),
+                web.get("/api/state", self._state),
+                web.get("/api/events", self._events),
+                web.post("/api/command", self._command),
+                web.get("/api/context", self._context),
+                web.get("/api/settings", self._settings),
+                web.post("/api/settings", self._settings),
+                web.get("/api/data/catalog", self._catalog),
+                web.get("/api/data/rows", self._rows),
+                web.get("/api/data/row", self._row),
+                web.post("/api/data/export", self._export),
+                web.post("/api/data/purge", self._purge),
+                web.post("/api/data/backup", self._backup),
+            ]
+        )
 
     @property
     def url(self) -> str:
@@ -74,9 +90,15 @@ class DashboardServer:
     async def start(self) -> None:
         if self.runner is not None:
             return
-        self.runner = web.AppRunner(self.app, access_log=None, shutdown_timeout=10,
-                                    keepalive_timeout=15, max_line_size=4096,
-                                    max_field_size=4096, lingering_time=1)
+        self.runner = web.AppRunner(
+            self.app,
+            access_log=None,
+            shutdown_timeout=10,
+            keepalive_timeout=15,
+            max_line_size=4096,
+            max_field_size=4096,
+            lingering_time=1,
+        )
         try:
             await self.runner.setup()
             site = web.TCPSite(self.runner, self.host, self.port)
@@ -99,7 +121,9 @@ class DashboardServer:
 
     @web.middleware
     async def _security(
-        self, request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+        self,
+        request: web.Request,
+        handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
     ) -> web.StreamResponse:
         response: web.StreamResponse
         expected_host = f"{self.host}:{self.port}"
@@ -108,23 +132,29 @@ class DashboardServer:
         origin = request.headers.get("Origin")
         site = request.headers.get("Sec-Fetch-Site")
         session = self.sessions.get(request.cookies.get(COOKIE, ""))
-        if (not peer or peer[0] != "127.0.0.1" or
-                request.headers.get("Host") != expected_host or
-                "Authorization" in request.headers or
-                any(k in request.headers for k in (
-                    "Forwarded", "X-Forwarded-For", "X-Forwarded-Host"
-                ))):
+        if (
+            not peer
+            or peer[0] != "127.0.0.1"
+            or request.headers.get("Host") != expected_host
+            or "Authorization" in request.headers
+            or any(
+                k in request.headers for k in ("Forwarded", "X-Forwarded-For", "X-Forwarded-Host")
+            )
+        ):
             response = self._error("ACCESS_DENIED", 403)
         elif api and (site != "same-origin" or (origin is not None and origin != self.url)):
             response = self._error("ORIGIN_DENIED", 403)
-        elif api and request.path != "/api/bootstrap" and (
-            not session or session[1] <= time.monotonic()
+        elif (
+            api
+            and request.path != "/api/bootstrap"
+            and (not session or session[1] <= time.monotonic())
         ):
             response = self._error("OWNER_AUTH_REQUIRED", 401)
         elif request.method not in ("GET", "HEAD") and (
-            origin != self.url or not session or
-            not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), session[0]) or
-            request.content_type != "application/json"
+            origin != self.url
+            or not session
+            or not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), session[0])
+            or request.content_type != "application/json"
         ):
             response = self._error("CSRF_DENIED", 403)
         elif self._requests >= 16:
@@ -167,8 +197,9 @@ class DashboardServer:
             token = secrets.token_urlsafe(32)
             self.sessions[token] = (secrets.token_urlsafe(32), now + 12 * 3600)
         response = web.json_response({"schema_version": 1, "csrf_token": self.sessions[token][0]})
-        response.set_cookie(COOKIE, token, httponly=True, samesite="Strict", path="/",
-                            max_age=12 * 3600)
+        response.set_cookie(
+            COOKIE, token, httponly=True, samesite="Strict", path="/", max_age=12 * 3600
+        )
         # HTTP is allowed only on exact IPv4 loopback; LAN TLS/admin is intentionally unavailable.
         return response
 
@@ -176,12 +207,22 @@ class DashboardServer:
         state = dict(await self.snapshot_callback())
         state["schema_version"] = 1
         settings = await self.store.settings()
-        state["budget"] = {"nominal": settings["budget"],
-                           "diagnostic": state.get("budget", {}).get("diagnostic", {
-                               "used": None, "limit": None, "source": "Non mesuré",
-                           })}
-        state["storage"] = dict(self.store.status(), history_enabled=settings["history_enabled"],
-                                history_started_at=settings["history_started_at"])
+        state["budget"] = {
+            "nominal": settings["budget"],
+            "diagnostic": state.get("budget", {}).get(
+                "diagnostic",
+                {
+                    "used": None,
+                    "limit": None,
+                    "source": "Non mesuré",
+                },
+            ),
+        }
+        state["storage"] = dict(
+            self.store.status(),
+            history_enabled=settings["history_enabled"],
+            history_started_at=settings["history_started_at"],
+        )
         state.setdefault("alerts", [])
         if self.store.error:
             state["alerts"] = [*state["alerts"], self.store.error]
@@ -192,8 +233,9 @@ class DashboardServer:
             self.epoch, self.last_event = epoch, -1
             self.events.clear()
         if event > self.last_event:
-            self.events.append({"event_id": event, "server_epoch": epoch,
-                                "type": "snapshot", "snapshot": state})
+            self.events.append(
+                {"event_id": event, "server_epoch": epoch, "type": "snapshot", "snapshot": state}
+            )
             self.last_event = event
         return state
 
@@ -205,13 +247,21 @@ class DashboardServer:
         after = int(request.query.get("after", "-1"))
         if not -1 <= after <= 2**63 - 1:
             raise ValueError()
-        reset = (request.query.get("epoch") != self.epoch or after > self.last_event or
-                 (bool(self.events) and after < self.events[0]["event_id"] - 1))
+        reset = (
+            request.query.get("epoch") != self.epoch
+            or after > self.last_event
+            or (bool(self.events) and after < self.events[0]["event_id"] - 1)
+        )
         events = [] if reset else [e for e in self.events if e["event_id"] > after]
-        return web.json_response({"server_epoch": self.epoch, "event_id": self.last_event,
-                                  "reset": reset,
-                                  "events": events,
-                                  "snapshot": state})
+        return web.json_response(
+            {
+                "server_epoch": self.epoch,
+                "event_id": self.last_event,
+                "reset": reset,
+                "events": events,
+                "snapshot": state,
+            }
+        )
 
     @staticmethod
     async def _body(request: web.Request) -> dict[str, Any]:
@@ -225,11 +275,14 @@ class DashboardServer:
         if not body.keys() <= {"device_id", "action", "mode", "command_id", "confirm"}:
             raise ValueError()
         action, mode = body.get("action"), body.get("mode")
-        if (action not in ("set_mode", "interrupt", "clear_context", "preview_voice") or
-                (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE")) or
-                not isinstance(body.get("device_id"), str) or len(body["device_id"]) > 128 or
-                not isinstance(body.get("command_id"), str) or
-                not 1 <= len(body["command_id"]) <= 64):
+        if (
+            action not in ("set_mode", "interrupt", "clear_context", "preview_voice")
+            or (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE"))
+            or not isinstance(body.get("device_id"), str)
+            or len(body["device_id"]) > 128
+            or not isinstance(body.get("command_id"), str)
+            or not 1 <= len(body["command_id"]) <= 64
+        ):
             raise ValueError()
         if action == "clear_context" and body.get("confirm") is not True:
             return self._error("CONFIRMATION_REQUIRED")
@@ -244,8 +297,11 @@ class DashboardServer:
             async with asyncio.timeout(5):
                 result = await self.command_callback(body)
         except TimeoutError:
-            result = {"command_id": body["command_id"], "status": "rejected",
-                      "error": "COMMAND_TIMEOUT"}
+            result = {
+                "command_id": body["command_id"],
+                "status": "rejected",
+                "error": "COMMAND_TIMEOUT",
+            }
         return web.json_response(result)
 
     async def _context(self, request: web.Request) -> web.Response:
@@ -288,10 +344,14 @@ class DashboardServer:
             return self._error("CONFIRMATION_REQUIRED")
         format = body.pop("format", "")
         payload, content_type = await self.store.export(body, format)
-        return web.Response(body=payload, content_type=content_type, headers={
-            "Content-Disposition": f'attachment; filename="office-{body["table"]}.{format}"',
-            "X-Export-Limit": str(body.get("limit", 1000)),
-        })
+        return web.Response(
+            body=payload,
+            content_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="office-{body["table"]}.{format}"',
+                "X-Export-Limit": str(body.get("limit", 1000)),
+            },
+        )
 
     async def _purge(self, request: web.Request) -> web.Response:
         body = await self._body(request)
@@ -305,7 +365,10 @@ class DashboardServer:
         if await self._body(request) != {"confirm": True}:
             return self._error("CONFIRMATION_REQUIRED")
         path = await self.store.backup()
-        return web.FileResponse(path, headers={
-            "Content-Disposition": 'attachment; filename="office-backup.sqlite3"',
-            "Content-Type": "application/vnd.sqlite3",
-        })
+        return web.FileResponse(
+            path,
+            headers={
+                "Content-Disposition": 'attachment; filename="office-backup.sqlite3"',
+                "Content-Type": "application/vnd.sqlite3",
+            },
+        )

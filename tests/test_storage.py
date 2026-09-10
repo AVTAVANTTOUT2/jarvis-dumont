@@ -22,9 +22,14 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         self.temp.cleanup()
 
     def turn(self, turn="t1", generation=None, **kwargs):
-        return self.store.record_turn("echo", "session", turn,
-                                      generation=self.store.generation if generation is None
-                                      else generation, user_text="Jarvis, bonjour.", **kwargs)
+        return self.store.record_turn(
+            "echo",
+            "session",
+            turn,
+            generation=self.store.generation if generation is None else generation,
+            user_text="Jarvis, bonjour.",
+            **kwargs,
+        )
 
     async def test_initial_schema_history_and_passive_are_explicit(self):
         settings = await self.store.settings()
@@ -45,9 +50,12 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_partial_turn_and_safe_json_are_persisted_with_relations(self):
         enabled = await self.store.update_settings({"history_enabled": True})
         self.assertIsNotNone(enabled["history_started_at"])
-        self.turn(assistant_text="Bonjour. Un texte futur.", delivered_text="Bonjour.",
-                  status="interrupted", metrics={"stt_ms": 12, "acoustic_ms": None,
-                                                  "api_key": "must not survive"})
+        self.turn(
+            assistant_text="Bonjour. Un texte futur.",
+            delivered_text="Bonjour.",
+            status="interrupted",
+            metrics={"stt_ms": 12, "acoustic_ms": None, "api_key": "must not survive"},
+        )
         await self.store.flush()
         row = (await self.store.row("turns", "t1"))["row"]
         self.assertEqual(row["status"], "interrupted")
@@ -79,12 +87,15 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         result = await self.store.rows(table="turns", limit=1, sort="turn_id", direction="desc")
         self.assertEqual(result["rows"][0]["turn_id"], "b")
         self.assertTrue(result["truncated"])
-        filtered = await self.store.rows(table="turns", filters=[
-            {"column": "turn_id", "op": "eq", "value": "a"}])
+        filtered = await self.store.rows(
+            table="turns", filters=[{"column": "turn_id", "op": "eq", "value": "a"}]
+        )
         self.assertEqual(filtered["total"], 1)
         for query in [
-            {"table": "turns; DROP TABLE turns"}, {"table": "sqlite_schema"},
-            {"table": "turns", "sort": "turn_id;DELETE"}, {"table": "turns", "limit": 101},
+            {"table": "turns; DROP TABLE turns"},
+            {"table": "sqlite_schema"},
+            {"table": "turns", "sort": "turn_id;DELETE"},
+            {"table": "turns", "limit": 101},
             {"table": "turns", "filters": [{"column": "generation", "op": "eq", "value": "0"}]},
             {"table": "turns", "filters": [{"column": "turn_id", "op": "like", "value": "%"}]},
         ]:
@@ -102,10 +113,12 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         self.store.close_session("session", status="interrupted")
         await self.store.flush()
         self.assertEqual((await self.store.rows(table="turns"))["total"], 1)
-        self.assertEqual((await self.store.row("sessions", "session"))["row"]["status"],
-                         "interrupted")
-        await asyncio.gather(self.store.update_settings({"archive_passive": True}),
-                             self.store.purge("conversations"))
+        self.assertEqual(
+            (await self.store.row("sessions", "session"))["row"]["status"], "interrupted"
+        )
+        await asyncio.gather(
+            self.store.update_settings({"archive_passive": True}), self.store.purge("conversations")
+        )
         self.assertEqual((await self.store.settings())["generation"], self.store.generation)
         self.turn("after")
         await self.store.flush()
@@ -114,9 +127,15 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_large_results_fail_explicitly_and_complete_row_remains_available(self):
         await self.store.update_settings({"history_enabled": True})
         for index in range(15):
-            self.store.record_turn("echo", "session", f"t{index}", generation=self.store.generation,
-                                   user_text="a" * 100000, assistant_text="b" * 100000,
-                                   delivered_text="c" * 100000)
+            self.store.record_turn(
+                "echo",
+                "session",
+                f"t{index}",
+                generation=self.store.generation,
+                user_text="a" * 100000,
+                assistant_text="b" * 100000,
+                delivered_text="c" * 100000,
+            )
         await self.store.flush()
         with self.assertRaisesRegex(StorageError, "QUERY_RESULT_TOO_LARGE"):
             await self.store.rows(table="turns")
@@ -126,8 +145,9 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(StorageError, "NOMINAL_BUDGET_REQUIRED"):
             await self.store.consume_budget()
         await self.store.update_settings({"budget": {"limit": 2, "period": "day"}})
-        results = await asyncio.gather(*[self.store.consume_budget() for _ in range(3)],
-                                       return_exceptions=True)
+        results = await asyncio.gather(
+            *[self.store.consume_budget() for _ in range(3)], return_exceptions=True
+        )
         self.assertEqual(sum(isinstance(x, StorageError) for x in results), 1)
         self.assertEqual((await self.store.settings())["budget"]["used"], 2)
         await self.store.update_settings({"budget": {"limit": 3, "period": "month"}})
@@ -141,7 +161,7 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_export_is_bounded_scoped_and_formula_safe(self):
         await self.store.update_settings({"history_enabled": True})
-        self.turn(assistant_text="=HYPERLINK(\"test\")")
+        self.turn(assistant_text='=HYPERLINK("test")')
         await self.store.flush()
         body, mime = await self.store.export({"table": "turns", "limit": 1}, "csv")
         rows = list(csv.DictReader(io.StringIO(body.decode("utf-8-sig"))))

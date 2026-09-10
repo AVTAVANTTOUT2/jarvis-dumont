@@ -47,6 +47,19 @@ class PassiveContextBuffer:
         self._entries.clear()
         self._chars = 0
 
+    def snapshot(self, source: str) -> list[dict[str, object]]:
+        self._evict()
+        now = self.clock()
+        return [
+            {
+                "text": text,
+                "source": source,
+                "age_s": max(0, now - created),
+                "expires_in_s": max(0, self.seconds - (now - created)),
+            }
+            for created, text in self._entries
+        ]
+
     def recent(self, *, max_chars: int = 4000, max_utterances: int = 20) -> str:
         self._evict()
         if max_chars < 1 or max_utterances < 1:

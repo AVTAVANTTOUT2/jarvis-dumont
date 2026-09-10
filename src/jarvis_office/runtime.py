@@ -150,14 +150,25 @@ def status() -> dict[str, Any]:
             "Content-Type": "application/json",
         }
         try:
-            connection.request("POST", "/bootstrap", "{}", headers)
+            private = record.get("dashboard") == "private-v1"
+            connection.request(
+                "GET" if private else "POST",
+                "/api/bootstrap" if private else "/bootstrap",
+                None if private else "{}",
+                headers,
+            )
             response = connection.getresponse()
             cookie = response.getheader("Set-Cookie", "").split(";", 1)[0]
             if response.status != 200 or len(cookie) > 256:
                 return result
             response.read(1024)
             headers["Cookie"] = cookie
-            connection.request("POST", "/snapshot", "{}", headers)
+            connection.request(
+                "GET" if private else "POST",
+                "/api/state" if private else "/snapshot",
+                None if private else "{}",
+                headers,
+            )
             response = connection.getresponse()
             data = response.read(65537)
             if response.status != 200 or len(data) > 65536:

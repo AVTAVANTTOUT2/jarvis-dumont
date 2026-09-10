@@ -1,5 +1,11 @@
 # Parallel Echo scope
 
+Private service delivery explicitly supersedes the former release deferral:
+one shared VoiceLoop, authenticated WSS, loopback dashboard and local SQLite.
+The integrator owns shared files, runtime activation and all hardware tests.
+Keep the existing STT/TTS/voice/audio profile, V1 isolation and voluntary capture.
+PRIVATE_CONTRACT.md defines the product interfaces; research history is retained.
+
 User-authorized ECHO-01 exception to the parent phase-06 deferral: implement only isolated Echo gateway modules and dedicated tests. Keep Android in its separate repository. Do not modify shared voice/runtime/service files or merge this branch into release without coordination.
 
 ECHO-02C explicitly authorizes the minimal shared VoiceLoop/audio-source adaptation in its isolated stacked worktree. Keep the selected STT, VAD policy, DeepSeek model, TTS engine, release current and main LaunchAgent unchanged. No copied VoiceLoop. Echo requires an explicit Ethernet endpoint and fails closed if that path disappears. The qualified profile is PCM16 mono, 16 kHz up / 48 kHz down, 20 ms, original gain, MEDIA playback, 100 ms prefill; do not tune it to mask Wi-Fi jitter. The independent acoustic capture campaign owns its processes and hardware windows.

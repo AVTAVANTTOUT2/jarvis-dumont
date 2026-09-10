@@ -1,10 +1,11 @@
 # Jarvis Office
 
-Assistant vocal personnel indépendant : Blue Snowball → Silero → faster-whisper turbo
-CPU → DeepSeek Flash streaming → Qwen3/profil privé → haut-parleurs Mac mini.
-Cinq tours matériels et le timbre ont été validés humainement en phase 05C.
-Phase 06 : candidate locale ; qualification STT, latence et droits/provenances restent
-ouverts. Voir PROJECT_STATE.md. TV et Echo Show : DEFERRED.
+Assistant vocal privé : Echo Show 5 Kotlin → gateway Ethernet/WSS → VoiceLoop
+unique, STT nominal configuré, DeepSeek Flash et Qwen3/voix privée sur Mac.
+Dashboard loopback, historique local optionnel et explorateur SQLite.
+Voir [exploitation privée](PRIVATE_OPERATIONS.md), [contrat](PRIVATE_CONTRACT.md)
+et [état vérifié](PROJECT_STATE.md). Les échecs STT et limites de lecture historiques
+restent ouverts ; la livraison privée ne constitue pas une homologation audio.
 
 Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
 

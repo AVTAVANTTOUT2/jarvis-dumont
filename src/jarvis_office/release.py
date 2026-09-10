@@ -5,6 +5,7 @@ import json
 import os
 import platform
 import re
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -135,6 +136,13 @@ def activate(name: str) -> dict[str, Any]:
     lock = Instance()
     try:
         result = verify(name)
+        database = private_root() / "data/office.sqlite3"
+        if database.exists():
+            manifest = json.loads((target(name) / "release.json").read_text())
+            with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
+                schema = connection.execute("PRAGMA user_version").fetchone()[0]
+            if schema > manifest.get("sqlite_schema_max", 0):
+                raise ConfigError("release_database_schema_incompatible")
         previous = active_name()
         if previous != name:
             if previous is not None:
@@ -217,7 +225,7 @@ def build(source: Path, uv: Path, config: Config) -> dict[str, Any]:
                 str(requirements),
             ]
             if role == "main":
-                args += ["--extra", "chat"]
+                args += ["--extra", "private"]
             command(args, cwd=project)
             shutil.copyfile(project / "uv.lock", directory / (role + ".lock"))
             command(
@@ -281,6 +289,7 @@ def build(source: Path, uv: Path, config: Config) -> dict[str, Any]:
             "name": name,
             "sha": sha,
             "version": version,
+            "sqlite_schema_max": 1,
             "assets": assets,
             "built_utc": datetime.now(UTC).isoformat(),
             "platform": platform.platform(),

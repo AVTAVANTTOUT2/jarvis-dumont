@@ -36,6 +36,8 @@ class VoiceLoop:
     ) -> None:
         self.config, self.path, self.chat = config, path, chat
         self.transcript_context = transcript_context
+        self.on_turn_finished: Any = None
+        self.archive_generation: Any = None
         self.session = uuid.uuid4().hex
         self.turn = ""
         self.audio = audio or AudioClient(config, path, self.session, self.audio_event)
@@ -393,6 +395,10 @@ class VoiceLoop:
                     )
                     self.results.append(dict(self.metrics))
                     del self.results[:-20]
+                    if self.on_turn_finished is not None:
+                        self.on_turn_finished(
+                            identifier, text, self.answer, prefix, dict(self.metrics)
+                        )
 
                 finalizer = asyncio.create_task(finalize())
                 interrupted = False

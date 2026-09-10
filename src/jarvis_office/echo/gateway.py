@@ -55,9 +55,19 @@ class Settings:
     api_request_limit: int = 8
     report_file: str = ""
     acoustic_tail_ms: int = 600
+    private_product: bool = False
+    dashboard_port: int = 8768
 
     def validate(self) -> None:
         address = ipaddress.ip_address(self.bind)
+        if self.private_product and (
+            not self.live_pipeline
+            or self.security != "SECURE_RELEASE"
+            or not 1024 <= self.dashboard_port <= 65535
+            or self.dashboard_port == self.port
+            or self.test_audio
+        ):
+            raise ValueError("PRIVATE_SECURE_LIVE_REQUIRED")
         if type(self.api_request_limit) is not int or not 1 <= self.api_request_limit <= 10:
             raise ValueError("INVALID_ECHO_REQUEST_LIMIT")
         if self.network_path not in {"EXPLICIT_BIND", "ETHERNET_REQUIRED"}:
@@ -147,6 +157,19 @@ class Session:
     server_state: str = "TRANSPORT_ONLY"
     clock_offset_ns: int | None = None
     timings: dict[str, deque[float]] = field(default_factory=dict)
+    capabilities: set[str] = field(default_factory=set)
+    requested_mode: str = "OFF"
+    generation: int = 0
+    command_id: str = ""
+    microphone: bool | None = None
+    playing: bool | None = None
+    playback_frames: int | None = None
+    physical_stream: int = 0
+    physical_at: float = 0
+    command_acks: dict[str, dict[str, Any]] = field(default_factory=dict)
+    envelope_queue: deque[tuple[int, str, int, float]] = field(
+        default_factory=lambda: deque(maxlen=25)
+    )
 
     def observe(self, name: str, value: float) -> None:
         self.timings.setdefault(name, deque(maxlen=512)).append(value)
@@ -227,7 +250,7 @@ class EchoGateway:
                     or request.headers.get("X-Echo-Session") != session.id
                 ):
                     return connection.respond(HTTPStatus.FORBIDDEN, "INVALID_AUDIO_SESSION\n")
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             return connection.respond(HTTPStatus.UNAUTHORIZED, "PAIRING_REQUIRED\n")
         return None
 
@@ -336,6 +359,15 @@ class EchoGateway:
             async with asyncio.timeout(5):
                 hello = control(await socket.recv(), "", session.rx)
             p = hello["payload"]
+            capabilities = p.get("capabilities", [])
+            if isinstance(capabilities, list):
+                session.capabilities = {
+                    cap
+                    for cap in capabilities
+                    if isinstance(cap, str) and cap in {"private_state_v1", "playback_envelope_v1"}
+                }
+            if self.settings.private_product and "private_state_v1" not in session.capabilities:
+                raise ValueError("PRIVATE_CLIENT_REQUIRED")
             if hello["type"] != "hello" or VERSION not in p.get("supported_protocol_versions", []):
                 raise ValueError("PROTOCOL_INCOMPATIBLE")
             if self.settings.playback_prefill_ms != 20 and p.get("playback_prefill") is not True:
@@ -371,6 +403,7 @@ class EchoGateway:
                     "live_turns": self.settings.live_pipeline,
                     "playback_usage": 1 if self.settings.live_pipeline else 2,
                     "playback_prefill_ms": self.settings.playback_prefill_ms,
+                    "capabilities": sorted(session.capabilities),
                 },
             )
             await session.send("state", session.snapshot())

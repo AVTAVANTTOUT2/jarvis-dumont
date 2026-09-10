@@ -15,7 +15,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.11.29'
-      - run: uv sync --locked --extra chat --no-python-downloads
+      - run: uv sync --locked --extra private --no-python-downloads
       - run: uv pip install --python .venv/bin/python -r src/jarvis_office/echo/requirements.txt
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .

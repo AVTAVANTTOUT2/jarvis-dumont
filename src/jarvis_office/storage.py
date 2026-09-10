@@ -17,15 +17,30 @@ from pathlib import Path
 from typing import Any
 
 TABLES = (
-    "devices", "sessions", "turns", "events", "preferences", "passive_archives",
+    "devices",
+    "sessions",
+    "turns",
+    "events",
+    "preferences",
+    "passive_archives",
     "schema_migrations",
 )
 SCHEMA_VERSION = 1
 DEFAULTS: dict[str, Any] = {
-    "history_enabled": False, "retention_days": 30, "history_started_at": None,
-    "archive_passive": False, "passive_retention_days": 1, "backup_retention_days": 7,
-    "generation": 0, "budget": {"limit": None, "period": "month", "used": 0,
-                                 "period_started_at": None, "exhaustion": "block"},
+    "history_enabled": False,
+    "retention_days": 30,
+    "history_started_at": None,
+    "archive_passive": False,
+    "passive_retention_days": 1,
+    "backup_retention_days": 7,
+    "generation": 0,
+    "budget": {
+        "limit": None,
+        "period": "month",
+        "used": 0,
+        "period_started_at": None,
+        "exhaustion": "block",
+    },
 }
 SCHEMA = """
 BEGIN IMMEDIATE;
@@ -83,9 +98,18 @@ def _identifier(value: str) -> str:
 def redact(value: Any) -> Any:
     """Redact credential-shaped values, including accidental content in exports."""
     if isinstance(value, dict):
-        return {str(k): ("[EXPURGÉ]" if re.search(
-            r"secret|token|password|authorization|private.?key|api.?key|pin.?hash", str(k), re.I
-        ) else redact(v)) for k, v in value.items()}
+        return {
+            str(k): (
+                "[EXPURGÉ]"
+                if re.search(
+                    r"secret|token|password|authorization|private.?key|api.?key|pin.?hash",
+                    str(k),
+                    re.I,
+                )
+                else redact(v)
+            )
+            for k, v in value.items()
+        }
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, str):
@@ -93,7 +117,8 @@ def redact(value: Any) -> Any:
         value = re.sub(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [EXPURGÉ]", value)
         return re.sub(
             r"(?i)\b(api[_-]?key|password|secret|token)\s*[:=]\s*[^\s,;]+",
-            r"\1=[EXPURGÉ]", value,
+            r"\1=[EXPURGÉ]",
+            value,
         )
     return value
 
@@ -101,8 +126,9 @@ def redact(value: Any) -> Any:
 class OfficeStore:
     def __init__(self, path: Path, *, queue_size: int = 128) -> None:
         self.path = Path(path)
-        self.queue: asyncio.Queue[tuple[Callable[..., Any], tuple[Any, ...],
-                                       asyncio.Future[Any] | None]] = asyncio.Queue(queue_size)
+        self.queue: asyncio.Queue[
+            tuple[Callable[..., Any], tuple[Any, ...], asyncio.Future[Any] | None]
+        ] = asyncio.Queue(queue_size)
         self.worker: asyncio.Task[None] | None = None
         self.generation = 0
         self.error: str | None = None
@@ -145,12 +171,15 @@ class OfficeStore:
             db.execute("PRAGMA journal_mode=DELETE")
             db.executescript(SCHEMA)
             with db:
-                db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (?,?)",
-                           (SCHEMA_VERSION, utc_now()))
+                db.execute(
+                    "INSERT OR IGNORE INTO schema_migrations VALUES (?,?)",
+                    (SCHEMA_VERSION, utc_now()),
+                )
                 db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                 for key, value in DEFAULTS.items():
-                    db.execute("INSERT OR IGNORE INTO preferences VALUES (?,?)",
-                               (key, _json(value)))
+                    db.execute(
+                        "INSERT OR IGNORE INTO preferences VALUES (?,?)", (key, _json(value))
+                    )
             self._retain(db)
             return int(self._settings(db)["generation"])
         finally:
@@ -224,15 +253,23 @@ class OfficeStore:
         self.ready = False
 
     def status(self) -> dict[str, Any]:
-        return {"ready": self.ready, "error": self.error, "queue_depth": self.queue.qsize(),
-                "sqlite_version": sqlite3.sqlite_version, "journal_mode": "delete",
-                "schema_version": SCHEMA_VERSION, "generation": self.generation}
+        return {
+            "ready": self.ready,
+            "error": self.error,
+            "queue_depth": self.queue.qsize(),
+            "sqlite_version": sqlite3.sqlite_version,
+            "journal_mode": "delete",
+            "schema_version": SCHEMA_VERSION,
+            "generation": self.generation,
+        }
 
     @staticmethod
     def _settings(db: sqlite3.Connection) -> dict[str, Any]:
-        return {r["key"]: json.loads(r["value_json"]) for r in db.execute(
-            "SELECT key,value_json FROM preferences"
-        ) if r["key"] in DEFAULTS}
+        return {
+            r["key"]: json.loads(r["value_json"])
+            for r in db.execute("SELECT key,value_json FROM preferences")
+            if r["key"] in DEFAULTS
+        }
 
     async def settings(self) -> dict[str, Any]:
         return dict(await self._call(self._current_settings))
@@ -257,8 +294,14 @@ class OfficeStore:
             return dict(await self._call(self._update_settings, changes))
 
     def _update_settings(self, db: sqlite3.Connection, changes: dict[str, Any]) -> dict[str, Any]:
-        allowed = {"history_enabled", "retention_days", "archive_passive", "passive_retention_days",
-                   "backup_retention_days", "budget"}
+        allowed = {
+            "history_enabled",
+            "retention_days",
+            "archive_passive",
+            "passive_retention_days",
+            "backup_retention_days",
+            "budget",
+        }
         if not changes or not changes.keys() <= allowed:
             raise StorageError("INVALID_SETTINGS")
         settings = self._current_settings(db)
@@ -270,12 +313,16 @@ class OfficeStore:
                 if type(value) is not int or not 1 <= value <= 365:
                     raise StorageError("INVALID_SETTINGS")
             elif key == "budget":
-                if (not isinstance(value, dict) or
-                        not value.keys() <= {"limit", "period", "exhaustion"}):
+                if not isinstance(value, dict) or not value.keys() <= {
+                    "limit",
+                    "period",
+                    "exhaustion",
+                }:
                     raise StorageError("INVALID_BUDGET")
                 merged = dict(settings["budget"], **value)
-                if (merged["limit"] is not None and
-                        (type(merged["limit"]) is not int or not 1 <= merged["limit"] <= 100000)):
+                if merged["limit"] is not None and (
+                    type(merged["limit"]) is not int or not 1 <= merged["limit"] <= 100000
+                ):
                     raise StorageError("INVALID_BUDGET")
                 if merged["period"] not in ("day", "month") or merged["exhaustion"] != "block":
                     raise StorageError("INVALID_BUDGET")
@@ -316,8 +363,11 @@ class OfficeStore:
 
     @staticmethod
     def _device(db: sqlite3.Connection, device_id: str, stamp: str) -> None:
-        db.execute("INSERT INTO devices VALUES (?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET "
-                   "last_seen_at=excluded.last_seen_at", (device_id, device_id, stamp, stamp))
+        db.execute(
+            "INSERT INTO devices VALUES (?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET "
+            "last_seen_at=excluded.last_seen_at",
+            (device_id, device_id, stamp, stamp),
+        )
 
     def register_device(self, device_id: str) -> bool:
         return self._enqueue(self._register_device, _identifier(device_id))
@@ -334,13 +384,23 @@ class OfficeStore:
     @staticmethod
     def _close_session(db: sqlite3.Connection, session: str, status: str) -> None:
         with db:
-            db.execute("UPDATE sessions SET ended_at=?,status=? WHERE session_id=?",
-                       (utc_now(), status, session))
+            db.execute(
+                "UPDATE sessions SET ended_at=?,status=? WHERE session_id=?",
+                (utc_now(), status, session),
+            )
 
     def record_turn(
-        self, device_id: str, session_id: str, turn_id: str, *, generation: int,
-        user_text: str, assistant_text: str = "", delivered_text: str = "",
-        status: str = "partial", metrics: dict[str, Any] | None = None,
+        self,
+        device_id: str,
+        session_id: str,
+        turn_id: str,
+        *,
+        generation: int,
+        user_text: str,
+        assistant_text: str = "",
+        delivered_text: str = "",
+        status: str = "partial",
+        metrics: dict[str, Any] | None = None,
     ) -> bool:
         if status not in ("complete", "partial", "interrupted", "error"):
             raise StorageError("INVALID_TURN_STATUS")
@@ -354,8 +414,17 @@ class OfficeStore:
         return self._enqueue(self._record_turn, *ids, generation, *texts, status, safe_metrics)
 
     def _record_turn(
-        self, db: sqlite3.Connection, device: str, session: str, turn: str, generation: int,
-        user: str, assistant: str, delivered: str, status: str, metrics: dict[str, Any],
+        self,
+        db: sqlite3.Connection,
+        device: str,
+        session: str,
+        turn: str,
+        generation: int,
+        user: str,
+        assistant: str,
+        delivered: str,
+        status: str,
+        metrics: dict[str, Any],
     ) -> None:
         settings = self._settings(db)
         if generation != self.generation or generation != settings["generation"]:
@@ -365,60 +434,109 @@ class OfficeStore:
         stamp = utc_now()
         with db:
             self._device(db, device, stamp)
-            db.execute("INSERT OR IGNORE INTO sessions VALUES (?,?,?,NULL,'open')",
-                       (session, device, stamp))
-            db.execute("INSERT INTO turns VALUES (?,?,?,?,?,?,?,?,?,?,?) "
-                       "ON CONFLICT(turn_id) DO UPDATE SET updated_at=excluded.updated_at,"
-                       "assistant_text=excluded.assistant_text,delivered_text=excluded.delivered_text,"
-                       "status=excluded.status,metrics_json=excluded.metrics_json",
-                       (turn, session, device, stamp, stamp, user, assistant, delivered, status,
-                        _json(metrics), generation))
+            db.execute(
+                "INSERT OR IGNORE INTO sessions VALUES (?,?,?,NULL,'open')",
+                (session, device, stamp),
+            )
+            db.execute(
+                "INSERT INTO turns VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(turn_id) DO UPDATE SET updated_at=excluded.updated_at,"
+                "assistant_text=excluded.assistant_text,delivered_text=excluded.delivered_text,"
+                "status=excluded.status,metrics_json=excluded.metrics_json",
+                (
+                    turn,
+                    session,
+                    device,
+                    stamp,
+                    stamp,
+                    user,
+                    assistant,
+                    delivered,
+                    status,
+                    _json(metrics),
+                    generation,
+                ),
+            )
         self._retain(db)
 
     def record_passive(
-        self, device_id: str, session_id: str, *, generation: int, text: str, source: str = "echo",
+        self,
+        device_id: str,
+        session_id: str,
+        *,
+        generation: int,
+        text: str,
+        source: str = "echo",
     ) -> bool:
-        return self._enqueue(self._record_passive, _identifier(device_id), _identifier(session_id),
-                             generation, redact(text[:20000]), _identifier(source))
+        return self._enqueue(
+            self._record_passive,
+            _identifier(device_id),
+            _identifier(session_id),
+            generation,
+            redact(text[:20000]),
+            _identifier(source),
+        )
 
     def _record_passive(
-        self, db: sqlite3.Connection, device: str, session: str, generation: int,
-        text: str, source: str,
+        self,
+        db: sqlite3.Connection,
+        device: str,
+        session: str,
+        generation: int,
+        text: str,
+        source: str,
     ) -> None:
         settings = self._settings(db)
-        if (generation != self.generation or generation != settings["generation"] or
-                not settings["archive_passive"]):
+        if (
+            generation != self.generation
+            or generation != settings["generation"]
+            or not settings["archive_passive"]
+        ):
             return
         stamp = utc_now()
-        expires = (datetime.now(UTC) + timedelta(
-            days=settings["passive_retention_days"]
-        )).isoformat()
+        expires = (
+            datetime.now(UTC) + timedelta(days=settings["passive_retention_days"])
+        ).isoformat()
         with db:
             self._device(db, device, stamp)
-            db.execute("INSERT INTO passive_archives VALUES (?,?,?,?,?,?,?,?)",
-                       (str(uuid.uuid4()), device, session, stamp, expires, text, source,
-                        generation))
+            db.execute(
+                "INSERT INTO passive_archives VALUES (?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), device, session, stamp, expires, text, source, generation),
+            )
         self._retain(db)
 
     def record_event(
-        self, kind: str, *, device_id: str | None = None, details: dict[str, Any] | None = None,
+        self,
+        kind: str,
+        *,
+        device_id: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> bool:
         payload = _json(redact(details or {}))
         if len(payload) > 4096:
             raise StorageError("EVENT_TOO_LARGE")
-        return self._enqueue(self._record_event, _identifier(kind),
-                             _identifier(device_id) if device_id else None, payload)
+        return self._enqueue(
+            self._record_event,
+            _identifier(kind),
+            _identifier(device_id) if device_id else None,
+            payload,
+        )
 
     def _record_event(
-        self, db: sqlite3.Connection, kind: str, device: str | None, data: str,
+        self,
+        db: sqlite3.Connection,
+        kind: str,
+        device: str | None,
+        data: str,
     ) -> None:
         stamp = utc_now()
         with db:
             if device:
                 self._device(db, device, stamp)
-            db.execute("INSERT INTO events(device_id,created_at,kind,details_json) "
-                       "VALUES (?,?,?,?)",
-                       (device, stamp, kind, data))
+            db.execute(
+                "INSERT INTO events(device_id,created_at,kind,details_json) VALUES (?,?,?,?)",
+                (device, stamp, kind, data),
+            )
         self._retain(db)
 
     def _retain(self, db: sqlite3.Connection) -> None:
@@ -427,16 +545,24 @@ class OfficeStore:
         oldest = (now - timedelta(days=settings["retention_days"])).isoformat()
         with db:
             db.execute("DELETE FROM turns WHERE created_at < ?", (oldest,))
-            db.execute("DELETE FROM sessions WHERE NOT EXISTS "
-                       "(SELECT 1 FROM turns WHERE turns.session_id=sessions.session_id)")
+            db.execute(
+                "DELETE FROM sessions WHERE NOT EXISTS "
+                "(SELECT 1 FROM turns WHERE turns.session_id=sessions.session_id)"
+            )
             db.execute("DELETE FROM events WHERE created_at < ?", (oldest,))
-            db.execute("DELETE FROM events WHERE event_id NOT IN "
-                       "(SELECT event_id FROM events ORDER BY event_id DESC LIMIT 10000)")
+            db.execute(
+                "DELETE FROM events WHERE event_id NOT IN "
+                "(SELECT event_id FROM events ORDER BY event_id DESC LIMIT 10000)"
+            )
             passive_oldest = (now - timedelta(days=settings["passive_retention_days"])).isoformat()
-            db.execute("DELETE FROM passive_archives WHERE expires_at < ? OR created_at < ?",
-                       (now.isoformat(), passive_oldest))
-            db.execute("DELETE FROM passive_archives WHERE id NOT IN "
-                       "(SELECT id FROM passive_archives ORDER BY created_at DESC LIMIT 10000)")
+            db.execute(
+                "DELETE FROM passive_archives WHERE expires_at < ? OR created_at < ?",
+                (now.isoformat(), passive_oldest),
+            )
+            db.execute(
+                "DELETE FROM passive_archives WHERE id NOT IN "
+                "(SELECT id FROM passive_archives ORDER BY created_at DESC LIMIT 10000)"
+            )
         backups = self.path.parent / "backups"
         if backups.is_dir() and not backups.is_symlink():
             cutoff = time.time() - settings["backup_retention_days"] * 86400
@@ -454,20 +580,34 @@ class OfficeStore:
 
     def _purge(self, db: sqlite3.Connection, scope: str, generation: int) -> dict[str, Any]:
         with db:
-            db.execute("UPDATE preferences SET value_json=? WHERE key='generation'",
-                       (_json(generation),))
-            cursor = db.execute("DELETE FROM sessions" if scope == "conversations"
-                                else "DELETE FROM passive_archives")
-        return {"scope": scope, "deleted": cursor.rowcount, "generation": generation,
-                "exported_copies_unchanged": True}
+            db.execute(
+                "UPDATE preferences SET value_json=? WHERE key='generation'", (_json(generation),)
+            )
+            cursor = db.execute(
+                "DELETE FROM sessions"
+                if scope == "conversations"
+                else "DELETE FROM passive_archives"
+            )
+        return {
+            "scope": scope,
+            "deleted": cursor.rowcount,
+            "generation": generation,
+            "exported_copies_unchanged": True,
+        }
 
     @staticmethod
     def _columns(db: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
         if table not in TABLES:
             raise StorageError("UNKNOWN_TABLE")
-        return [{"name": r["name"], "type": r["type"],
-                 "nullable": not bool(r["notnull"] or r["pk"]), "primary_key": bool(r["pk"])}
-                for r in db.execute(f'PRAGMA table_info("{table}")')]
+        return [
+            {
+                "name": r["name"],
+                "type": r["type"],
+                "nullable": not bool(r["notnull"] or r["pk"]),
+                "primary_key": bool(r["pk"]),
+            }
+            for r in db.execute(f'PRAGMA table_info("{table}")')
+        ]
 
     @staticmethod
     def _deadline(db: sqlite3.Connection) -> None:
@@ -481,12 +621,23 @@ class OfficeStore:
         self._retain(db)
         self._deadline(db)
         stamp = utc_now()
-        tables = [{"name": table, "columns": self._columns(db, table),
-                   "count": db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0],
-                   "counted_at": stamp} for table in TABLES]
-        return {"tables": tables, "restricted": [{"name": "sqlite_schema",
-                "reason": "Métadonnées système"}, {"name": "credentials",
-                "reason": "Secrets conservés hors base métier"}], "reports": []}
+        tables = [
+            {
+                "name": table,
+                "columns": self._columns(db, table),
+                "count": db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0],
+                "counted_at": stamp,
+            }
+            for table in TABLES
+        ]
+        return {
+            "tables": tables,
+            "restricted": [
+                {"name": "sqlite_schema", "reason": "Métadonnées système"},
+                {"name": "credentials", "reason": "Secrets conservés hors base métier"},
+            ],
+            "reports": [],
+        }
 
     async def rows(self, **query: Any) -> dict[str, Any]:
         return dict(await self._call(self._rows, query, 100))
@@ -501,9 +652,14 @@ class OfficeStore:
         sort = query.get("sort") or next(c["name"] for c in columns if c["primary_key"])
         direction = query.get("direction", "asc")
         limit, offset = query.get("limit", 50), query.get("offset", 0)
-        if (type(limit) is not int or type(offset) is not int or
-                not 1 <= limit <= maximum or not 0 <= offset <= 1000000 or
-                sort not in names or direction not in ("asc", "desc")):
+        if (
+            type(limit) is not int
+            or type(offset) is not int
+            or not 1 <= limit <= maximum
+            or not 0 <= offset <= 1000000
+            or sort not in names
+            or direction not in ("asc", "desc")
+        ):
             raise StorageError("INVALID_QUERY")
         filters = query.get("filters", [])
         if not isinstance(filters, list) or len(filters) > 8:
@@ -522,13 +678,14 @@ class OfficeStore:
                     raise StorageError("INVALID_FILTER")
                 clauses.append(f'"{col}" IS ' + ("NULL" if value else "NOT NULL"))
                 continue
-            if ((names[col]["type"] == "INTEGER" and type(value) is not int) or
-                    (names[col]["type"] == "TEXT" and not isinstance(value, str))):
+            if (names[col]["type"] == "INTEGER" and type(value) is not int) or (
+                names[col]["type"] == "TEXT" and not isinstance(value, str)
+            ):
                 raise StorageError("INVALID_FILTER_TYPE")
             if isinstance(value, str) and len(value) > 512:
                 raise StorageError("INVALID_FILTER")
             if op == "contains" and names[col]["type"] == "TEXT":
-                clauses.append(f'"{col}" LIKE ? ESCAPE \'\\\'')
+                clauses.append(f"\"{col}\" LIKE ? ESCAPE '\\'")
                 values.append("%" + self._like(str(value)) + "%")
             elif op in ops:
                 clauses.append(f'"{col}" {ops[op]} ?')
@@ -540,15 +697,17 @@ class OfficeStore:
             raise StorageError("INVALID_QUERY")
         if search:
             text_names = [c["name"] for c in columns if c["type"] == "TEXT"]
-            clauses.append("(" + " OR ".join(
-                f'"{c}" LIKE ? ESCAPE \'\\\'' for c in text_names
-            ) + ")")
+            clauses.append(
+                "(" + " OR ".join(f"\"{c}\" LIKE ? ESCAPE '\\'" for c in text_names) + ")"
+            )
             values.extend(["%" + self._like(search) + "%"] * len(text_names))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         self._deadline(db)
         total = db.execute(f'SELECT COUNT(*) FROM "{table}"{where}', values).fetchone()[0]
-        records = db.execute(f'SELECT * FROM "{table}"{where} ORDER BY "{sort}" {direction} '
-                             'LIMIT ? OFFSET ?', [*values, limit, offset])
+        records = db.execute(
+            f'SELECT * FROM "{table}"{where} ORDER BY "{sort}" {direction} LIMIT ? OFFSET ?',
+            [*values, limit, offset],
+        )
         rows = []
         size = 0
         for record in records:
@@ -557,9 +716,16 @@ class OfficeStore:
             if size > 4 * 1024 * 1024:
                 raise StorageError("QUERY_RESULT_TOO_LARGE_REDUCE_PAGE")
             rows.append(row)
-        return {"table": table, "columns": columns, "rows": rows, "total": total,
-                "limit": limit, "offset": offset, "truncated": offset + len(rows) < total,
-                "measured_at": utc_now()}
+        return {
+            "table": table,
+            "columns": columns,
+            "rows": rows,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "truncated": offset + len(rows) < total,
+            "measured_at": utc_now(),
+        }
 
     @staticmethod
     def _like(value: str) -> str:
@@ -567,8 +733,12 @@ class OfficeStore:
 
     @staticmethod
     def _row_json(row: sqlite3.Row) -> dict[str, Any]:
-        return {key: json.loads(row[key]) if key.endswith("_json") and row[key] is not None
-                else row[key] for key in row.keys()}
+        return {
+            key: json.loads(row[key])
+            if key.endswith("_json") and row[key] is not None
+            else row[key]
+            for key in row.keys()
+        }
 
     async def row(self, table: str, identifier: str) -> dict[str, Any]:
         return dict(await self._call(self._row, table, identifier))
@@ -598,8 +768,10 @@ class OfficeStore:
             cells = []
             for name in names:
                 value = row[name]
-                cell = _json(value) if isinstance(value, dict | list) else (
-                    "NULL" if value is None else str(value)
+                cell = (
+                    _json(value)
+                    if isinstance(value, dict | list)
+                    else ("NULL" if value is None else str(value))
                 )
                 if cell.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
                     cell = "'" + cell
@@ -640,9 +812,11 @@ class OfficeStore:
 
     @staticmethod
     def _validate_backup(db: sqlite3.Connection) -> None:
-        if (db.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or
-                db.execute("PRAGMA foreign_key_check").fetchone() is not None or
-                db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION):
+        if (
+            db.execute("PRAGMA integrity_check").fetchone()[0] != "ok"
+            or db.execute("PRAGMA foreign_key_check").fetchone() is not None
+            or db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
+        ):
             raise StorageError("BACKUP_INVALID")
 
     @staticmethod

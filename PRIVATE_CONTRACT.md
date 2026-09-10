@@ -46,6 +46,8 @@ budget, storage, versions, alerts}`.
 ring <=256, snapshot si curseur perdu ; consultation sans activation audio.
 `POST /api/command` => `{device_id,action: set_mode|interrupt|clear_context,
 mode?,command_id}` ; même gateway.command que l'APK.
+Action administrateur `preview_voice` uniquement : phrase TTS locale fixe,
+mode OFF et capture fermée ; aucun appel cloud. Aucun token Echo ne peut l'appeler.
 `GET /api/context?device_id=...` => `{entries:[{text,source,age_s,expires_in_s}],
 limits:{seconds,chars,utterances},archive_enabled,next_turn_max_chars:3500}`.
 `GET /api/settings` / `POST /api/settings` => préférences non secrètes et budget.

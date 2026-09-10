@@ -14,10 +14,13 @@ from .protocol import Packet, Sequence
 
 
 class RemoteEchoEgress:
-    def __init__(self, session: Session, settings: Settings, turn: str, rate: int) -> None:
+    def __init__(
+        self, session: Session, settings: Settings, turn: str, rate: int, *, audition: bool = False
+    ) -> None:
         import soxr
 
         self.session, self.settings, self.turn = session, settings, turn
+        self.audition = audition
         self.identity = session.id
         self.uplink = session.up_stream
         self.stream = secrets.randbits(63) or 1
@@ -39,7 +42,7 @@ class RemoteEchoEgress:
             self.closed
             or turn != self.turn
             or not s.alive
-            or s.mode == "OFF"
+            or (s.mode == "OFF" and not self.audition)
             or s.id != self.identity
             or s.current_turn != turn
             or s.down_stream != self.stream
@@ -50,7 +53,7 @@ class RemoteEchoEgress:
 
     async def start(self) -> dict[str, Any]:
         s = self.session
-        if not s.alive or not s.audio or s.mode == "OFF" or s.down_stream:
+        if not s.alive or not s.audio or (s.mode == "OFF" and not self.audition) or s.down_stream:
             raise LoopError("remote_output_unavailable")
         s.current_turn, s.down_stream = self.turn, self.stream
         s.playback_ready.clear()
@@ -81,6 +84,13 @@ class RemoteEchoEgress:
             while len(self.pending) >= 1920:
                 payload = bytes(self.pending[:1920])
                 del self.pending[:1920]
+                if "playback_envelope_v1" in self.session.capabilities:
+                    # Side-channel only: bounded work, no await or influence on PCM scheduling.
+                    values = np.frombuffer(payload, dtype="<i2").astype(np.float32) / 32768
+                    energy = min(1.0, float(np.sqrt(np.mean(values * values))) * 6)
+                    self.session.envelope_queue.append(
+                        (self.stream, self.turn, self.sequence * 960, round(energy, 4))
+                    )
                 self.check(self.turn)
                 now = time.perf_counter()
                 if self.start_at is None:
@@ -198,6 +208,7 @@ class RemoteEchoEgress:
         self.pending.clear()
         if self.session.id == self.identity and self.session.down_stream == self.stream:
             self.session.down_stream = 0
+        self.session.envelope_queue.clear()
 
 
 class RemoteEchoAudio:
@@ -212,6 +223,7 @@ class RemoteEchoAudio:
         self.egress: RemoteEchoEgress | None = None
         self.listen_owner: tuple[str, int, str] | None = None
         self.listen_context_epoch = 0
+        self.listen_storage_generation = 0
 
     @property
     def session(self) -> str:
@@ -273,6 +285,9 @@ class RemoteEchoAudio:
             s.first_capture = s.first_receive = 0
             self.listen_owner = (s.id, s.up_stream, turn)
             self.listen_context_epoch = s.context_epoch
+            self.listen_storage_generation = (
+                self.voice.archive_generation() if self.voice.archive_generation else 0
+            )
             s.current_turn = ""
             await s.send("audio_start", {"stream_id": s.up_stream})
             try:
