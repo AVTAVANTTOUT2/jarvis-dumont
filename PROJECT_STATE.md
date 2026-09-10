@@ -1,5 +1,25 @@
 # État du projet
 
+## Cohérence de santé privée — candidate du 11 septembre 2026
+
+- La CLI et le dashboard installés interrogent le même gateway 0.3.0, identifié
+  par son verrou, son PID/démarrage et les sockets qu'il possède. Le défaut
+  `instance_session_mismatch` compare la session conversationnelle initiale du
+  verrou à une session renouvelée sans redémarrage serveur.
+- Correction ciblée : publier et vérifier le `server_epoch` déjà présent dans
+  le protocole privé. Les contrôles de propriétaire/PID restent obligatoires ;
+  ancienne métadonnée et autre instance restent refusées. Les tests couvrent
+  redémarrage, reconnexion Echo et changement de conversation.
+- Release active, APK, WSS, appairage, profils audio et budgets inchangés.
+  Cette correction est candidate, sans activation de `current` ni fusion
+  automatique. Le défaut de la CLI installée demeure jusqu'à activation
+  autorisée ; ce n'est pas un PASS hérité des tests de la candidate.
+- Les tests PASSIVE utilisent les doubles existants, sans capture ni cloud :
+  contexte RAM non adressé, données distinctes du système, suppression du
+  self-echo, refus des générations périmées et effacement. Le test humain reste
+  soumis à l'action explicite du propriétaire via le smoke déjà disponible.
+  Preuves courantes et budgets : bilan privé `private-v1/health-review.json`.
+
 ## Mise en service privée — 10 septembre 2026
 
 - `APPLICATION_DEPLOYED`, `APK_INSTALLED`, `DASHBOARD_AVAILABLE`,

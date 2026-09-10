@@ -174,7 +174,13 @@ def status() -> dict[str, Any]:
             if response.status != 200 or len(data) > 65536:
                 return result
             snapshot = json.loads(data)
-            if snapshot.get("session") != record.get("session"):
+            if private:
+                epoch = record.get("server_epoch")
+                if not isinstance(epoch, str) or not re.fullmatch(r"[0-9a-f]{32}", epoch):
+                    return {**result, "status": "FAIL", "error": "instance_epoch_missing"}
+                if snapshot.get("server_epoch") != epoch:
+                    return {**result, "status": "FAIL", "error": "instance_epoch_mismatch"}
+            elif snapshot.get("session") != record.get("session"):
                 return {**result, "status": "FAIL", "error": "instance_session_mismatch"}
             return {**result, **health(snapshot), "http_loopback": True, "status": "PASS"}
         except (OSError, ValueError, http.client.HTTPException):
