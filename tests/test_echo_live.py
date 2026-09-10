@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -260,6 +261,12 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(len(p.pcm) for p in self.endpoint.packets), 48000)
         self.assertEqual(output.progress("credit-turn")["free_source_bytes"], 24000)
         await output.drained("credit-turn")
+
+    async def test_request_limit_is_explicit_and_never_above_ten(self):
+        self.assertEqual(self.settings.api_request_limit, 8)
+        replace(self.settings, api_request_limit=10).validate()
+        with self.assertRaisesRegex(ValueError, "INVALID_ECHO_REQUEST_LIMIT"):
+            replace(self.settings, api_request_limit=11).validate()
 
     async def test_off_reaches_client_before_worker_drain(self):
         self.s.mode = "ACTIVE"

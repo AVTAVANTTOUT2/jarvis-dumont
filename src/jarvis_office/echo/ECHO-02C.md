@@ -22,6 +22,7 @@ playback_prefill_ms = 100
 acoustic_tail_ms = 600
 voice_config = "/PRIVATE/voice.toml"
 api_budget_file = "/PRIVATE/echo-api-budget.json"
+api_request_limit = 8
 report_file = "/PRIVATE/echo-live-status.json"
 ```
 
@@ -29,7 +30,7 @@ report_file = "/PRIVATE/echo-live-status.json"
 
 The listener uses Darwin `IP_BOUND_IF`, checks the inherited interface on accepted sockets and monitors link/address availability. Loss emits `NETWORK_PATH_UNAVAILABLE`, closes the owned sessions/listener and never switches to Wi-Fi. It does not alter global macOS routing or Echo Wi-Fi. Before each physical window verify the interface/link/address and actual socket endpoint again.
 
-Run an installed non-editable wheel, with matching code signatures in main/STT/TTS environments, using `python -I -B -m jarvis_office.echo.gateway --config /PRIVATE/echo.toml`. Preserve each existing worker interpreter/dependency set and model bundle. The release pointer and main LaunchAgent are untouched. SIGINT/SIGTERM close owned sessions and workers. Startup never opens a microphone; device mode starts OFF. A separate private, persistent ECHO-02C request budget reserves before HTTP, at most eight real attempts across restarts, with no automatic retry or reset; phase 06's budget stays unchanged.
+Run an installed non-editable wheel, with matching code signatures in main/STT/TTS environments, using `python -I -B -m jarvis_office.echo.gateway --config /PRIVATE/echo.toml`. Preserve each existing worker interpreter/dependency set and model bundle. The release pointer and main LaunchAgent are untouched. SIGINT/SIGTERM close owned sessions and workers. Startup never opens a microphone; device mode starts OFF. A separate private, persistent ECHO-02C request budget reserves before HTTP, default eight real attempts across restarts, with no automatic retry or reset; phase 06's budget stays unchanged. An explicitly authorized ceiling can be configured up to ten; changing it requires matching private counter metadata while preserving all consumed attempts. The application never replenishes or raises that counter automatically.
 
 Protocol 1 requires explicit `live_turns` capability on both sides. Older clients receive `PROTOCOL_INCOMPATIBLE`; there is no silent live fallback. MEDIA usage and 100 ms prefill are announced and checked by the development APK. AudioTrack allocation, gain, frame size and TCP settings are unchanged from the A/B reference.
 

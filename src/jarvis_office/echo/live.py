@@ -202,7 +202,10 @@ async def run_live(settings: Settings) -> None:
         ),
     )
     reserve = functools.partial(
-        reserve_validation_request, path=budget_path, phase="ECHO-02C", limit=8
+        reserve_validation_request,
+        path=budget_path,
+        phase="ECHO-02C",
+        limit=settings.api_request_limit,
     )
     # Existing Office instance lock also excludes a simultaneous local microphone conversation.
     instance = Instance()

@@ -52,11 +52,14 @@ class Settings:
     live_pipeline: bool = False
     voice_config: str = ""
     api_budget_file: str = ""
+    api_request_limit: int = 8
     report_file: str = ""
     acoustic_tail_ms: int = 600
 
     def validate(self) -> None:
         address = ipaddress.ip_address(self.bind)
+        if type(self.api_request_limit) is not int or not 1 <= self.api_request_limit <= 10:
+            raise ValueError("INVALID_ECHO_REQUEST_LIMIT")
         if self.network_path not in {"EXPLICIT_BIND", "ETHERNET_REQUIRED"}:
             raise ValueError("INVALID_NETWORK_PATH")
         if self.network_path == "ETHERNET_REQUIRED" and not re.fullmatch(
