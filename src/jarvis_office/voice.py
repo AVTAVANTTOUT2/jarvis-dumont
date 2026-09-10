@@ -63,6 +63,8 @@ class VoiceLoop:
         self.audio_offset = 0.0
         self.audio_clock_uncertainty = 0.0
         self.stt_deadline: float | None = None
+        self.abort_turn: str | None = None
+        self.abort_task: asyncio.Task[dict[str, Any]] | None = None
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -137,13 +139,17 @@ class VoiceLoop:
             self.state, self.error = "error", "engine_startup_failed"
             raise
 
-    def _progress(self, result: dict[str, Any]) -> None:
+    def _progress(self, result: dict[str, Any], identifier: str, *, final: bool = False) -> None:
+        if self.metrics.get("turn") != identifier or (self.turn != identifier and not final):
+            return
         if result.get("error"):
             raise LoopError(str(result["error"]))
         completed = result.get("completed_segments", [])
         if completed != list(range(1, len(completed) + 1)):
             raise LoopError("invalid_playback_confirmation")
-        self.completed = list(completed)
+        # Concurrent progress replies can contain older, shorter snapshots.
+        if len(completed) > len(self.completed):
+            self.completed = list(completed)
         for key in ("first_converted", "first_driver", "first_dac_estimate", "last_dac_estimate"):
             value = result.get(key)
             if value is not None:
@@ -156,8 +162,20 @@ class VoiceLoop:
                 self.metrics[key] = result[key]
         if result.get("stream_format"):
             self.metrics["output_stream_format"] = result["stream_format"]
-        if result.get("first_driver") is not None or result.get("playing"):
+        if (
+            (result.get("first_driver") is not None or result.get("playing"))
+            and self.turn == identifier
+            and not final
+        ):
             self.state, self.playback = "speaking", "playing_estimated"
+
+    async def _abort_audio(self, identifier: str) -> None:
+        # Control and the turn finalizer share one owned abort and its last DAC prefix.
+        if self.abort_task is None or self.abort_turn != identifier:
+            self.abort_turn = identifier
+            self.abort_task = asyncio.create_task(self.audio.abort(identifier))
+        result = await asyncio.shield(self.abort_task)
+        self._progress(result, identifier, final=True)
 
     async def _respond(
         self, text: str, identifier: str, *, no_play: bool = False, context: str = ""
@@ -177,6 +195,7 @@ class VoiceLoop:
         queue: asyncio.Queue[str | None] = asyncio.Queue(128)
         queued_chars = 0
         tasks: list[asyncio.Task[None]] = []
+        pipeline: asyncio.Future[list[None]] | None = None
         complete = False
         self.metrics.update(
             session=self.session,
@@ -248,7 +267,9 @@ class VoiceLoop:
                                                 credit = await self.audio.call(
                                                     "progress", turn=identifier
                                                 )
-                                                self._progress(credit)
+                                                if self.turn != identifier:
+                                                    raise LoopError("stale_pcm_turn")
+                                                self._progress(credit, identifier)
                                                 if credit.get(
                                                     "free_source_bytes", len(chunk)
                                                 ) >= len(chunk):
@@ -256,7 +277,10 @@ class VoiceLoop:
                                                 await asyncio.sleep(0.02)
                                     except TimeoutError:
                                         raise LoopError("pcm_backpressure_timeout") from None
-                                    self._progress(await self.audio.write_pcm(identifier, chunk))
+                                    self._progress(
+                                        await self.audio.write_pcm(identifier, chunk),
+                                        identifier,
+                                    )
                     if self.cancel_tts.is_set() or first_pcm is None:
                         raise LoopError("tts_cancelled_or_empty")
                     self.metrics["tts"].append(
@@ -272,22 +296,25 @@ class VoiceLoop:
                     )
                     if not no_play:
                         self._progress(
-                            await self.audio.call("mark", turn=identifier, segment=len(segments))
+                            await self.audio.call("mark", turn=identifier, segment=len(segments)),
+                            identifier,
                         )
                     queued_chars -= len(segment)
                 if not segments:
                     raise LoopError("empty_speakable_response")
                 if not no_play:
-                    self._progress(await self.audio.call("finish", turn=identifier))
+                    self._progress(await self.audio.call("finish", turn=identifier), identifier)
 
             async def playback() -> None:
                 if no_play:
                     return
                 while True:
                     result = await self.audio.call("progress", turn=identifier)
-                    self._progress(result)
+                    self._progress(result, identifier)
                     if result.get("done"):
-                        self._progress(await self.audio.call("drained", turn=identifier))
+                        self._progress(
+                            await self.audio.call("drained", turn=identifier), identifier
+                        )
                         self.metrics["playback_finished"] = time.perf_counter()
                         return
                     await asyncio.sleep(0.04)
@@ -298,8 +325,10 @@ class VoiceLoop:
                     asyncio.create_task(synthesize()),
                     asyncio.create_task(playback()),
                 ]
+                pipeline = asyncio.gather(*tasks)
                 async with asyncio.timeout(180):
-                    await asyncio.gather(*tasks)
+                    # The owner cancels siblings once, before joining their cleanup.
+                    await asyncio.shield(pipeline)
                 complete = True
                 self.metrics["status"] = "PASS"
                 self.playback = "NOT_RUN" if no_play else "completed_estimated"
@@ -318,40 +347,64 @@ class VoiceLoop:
                 raise LoopError(reason) from None
             finally:
                 self.cancel_tts.set()
-                # Cut physical delivery and HTTP before waiting for MLX drainage.
-                if not complete:
-                    await asyncio.gather(
-                        self.audio.abort(identifier), turn.cancel(), return_exceptions=True
-                    )
                 for task in tasks:
-                    if not task.done():
+                    if not task.done() and not task.cancelling():
                         task.cancel()
-                try:
-                    async with asyncio.timeout(self.config.tts.drain_timeout + 4):
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                except TimeoutError:
-                    await self.tts.close()
-                    self.ready = False
-                prefix = " ".join(segments[: len(self.completed)])
-                if prefix and not no_play and not turn.invalidated:
-                    turn.confirm(
-                        prefix,
-                        channel="spoken",
-                        complete=complete and len(self.completed) == len(segments),
+
+                async def finalize() -> None:
+                    # No cancellation caller may interrupt this join/confirmation boundary.
+                    if not complete:
+                        await asyncio.gather(
+                            self._abort_audio(identifier), turn.cancel(), return_exceptions=True
+                        )
+                    try:
+                        async with asyncio.timeout(self.config.tts.drain_timeout + 4):
+                            await asyncio.gather(
+                                *tasks, *([pipeline] if pipeline else []), return_exceptions=True
+                            )
+                    except TimeoutError:
+                        await self.tts.close()
+                        self.ready = False
+                    cancelled = self.turn != identifier or self.metrics["status"] == "CANCELLED"
+                    if cancelled:
+                        self.metrics["status"] = "CANCELLED"
+                        self.error = None
+                    prefix = " ".join(segments[: len(self.completed)])
+                    if prefix and not no_play and not turn.invalidated:
+                        turn.confirm(
+                            prefix,
+                            channel="spoken",
+                            complete=complete
+                            and not cancelled
+                            and len(self.completed) == len(segments),
+                        )
+                    self.metrics["confirmed_segments"] = len(self.completed)
+                    self.metrics["llm"] = dict(turn.metrics)
+                    self.metrics["tts_drain_s"] = self.tts.last_drain_seconds
+                    self.metrics["tts_restarts"] = self.tts.restarts
+                    speech_end, driver = (
+                        self.metrics.get("speech_end_estimate"),
+                        self.metrics.get("first_driver"),
                     )
-                self.metrics["confirmed_segments"] = len(self.completed)
-                self.metrics["llm"] = dict(turn.metrics)
-                self.metrics["tts_drain_s"] = self.tts.last_drain_seconds
-                self.metrics["tts_restarts"] = self.tts.restarts
-                speech_end, driver = (
-                    self.metrics.get("speech_end_estimate"),
-                    self.metrics.get("first_driver"),
-                )
-                self.metrics["speech_end_to_driver_s"] = (
-                    driver - speech_end if driver is not None and speech_end is not None else None
-                )
-                self.results.append(dict(self.metrics))
-                del self.results[:-20]
+                    self.metrics["speech_end_to_driver_s"] = (
+                        driver - speech_end
+                        if driver is not None and speech_end is not None
+                        else None
+                    )
+                    self.results.append(dict(self.metrics))
+                    del self.results[:-20]
+
+                finalizer = asyncio.create_task(finalize())
+                interrupted = False
+                while not finalizer.done():
+                    try:
+                        await asyncio.shield(finalizer)
+                    except asyncio.CancelledError:
+                        interrupted = True
+                        self.metrics["status"] = "CANCELLED"
+                finalizer.result()
+                if interrupted:
+                    raise asyncio.CancelledError
 
     async def _listen_loop(self) -> None:
         try:
@@ -457,17 +510,33 @@ class VoiceLoop:
             self.armed = False  # A finally can never re-arm an intentional pause.
             old_turn, self.turn = self.turn, ""
             self.state = "stopping" if action == "stop" else "paused"
+            task = self.task
+            if task is not None and not task.done() and not task.cancelling():
+                task.cancel()  # Before yielding to invalidated producers or their finalizer.
             self.cancel_tts.set()
-            operations = [self.audio.abort(old_turn)]
-            if self.chat.active is not None:
+            operations = [self._abort_audio(old_turn)]
+            if task is None and self.chat.active is not None:
                 operations.append(self.chat.active.cancel())
             aborted = await asyncio.gather(*operations, return_exceptions=True)
             audio_closed = not isinstance(aborted[0], BaseException)
-            if self.task is not None:
-                self.task.cancel()
+            if task is not None:
                 try:
-                    await asyncio.wait_for(self.task, self.config.tts.drain_timeout + 5)
-                except (asyncio.CancelledError, TimeoutError, LoopError, TTSError, ChatError):
+                    await asyncio.wait_for(asyncio.shield(task), self.config.tts.drain_timeout + 5)
+                except TimeoutError:
+                    # Do not abandon a still-finalizing task or let Resume start another turn.
+                    await asyncio.gather(
+                        self.audio.close(), self.tts.close(), return_exceptions=True
+                    )
+                    done, _ = await asyncio.wait({task}, timeout=4)
+                    if not done:
+                        self.ready = False
+                        self.state, self.error = "error", "turn_shutdown_unverified"
+                        raise LoopError(self.error) from None
+                    with contextlib.suppress(
+                        asyncio.CancelledError, LoopError, TTSError, ChatError
+                    ):
+                        task.result()
+                except (asyncio.CancelledError, LoopError, TTSError, ChatError):
                     pass
                 self.task = None
             self.microphone, self.level = "closed", 0

@@ -181,7 +181,9 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rearm_and_conversion_metrics_use_mapped_clocks_and_reject_stale_events(self):
         self.voice.audio_offset = 5
-        self.voice._progress({"first_converted": 10, "first_driver": 11})
+        self.voice.turn = "current"
+        self.voice.metrics["turn"] = "current"
+        self.voice._progress({"first_converted": 10, "first_driver": 11}, "current")
         self.assertEqual(self.voice.metrics["first_converted"], 15)
         self.assertEqual(self.voice.metrics["first_driver"], 16)
         self.voice.results = [{"turn": "previous", "rearm_eligible": 20}]
