@@ -1,4 +1,6 @@
 const ERROR_LABELS = {
+  KNOWN_STT_LIMITATIONS: 'Des erreurs de transcription connues subsistent.',
+  KNOWN_PLAYBACK_LIMITATIONS: 'Des irrégularités de lecture connues subsistent.',
   NOMINAL_BUDGET_REQUIRED: 'Choisissez d’abord un plafond d’usage dans Réglages.',
   NOMINAL_BUDGET_EXHAUSTED: 'Le plafond de cette période est atteint. Les nouveaux appels sont bloqués.',
   BUDGET_EXHAUSTED: 'Le plafond de cette période est atteint.',

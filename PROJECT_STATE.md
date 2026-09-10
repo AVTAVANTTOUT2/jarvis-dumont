@@ -1,5 +1,33 @@
 # État du projet
 
+## Mise en service privée — 10 septembre 2026
+
+- `APPLICATION_DEPLOYED`, `APK_INSTALLED`, `DASHBOARD_AVAILABLE`,
+  `DATA_BROWSER_READY`, `TRANSPORT_SECURED` : release Mac non editable 0.3.0,
+  APK signée 0.3.0-private (code 11), protocole 1 et schéma SQLite 1.
+  Dashboard propriétaire : `http://127.0.0.1:8768/`, loopback uniquement.
+  Gateway WSS, CA privée limitée à l'application, SAN vérifié et autorisation
+  par appareil. Echo connecté OFF avec capture fermée après appairage.
+- Sources produit intégrées par PR serveur #22 et APK #5. Le correctif
+  d'annulation #11 est porté avec conservation des contrats Echo ; les branches
+  de recherche et les deux corrections retirées ECHO-02D ne sont pas activées.
+  Les identités exactes des wheels et du couple installé sont dans le manifeste
+  de release et le bilan privé `private-v1/deployment.json`.
+- SQLite locale indépendante des releases, écritures bornées hors audio,
+  sauvegarde cohérente et restauration isolée vérifiées. Conservation des
+  conversations explicitement activable (30 jours proposés), initialement
+  désactivée ; contexte passif RAM consultable, archive passive désactivée.
+- Deux lectures TTS locales sur le vrai Echo, animations normales puis réduites,
+  se terminent avec zéro underrun rapporté. Captures des deux pages et vidéo
+  privée du visage en lecture disponibles ; aucune capture micro ni requête
+  DeepSeek pour ces vérifications. Ce smoke n'est pas une homologation audio.
+- `PASSIVE_FUNCTIONAL` reste à confirmer par le smoke humain déclenché dans
+  l'interface. Le compteur diagnostic est conservé à 9/10 ; le plafond nominal
+  distinct reste à choisir par le propriétaire avant son activation.
+- `KNOWN_STT_LIMITATIONS`, `KNOWN_PLAYBACK_LIMITATIONS` restent ouverts.
+  Les résultats anciens ci-dessous sont historiques et inchangés.
+  Exploitation et rollback : [PRIVATE_OPERATIONS.md](PRIVATE_OPERATIONS.md).
+
 ## Echo ECHO-02D — remédiation ciblée bloquée
 
 - Baseline physique reproduite : une starvation sur 40 lectures. Prefill de

@@ -59,6 +59,11 @@ test('API and error renderer hide raw response details', async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('known qualification limitations do not imply a failed command', () => {
+  assert.equal(errorLabel({code:'KNOWN_STT_LIMITATIONS'}), 'Des erreurs de transcription connues subsistent.');
+  assert.equal(errorLabel({code:'KNOWN_PLAYBACK_LIMITATIONS'}), 'Des irrégularités de lecture connues subsistent.');
+});
+
 test('every statically referenced control exists and no browser capture or HTML injection is used', () => {
   const html = readFileSync(root+'index.html','utf8');
   const js = readFileSync(root+'dashboard.js','utf8');
