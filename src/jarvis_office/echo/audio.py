@@ -28,6 +28,10 @@ class RemoteEchoEgress:
         self.start_at: float | None = None
         self.first_send: float | None = None
         self.ended = self.closed = False
+        self.input_ended = False
+        self.source_bytes = 0
+        self.source: asyncio.Queue[tuple[bytes, float] | None] = asyncio.Queue(25)
+        self.sender: asyncio.Task[None] | None = None
 
     def check(self, turn: str) -> None:
         s = self.session
@@ -64,6 +68,7 @@ class RemoteEchoEgress:
         async with asyncio.timeout(3):
             await s.playback_ready.wait()
         self.check(self.turn)
+        self.sender = asyncio.create_task(self._pump())
         return {"device": {"name": "Echo", "origin": f"echo:{s.device}:{s.id}"}}
 
     async def _output(self, samples: Any, ready: float) -> None:
@@ -77,8 +82,15 @@ class RemoteEchoEgress:
                 payload = bytes(self.pending[:1920])
                 del self.pending[:1920]
                 self.check(self.turn)
+                now = time.perf_counter()
                 if self.start_at is None:
-                    self.start_at = time.perf_counter()
+                    self.start_at = now
+                elif now - (self.start_at + self.sequence * 0.02) > 0.02:
+                    # A producer gap is elapsed silence, never a debt to repay in a PCM burst.
+                    self.start_at = now - self.sequence * 0.02
+                    self.session.metrics["pacing_rebases"] = (
+                        self.session.metrics.get("pacing_rebases", 0) + 1
+                    )
                 await asyncio.sleep(
                     max(0, self.start_at + self.sequence * 0.02 - time.perf_counter())
                 )
@@ -99,25 +111,33 @@ class RemoteEchoEgress:
                 self.session.metrics["downlink_frames"] = self.sequence
 
     async def feed(self, turn: str, pcm: bytes) -> dict[str, Any]:
-        import numpy as np
-
         self.check(turn)
-        if self.ended or len(pcm) > 24000 or len(pcm) % 2:
+        if self.input_ended or len(pcm) > 24000 or len(pcm) % 2:
             raise LoopError("invalid_remote_pcm")
-        ready = time.perf_counter()
-        # Do not retain a synthesized response; consume bounded slices from the existing worker.
-        step = self.rate * 2 // 50
-        for offset in range(0, len(pcm), step):
-            mono = (
-                np.frombuffer(pcm[offset : offset + step], dtype="<i2").astype(np.float32) / 32768
+        if len(pcm) > self.progress(turn)["free_source_bytes"]:
+            raise LoopError("remote_pcm_backpressure")
+        if pcm:
+            self.source_bytes += len(pcm)
+            self.source.put_nowait((pcm, time.perf_counter()))
+            self.session.metrics["source_queue_peak_bytes"] = max(
+                self.session.metrics.get("source_queue_peak_bytes", 0), self.source_bytes
             )
-            await self._output(self.resampler.resample_chunk(mono), ready)
         return self.progress(turn)
 
-    async def finish(self, turn: str) -> dict[str, Any]:
+    async def _pump(self) -> None:
         import numpy as np
 
-        self.check(turn)
+        # The existing 24 kB credit includes in-flight source PCM (500 ms at Qwen's 24 kHz).
+        # Generation can start the next segment while this bounded sender drains the previous one.
+        step = self.rate * 2 // 50
+        while (item := await self.source.get()) is not None:
+            pcm, ready = item
+            for offset in range(0, len(pcm), step):
+                self.check(self.turn)
+                chunk = pcm[offset : offset + step]
+                mono = np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768
+                await self._output(self.resampler.resample_chunk(mono), ready)
+                self.source_bytes -= len(chunk)
         await self._output(
             self.resampler.resample_chunk(np.empty(0, np.float32), last=True), time.perf_counter()
         )
@@ -130,16 +150,26 @@ class RemoteEchoEgress:
         await self.session.send(
             "audio_end", {"stream_id": self.stream, "last_sequence": self.sequence - 1}
         )
+
+    async def finish(self, turn: str) -> dict[str, Any]:
+        self.check(turn)
+        self.input_ended = True
+        await self.source.put(None)
+        assert self.sender is not None
+        await self.sender
         return self.progress(turn)
 
     def progress(self, turn: str) -> dict[str, Any]:
         self.check(turn)
+        if self.sender is not None and self.sender.done():
+            self.sender.result()
+        self.session.metrics["source_queue_bytes"] = self.source_bytes
         done = self.ended and self.session.playback_drained.is_set()
         return {
             "completed_segments": list(range(1, self.segments + 1)) if done else [],
             "done": done,
             "playing": self.sequence > 0,
-            "free_source_bytes": 24000,
+            "free_source_bytes": 0 if self.source.full() else 24000 - self.source_bytes,
             "first_remote_send": self.first_send,
             "remote_sent_bytes": self.sent_bytes,
             "stream_format": {"rate": 48000, "channels": 1, "format": "PCM16"},
@@ -157,8 +187,14 @@ class RemoteEchoEgress:
         self.closed = True
         return result
 
-    def abort(self) -> None:
+    async def abort(self) -> None:
         self.closed = True
+        if self.sender is not None:
+            self.sender.cancel()
+            await asyncio.gather(self.sender, return_exceptions=True)
+        while not self.source.empty():
+            self.source.get_nowait()
+        self.source_bytes = 0
         self.pending.clear()
         if self.session.id == self.identity and self.session.down_stream == self.stream:
             self.session.down_stream = 0
@@ -277,11 +313,11 @@ class RemoteEchoAudio:
         self.token = ""
         self.listen_owner = None
         if self.egress is not None:
-            self.egress.abort()
+            await self.egress.abort()
         return await self.worker.abort(turn)
 
     async def close(self) -> None:
         self.token = ""
         if self.egress is not None:
-            self.egress.abort()
+            await self.egress.abort()
         await self.worker.close()

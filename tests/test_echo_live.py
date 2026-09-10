@@ -205,6 +205,62 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.context.count, 0)
         self.assertEqual(len(self.requests), 1)
 
+    async def test_producer_pause_never_flushes_pcm_as_a_catchup_burst(self):
+        import numpy as np
+
+        self.s.mode, self.s.up_stream = "ACTIVE", 17
+        output = RemoteEchoEgress(self.s, self.settings, "paced-turn", 24000)
+        await output.start()
+        clock = SimpleNamespace(now=0.0)
+        sent = []
+
+        async def sleep(delay):
+            clock.now += delay
+
+        async def send(value):
+            sent.append((clock.now, Packet.decode(value)))
+
+        with (
+            patch("jarvis_office.echo.audio.time.perf_counter", side_effect=lambda: clock.now),
+            patch("jarvis_office.echo.audio.asyncio.sleep", side_effect=sleep),
+            patch.object(self.endpoint, "send", side_effect=send),
+        ):
+            await output._output(np.zeros(4800, np.float32), clock.now)
+            clock.now += 0.4  # Measured live gap at the next TTS segment's first PCM.
+            resumed = clock.now
+            await output._output(np.zeros(19200, np.float32), clock.now)
+        self.assertEqual(sent[5][0], resumed)
+        self.assertTrue(all(b[0] - a[0] >= 0.019 for a, b in zip(sent, sent[1:], strict=False)))
+        self.assertEqual([p.sequence for _, p in sent], list(range(25)))
+        self.assertEqual(sum(len(p.pcm) for _, p in sent), 48000)
+        await output.abort()
+
+    async def test_source_credit_bounds_pcm_while_sender_runs_independently(self):
+        self.s.mode, self.s.up_stream = "ACTIVE", 17
+        output = RemoteEchoEgress(self.s, self.settings, "credit-turn", 24000)
+        await output.start()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_send = self.endpoint.send
+
+        async def send(value):
+            if isinstance(value, bytes) and not entered.is_set():
+                entered.set()
+                await release.wait()
+            await original_send(value)
+
+        with patch.object(self.endpoint, "send", side_effect=send):
+            await asyncio.wait_for(output.feed("credit-turn", b"\0\0" * 12000), 0.1)
+            await asyncio.wait_for(entered.wait(), 0.1)
+            self.assertLess(output.progress("credit-turn")["free_source_bytes"], 19200)
+            with self.assertRaisesRegex(LoopError, "remote_pcm_backpressure"):
+                await output.feed("credit-turn", b"\0\0" * 9600)
+            self.assertLessEqual(self.s.metrics["source_queue_peak_bytes"], 24000)
+            release.set()
+            await output.finish("credit-turn")
+        self.assertEqual(sum(len(p.pcm) for p in self.endpoint.packets), 48000)
+        self.assertEqual(output.progress("credit-turn")["free_source_bytes"], 24000)
+        await output.drained("credit-turn")
+
     async def test_off_reaches_client_before_worker_drain(self):
         self.s.mode = "ACTIVE"
         self.remote.bound = self.s
@@ -238,7 +294,7 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new.mode, "OFF")
         self.s.alive = True
         self.remote.bound = self.s
-        output.abort()
+        await output.abort()
 
     async def test_network_loss_closes_owned_sessions_without_fallback(self):
         gateway = EchoGateway(self.settings)
