@@ -2,7 +2,7 @@ import asyncio
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import test_echo_live as fixtures
@@ -65,6 +65,29 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
         state = self.gateway.product_state(self.s)
         self.assertIsNone(state["physical"]["playing"])
         self.assertEqual(state["connection"], "DEGRADED")
+
+    async def test_explicit_passive_smoke_uses_only_remaining_diagnostic_authorization(self):
+        self.gateway.store = SimpleNamespace(
+            error=None,
+            close_session=Mock(),
+            record_event=Mock(),
+            settings=AsyncMock(return_value={"budget": {"limit": None, "used": 0}}),
+        )
+        with patch("pathlib.Path.read_text", return_value='{"attempts":9,"limit":10}'):
+            result = await self.gateway.dashboard_command(
+                {
+                    "device_id": "test",
+                    "action": "passive_smoke",
+                    "command_id": "smoke",
+                }
+            )
+        self.assertEqual(result["status"], "applied")
+        self.assertEqual(self.gateway.diagnostic_session, self.s.id)
+        self.assertEqual(self.voice.remaining, 1)
+        self.assertEqual(self.requests, [])
+        await self.command("set_mode", mode="OFF", command_id="stop-smoke")
+        self.assertIsNone(self.gateway.diagnostic_session)
+        self.assertEqual(self.s.mode, "OFF")
 
     async def test_archive_uses_capture_generation_and_only_confirmed_prefix(self):
         record = Mock()

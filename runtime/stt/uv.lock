@@ -222,12 +222,19 @@ wheels = [
 
 [[package]]
 name = "jarvis-office"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "../../" }
 
 [package.metadata]
-requires-dist = [{ name = "httpx", marker = "extra == 'chat'", specifier = "==0.28.1" }]
-provides-extras = ["chat"]
+requires-dist = [
+    { name = "aiohttp", marker = "extra == 'private'", specifier = "==3.14.3" },
+    { name = "httpx", marker = "extra == 'chat'", specifier = "==0.28.1" },
+    { name = "httpx", marker = "extra == 'private'", specifier = "==0.28.1" },
+    { name = "numpy", marker = "extra == 'private'", specifier = "==2.5.1" },
+    { name = "soxr", marker = "extra == 'private'", specifier = "==1.1.0" },
+    { name = "websockets", marker = "extra == 'private'", specifier = "==16.0" },
+]
+provides-extras = ["chat", "private"]
 
 [package.metadata.requires-dev]
 dev = [
