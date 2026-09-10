@@ -21,6 +21,11 @@ Une ancienne release sans époque dans le verrou est refusée explicitement par
 la nouvelle CLI (`instance_epoch_missing`). Ne pas réécrire le verrou ni copier
 l'identifiant reçu : seule l'activation autorisée de la candidate, avec démarrage
 normal de son propriétaire, peut publier les nouvelles métadonnées.
+Chaque appel de santé libère sa propre session HTTP par un POST authentifié et
+protégé CSRF, sans fermer les sessions du navigateur. Les versions antérieures
+conservent ces sessions jusqu'à leur expiration (12 heures) et peuvent atteindre
+la limite de 16 : réutiliser l'onglet propriétaire déjà authentifié. Ne pas
+redémarrer une instance ou purger ses sessions pour masquer un résultat de santé.
 
 Avant Conversation/Écoute contextuelle, choisir le plafond nominal dans Réglages.
 Le compteur de diagnostic ECHO-02C reste indépendant et n'est jamais réinitialisé.

@@ -6,6 +6,8 @@ Le gateway live possède l'unique VoiceLoop. Le dashboard aiohttp est intégré 
 
 La santé du gateway privé lie le `server_epoch` existant au verrou possédé et à l'identité PID/démarrage/exécutable. Ne jamais le confondre avec `VoiceLoop.session` (conversation renouvelable) ou `Session.id` (connexion Echo). Une ancienne métadonnée sans époque est refusée ; ne pas réparer un verrou actif en copiant une réponse HTTP. Le correctif doit être activé par le démarrage normal d'une release autorisée.
 
+La CLI doit libérer sa session HTTP via le POST `/api/logout` authentifié/CSRF, y compris après une erreur d'identité. Les sessions des navigateurs restent intactes. Les anciennes releases retiennent chaque bootstrap sans cookie pendant 12 heures, avec plafond de 16 : les probes répétées peuvent bloquer un nouveau bootstrap ; utiliser une session propriétaire déjà ouverte sans supprimer de métadonnées actives.
+
 OfficeStore utilise une SQLite locale hors releases, file bornée et thread d'écriture dédié, journal DELETE. Le contenu passif reste RAM et l'archive passive est désactivée initialement. Les conversations deviennent persistantes seulement après activation visible ; une génération invalide les écritures tardives après purge/désactivation. Les sauvegardes utilisent SQLite.backup, restauration isolée. L'activation vérifie sqlite_schema_max dans le manifeste ; ne jamais rollback vers un ancien schéma implicitement.
 
 Le budget nominal configuré par le propriétaire est distinct du compteur diagnostic historique. Le bouton preview_voice utilise seulement TTS local, micro fermé. Le smoke PASSIVE est une action UI explicite avec au plus un appel diagnostic, sans plafond nominal choisi automatiquement.

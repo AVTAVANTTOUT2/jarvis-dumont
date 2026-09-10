@@ -2,6 +2,7 @@
 
 import asyncio
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -51,8 +52,10 @@ class PrivateHealthTests(unittest.IsolatedAsyncioTestCase):
 
     async def health(self):
         before = runtime.lock_path().read_bytes()
+        web_sessions = set(self.server.sessions)
         result = await asyncio.to_thread(runtime.status)
         self.assertEqual(runtime.lock_path().read_bytes(), before)
+        self.assertEqual(set(self.server.sessions), web_sessions)
         self.assertEqual(self.requests, [])
         self.assertFalse(self.voice.armed)
         return result
@@ -63,6 +66,20 @@ class PrivateHealthTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["owner_verified"])
         self.assertTrue(result["http_loopback"])
         self.assertEqual(result["microphone"], "closed")
+
+    async def test_repeated_health_releases_only_its_own_web_session(self):
+        self.server.sessions["existing-owner"] = ("owner-csrf", time.monotonic() + 3600)
+        for _ in range(20):
+            self.assertEqual((await self.health())["status"], "PASS")
+            self.assertEqual(set(self.server.sessions), {"existing-owner"})
+
+    async def test_owner_capacity_exhaustion_is_explicit_failure(self):
+        for i in range(16):
+            self.server.sessions[str(i)] = ("csrf", time.monotonic() + 3600)
+        result = await self.health()
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["error"], "health_bootstrap_rejected")
+        self.assertEqual(len(self.server.sessions), 16)
 
     async def test_old_metadata_cannot_accept_even_matching_conversation(self):
         for epoch in (None, "", "not-an-epoch", 123):

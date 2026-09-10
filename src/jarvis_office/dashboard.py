@@ -68,6 +68,7 @@ class DashboardServer:
                 web.get("/dashboard/api.js", self._asset),
                 web.get("/api.js", self._asset),
                 web.get("/api/bootstrap", self._bootstrap),
+                web.post("/api/logout", self._logout),
                 web.get("/api/state", self._state),
                 web.get("/api/events", self._events),
                 web.post("/api/command", self._command),
@@ -201,6 +202,14 @@ class DashboardServer:
             COOKIE, token, httponly=True, samesite="Strict", path="/", max_age=12 * 3600
         )
         # HTTP is allowed only on exact IPv4 loopback; LAN TLS/admin is intentionally unavailable.
+        return response
+
+    async def _logout(self, request: web.Request) -> web.Response:
+        if await self._body(request) != {}:
+            raise ValueError()
+        self.sessions.pop(request.cookies[COOKIE], None)
+        response = web.Response(status=204)
+        response.del_cookie(COOKIE, path="/")
         return response
 
     async def _snapshot(self) -> dict[str, Any]:

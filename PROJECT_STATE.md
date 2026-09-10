@@ -10,6 +10,10 @@
   le protocole privé. Les contrôles de propriétaire/PID restent obligatoires ;
   ancienne métadonnée et autre instance restent refusées. Les tests couvrent
   redémarrage, reconnexion Echo et changement de conversation.
+- Les vérifications ont aussi reproduit la saturation des 16 sessions HTTP :
+  l'ancienne CLI en créait une par appel sans la libérer. La candidate termine
+  uniquement sa propre session avec authentification/CSRF ; vingt vérifications
+  successives préservent la session du navigateur et la capacité disponible.
 - Release active, APK, WSS, appairage, profils audio et budgets inchangés.
   Cette correction est candidate, sans activation de `current` ni fusion
   automatique. Le défaut de la CLI installée demeure jusqu'à activation
