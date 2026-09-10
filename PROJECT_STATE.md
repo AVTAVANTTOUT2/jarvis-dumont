@@ -1,5 +1,17 @@
 # État du projet
 
+## Echo ECHO-02C — chantier parallèle
+
+- Deux tours réels Echo → VoiceLoop existant → Echo ont réussi sans redémarrage ;
+  son et timbre confirmés par le propriétaire. APK native 0.2.0-dev.3 installée.
+- Streaming unique par réponse, y compris deux segments TTS ; correction serveur
+  du rattrapage en rafale et crédits PCM bornés, profil Android Ethernet inchangé.
+- `REMOTE_PIPELINE_FUNCTIONAL=PASS`, `REMOTE_STT_QUALIFIED=NO`.
+  Le contexte passif complet sur micro réel et les budgets de latence restent
+  non qualifiés. Transport `DEV_INSECURE_LAN`, `NOT_SECURE_RELEASE`.
+- Détails, mesures et limites dans `src/jarvis_office/echo/ECHO-02C.md`.
+  PR Echo empilées seulement, aucune fusion ni modification du service principal.
+
 ## Phase 06 — en cours
 
 - Base `d95e0a8` (merge #6, même arbre que `dfbda8b`), branche `codex/06-release`.
