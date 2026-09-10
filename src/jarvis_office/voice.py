@@ -1,7 +1,6 @@
 """Single semi-duplex turn owner; no engine imports in the controller."""
 
 import asyncio
-import base64
 import contextlib
 import re
 import signal
@@ -26,9 +25,17 @@ def addressed(text: str) -> str | None:
 
 class VoiceLoop:
     def __init__(
-        self, config: Config, path: Path, chat: DeepSeek, *, audio: Any = None, tts: Any = None
+        self,
+        config: Config,
+        path: Path,
+        chat: DeepSeek,
+        *,
+        audio: Any = None,
+        tts: Any = None,
+        transcript_context: Any = None,
     ) -> None:
         self.config, self.path, self.chat = config, path, chat
+        self.transcript_context = transcript_context
         self.session = uuid.uuid4().hex
         self.turn = ""
         self.audio = audio or AudioClient(config, path, self.session, self.audio_event)
@@ -144,12 +151,17 @@ class VoiceLoop:
         for key in ("pcm_driver_bytes", "pcm_peak_bytes", "underflows"):
             if key in result:
                 self.metrics[key] = result[key]
+        for key in ("first_remote_send", "remote_sent_bytes"):
+            if result.get(key) is not None:
+                self.metrics[key] = result[key]
         if result.get("stream_format"):
             self.metrics["output_stream_format"] = result["stream_format"]
-        if result.get("first_driver") is not None:
+        if result.get("first_driver") is not None or result.get("playing"):
             self.state, self.playback = "speaking", "playing_estimated"
 
-    async def _respond(self, text: str, identifier: str, *, no_play: bool = False) -> None:
+    async def _respond(
+        self, text: str, identifier: str, *, no_play: bool = False, context: str = ""
+    ) -> None:
         question = addressed(text)
         if question is None:
             return  # No display, log, history or network of unaddressed office speech.
@@ -185,7 +197,7 @@ class VoiceLoop:
             self.output_device = result["device"]
         if self.turn != identifier:
             raise asyncio.CancelledError
-        async with self.chat.turn(question, turn_id=identifier) as turn:
+        async with self.chat.turn(question, turn_id=identifier, context=context) as turn:
             self.metrics["request_started"] = turn.started
 
             async def receive() -> None:
@@ -244,13 +256,7 @@ class VoiceLoop:
                                                 await asyncio.sleep(0.02)
                                     except TimeoutError:
                                         raise LoopError("pcm_backpressure_timeout") from None
-                                    self._progress(
-                                        await self.audio.call(
-                                            "pcm",
-                                            turn=identifier,
-                                            pcm=base64.b64encode(chunk).decode(),
-                                        )
-                                    )
+                                    self._progress(await self.audio.write_pcm(identifier, chunk))
                     if self.cancel_tts.is_set() or first_pcm is None:
                         raise LoopError("tts_cancelled_or_empty")
                     self.metrics["tts"].append(
@@ -383,7 +389,14 @@ class VoiceLoop:
                     break
                 if result.get("silence"):
                     break
-                if not result.get("accepted") or addressed(result.get("text", "")) is None:
+                if not result.get("accepted"):
+                    continue
+                context = (
+                    self.transcript_context(result["text"])
+                    if self.transcript_context is not None
+                    else ""
+                )
+                if addressed(result.get("text", "")) is None:
                     continue
                 self.remaining -= 1
                 timing = result.get("timing", {})
@@ -401,7 +414,7 @@ class VoiceLoop:
                     self.metrics["stt_wait_s"] = (
                         self.metrics["stt_started"] - self.metrics["vad_finalized"]
                     )
-                await self._respond(result["text"], identifier)
+                await self._respond(result["text"], identifier, context=context)
                 # Remain inhibited until playback ended, then acoustic hold, new stream/VAD/SoXR.
                 await asyncio.sleep(self.config.voice.acoustic_delay)
                 self.metrics["rearm_eligible"] = time.perf_counter()

@@ -12,7 +12,7 @@ import json
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -94,8 +94,9 @@ class TextEvent:
 
 
 class Turn:
-    def __init__(self, owner: "DeepSeek", text: str, turn_id: str) -> None:
+    def __init__(self, owner: "DeepSeek", text: str, turn_id: str, context: str = "") -> None:
         self.owner, self.input, self.id = owner, text, turn_id
+        self.context = context
         self.queue: asyncio.Queue[TextEvent] = asyncio.Queue(owner.settings.queue_events)
         self.generated = self.delivered_text = ""
         self.spoken_segments: list[str] = []  # Issued to consumer, not yet confirmed as spoken.
@@ -246,7 +247,7 @@ class Turn:
 
         self.metrics["connection_trace"] = connections
         try:
-            messages = self.owner._messages(self.input)
+            messages = self.owner._messages(self.input, self.context)
             request = self.owner.http.build_request(
                 "POST",
                 ENDPOINT,
@@ -270,8 +271,10 @@ class Turn:
                 from jarvis_office.credentials import reserve_validation_request
 
                 try:
-                    self.metrics["phase06_attempt"] = await asyncio.to_thread(
-                        reserve_validation_request
+                    self.metrics[
+                        "validation_attempt" if self.owner.reserve_request else "phase06_attempt"
+                    ] = await asyncio.to_thread(
+                        self.owner.reserve_request or reserve_validation_request
                     )
                 except ConfigError as exc:
                     raise ChatError(exc.reason) from None
@@ -453,6 +456,7 @@ class DeepSeek:
         settings: Chat | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        reserve_request: Callable[[], int] | None = None,
     ) -> None:
         settings = settings or Chat()
         if settings.model != "deepseek-v4-flash":
@@ -461,6 +465,7 @@ class DeepSeek:
             raise ChatError("invalid_key")
         self._key, self.settings = key, settings
         self.real_transport = transport is None
+        self.reserve_request = reserve_request
         self.http = httpx.AsyncClient(
             verify=True,
             follow_redirects=False,
@@ -473,20 +478,26 @@ class DeepSeek:
         self.active: Turn | None = None
         self.closed = False
 
-    def _messages(self, text: str) -> list[dict[str, str]]:
+    def _messages(self, text: str, context: str = "") -> list[dict[str, str]]:
         while (
             self.history
-            and len(SYSTEM) + len(text) + sum(len(a) + len(b) for a, b in self.history)
+            and len(SYSTEM)
+            + len(text)
+            + len(context)
+            + sum(len(a) + len(b) for a, b in self.history)
             > self.settings.context_chars
         ):
             self.history.pop(0)
-        if len(SYSTEM) + len(text) > self.settings.context_chars:
+        if len(SYSTEM) + len(text) + len(context) > self.settings.context_chars:
             raise ChatError("context_size_limit")
         messages = [{"role": "system", "content": SYSTEM}]
         for question, answer in self.history:
             messages.extend(
                 [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
             )
+        if context:
+            # Ephemeral evidence, not a system instruction or a retained conversation turn.
+            messages.append({"role": "user", "content": context})
         return [*messages, {"role": "user", "content": text}]
 
     def _commit(self, question: str, answer: str, channel: str, complete: bool) -> None:
@@ -505,19 +516,24 @@ class DeepSeek:
             self.history.pop(0)
 
     @contextlib.asynccontextmanager
-    async def turn(self, text: str, *, turn_id: str | None = None) -> AsyncIterator[Turn]:
+    async def turn(
+        self, text: str, *, turn_id: str | None = None, context: str = ""
+    ) -> AsyncIterator[Turn]:
         if self.closed or self.active is not None:
             raise ChatError("client_closed" if self.closed else "one_active_turn_only")
         if not isinstance(text, str) or not text.strip() or len(text) > self.settings.input_chars:
             raise ChatError("invalid_input_text")
+        if not isinstance(context, str) or len(context) > 4096:
+            raise ChatError("invalid_ephemeral_context")
         identifier = str(uuid.uuid4()) if turn_id is None else turn_id
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier):
             raise ChatError("invalid_turn_id")
-        turn = self.active = Turn(self, text, identifier)
+        turn = self.active = Turn(self, text, identifier, context)
         try:
             yield turn
         finally:
             await turn.cancel()
+            turn.context = ""
             self.active = None
 
     async def reset(self) -> None:

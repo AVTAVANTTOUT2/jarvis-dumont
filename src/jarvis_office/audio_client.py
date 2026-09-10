@@ -9,6 +9,7 @@ one output exist. The parent closes the owned process on an uncertain boundary.
 """
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
@@ -40,7 +41,13 @@ def source_signature() -> str:
 
 class AudioClient:
     def __init__(
-        self, config: Config, path: Path, session: str, event: Callable[[dict[str, Any]], None]
+        self,
+        config: Config,
+        path: Path,
+        session: str,
+        event: Callable[[dict[str, Any]], None],
+        *,
+        remote_ingress: bool = False,
     ) -> None:
         self.config, self.path, self.session, self.event = config, path, session, event
         self.process: asyncio.subprocess.Process | None = None
@@ -53,6 +60,8 @@ class AudioClient:
         self.stderr_bytes = 0
         self.ready: dict[str, Any] = {}
         self.owns_group = False
+        self.remote_ingress = remote_ingress
+        self.pcm_writer: int | None = None
 
     async def start(self) -> None:
         if self.process is not None:
@@ -72,16 +81,31 @@ class AudioClient:
         cache = private_root() / "cache/voice-audio"
         env = worker_environment(cache)
         env["JARVIS_OFFICE_DATA"] = str(private_root())
-        self.process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=cache,
-            limit=WIRE_LIMIT + 1,
-            start_new_session=True,
-        )
+        read_fd = None
+        if self.remote_ingress:
+            read_fd, self.pcm_writer = os.pipe()
+            os.set_blocking(self.pcm_writer, False)
+            command.append(str(read_fd))
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=cache,
+                limit=WIRE_LIMIT + 1,
+                start_new_session=True,
+                pass_fds=() if read_fd is None else (read_fd,),
+            )
+        except BaseException:
+            if self.pcm_writer is not None:
+                os.close(self.pcm_writer)
+                self.pcm_writer = None
+            raise
+        finally:
+            if read_fd is not None:
+                os.close(read_fd)
         self.owns_group = True
         self.reader = asyncio.create_task(self._read())
         self.errors = asyncio.create_task(self._stderr())
@@ -192,7 +216,27 @@ class AudioClient:
             await self.close()
             return {}
 
+    def feed_remote(self, token: str, pcm: bytes, received: float) -> None:
+        from jarvis_office.audio_ingress import PIPE_HEADER, REMOTE_RATE
+
+        if self.pcm_writer is None or len(pcm) != REMOTE_RATE * 2 // 50:
+            raise LoopError("remote_ingress_unavailable")
+        try:
+            data = PIPE_HEADER.pack(bytes.fromhex(token), received, len(pcm)) + pcm
+            if os.write(self.pcm_writer, data) != len(data):
+                raise OSError("partial_pipe_write")
+        except (OSError, ValueError):
+            os.close(self.pcm_writer)
+            self.pcm_writer = None
+            raise LoopError("remote_ingress_overrun") from None
+
+    async def write_pcm(self, turn: str, pcm: bytes) -> dict[str, Any]:
+        return await self.call("pcm", turn=turn, pcm=base64.b64encode(pcm).decode())
+
     async def close(self) -> None:
+        if self.pcm_writer is not None:
+            os.close(self.pcm_writer)
+            self.pcm_writer = None
         process, self.process = self.process, None
         if process is not None:
             if process.stdin is not None:

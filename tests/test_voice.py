@@ -84,6 +84,9 @@ class FakeTTS:
 
 
 class FakeAudio:
+    async def write_pcm(self, turn, pcm):
+        return await self.call("pcm", turn=turn, pcm=base64.b64encode(pcm).decode())
+
     def __init__(self):
         self.ready = {"code_signature": source_signature()}
         self.calls = []
@@ -328,6 +331,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
                 patch("jarvis_office.local_ui.LocalUI", return_value=ui),
                 patch("jarvis_office.credentials.load_key", return_value="test_key_only"),
                 patch("jarvis_office.assets.private_root", return_value=Path(root)),
+                patch("jarvis_office.runtime.private_root", return_value=Path(root)),
             ):
                 result = await run_command(
                     Config(),
@@ -353,6 +357,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
                 patch("jarvis_office.local_ui.LocalUI", return_value=ui),
                 patch("jarvis_office.credentials.load_key", return_value="test_key_only"),
                 patch("jarvis_office.assets.private_root", return_value=Path(root)),
+                patch("jarvis_office.runtime.private_root", return_value=Path(root)),
             ):
                 result = await run_command(
                     Config(),

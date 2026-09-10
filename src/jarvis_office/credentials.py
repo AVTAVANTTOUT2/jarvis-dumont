@@ -62,7 +62,9 @@ def load_key() -> str:
     return _read_key(secret_path(), private=True)
 
 
-def reserve_validation_request() -> int:
+def reserve_validation_request(
+    *, path: Path | None = None, phase: int | str = 6, limit: int = 20
+) -> int:
     """Phase 06 hard ceiling, shared by chat/run and restarts. Phase 05 is preserved.
 
     Reserve BEFORE HTTP, including attempts that fail or are cancelled. A crash may
@@ -70,7 +72,9 @@ def reserve_validation_request() -> int:
     """
     import fcntl
 
-    path = private_root() / "config/phase06-api-budget.json"
+    path = path or private_root() / "config/phase06-api-budget.json"
+    if not 1 <= limit <= 20:
+        raise ConfigError("validation_budget_invalid")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         if path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
@@ -87,16 +91,16 @@ def reserve_validation_request() -> int:
                 raise ConfigError("validation_budget_invalid")
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             raw = handle.read(4097)
-            data = json.loads(raw) if raw else {"phase": 6, "limit": 20, "attempts": 0}
+            data = json.loads(raw) if raw else {"phase": phase, "limit": limit, "attempts": 0}
             if (
                 not isinstance(data, dict)
-                or data.get("phase") != 6
-                or data.get("limit") != 20
+                or data.get("phase") != phase
+                or data.get("limit") != limit
                 or type(data.get("attempts")) is not int
-                or not 0 <= data["attempts"] <= 20
+                or not 0 <= data["attempts"] <= limit
             ):
                 raise ConfigError("validation_budget_invalid")
-            if data["attempts"] >= 20:
+            if data["attempts"] >= limit:
                 raise ConfigError("validation_budget_exhausted")
             data["attempts"] += 1
             handle.seek(0)

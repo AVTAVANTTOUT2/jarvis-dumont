@@ -1,4 +1,4 @@
-"""Explicitly configured, authenticated LAN transport. No AI or local audio starts here."""
+"""Authenticated transport core; optional live adapter consumes the existing VoiceLoop."""
 
 import argparse
 import asyncio
@@ -47,9 +47,31 @@ class Settings:
     context_utterances: int = 100
     max_audio_ms: int = 200
     playback_prefill_ms: int = 20
+    network_path: str = "EXPLICIT_BIND"
+    network_interface: str = ""
+    live_pipeline: bool = False
+    voice_config: str = ""
+    api_budget_file: str = ""
+    report_file: str = ""
+    acoustic_tail_ms: int = 600
 
     def validate(self) -> None:
         address = ipaddress.ip_address(self.bind)
+        if self.network_path not in {"EXPLICIT_BIND", "ETHERNET_REQUIRED"}:
+            raise ValueError("INVALID_NETWORK_PATH")
+        if self.network_path == "ETHERNET_REQUIRED" and not re.fullmatch(
+            r"en[0-9]+", self.network_interface
+        ):
+            raise ValueError("EXPLICIT_ETHERNET_INTERFACE_REQUIRED")
+        if self.live_pipeline and (
+            self.network_path != "ETHERNET_REQUIRED"
+            or not self.voice_config
+            or not self.api_budget_file
+            or not self.report_file
+            or self.playback_prefill_ms != 100
+            or not 100 <= self.acoustic_tail_ms <= 2000
+        ):
+            raise ValueError("EXPLICIT_LIVE_PROFILE_REQUIRED")
         if not self.enabled or address.is_unspecified or address.is_multicast:
             raise ValueError("EXPLICIT_ECHO_BIND_REQUIRED")
         if not 1024 <= self.port <= 65535 or self.port == 8768:
@@ -105,6 +127,8 @@ class Session:
     rx: Sequence = field(default_factory=Sequence)
     up_sequence: Sequence = field(default_factory=Sequence)
     alive: bool = True
+    welcomed: bool = False
+    context_epoch: int = 0
     last_seen: float = field(default_factory=time.monotonic)
     speaking_until: float = 0
     playback_ready: asyncio.Event = field(default_factory=asyncio.Event)
@@ -117,6 +141,7 @@ class Session:
     first_receive: int = 0
     retired_streams: deque[tuple[int, float]] = field(default_factory=lambda: deque(maxlen=4))
     diagnostic_uplink: bool = False
+    server_state: str = "TRANSPORT_ONLY"
     clock_offset_ns: int | None = None
     timings: dict[str, deque[float]] = field(default_factory=dict)
 
@@ -160,7 +185,7 @@ class Session:
             "audio_downlink": "STREAMING" if self.down_stream else "STOPPED",
             "context_count": self.context.count,
             "turn_id": self.current_turn,
-            "server": "TRANSPORT_ONLY",
+            "server": self.server_state,
             "error": self.last_error,
             "rtt_ms": self.metrics.get("rtt_ms"),
             "last_seen_age_ms": (time.monotonic() - self.last_seen) * 1000,
@@ -177,6 +202,8 @@ class EchoGateway:
         self.sessions: dict[str, Session] = {}
         self.contexts: dict[str, PassiveContextBuffer] = {}
         self.owner: str | None = None
+        self.network_lost = asyncio.Event()
+        self.network_watch: asyncio.Task[None] | None = None
 
     def authenticate(self, connection: ServerConnection, request: Request) -> Response | None:
         try:
@@ -212,10 +239,18 @@ class EchoGateway:
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         logger.setLevel(logging.CRITICAL)
-        return await serve(
+        endpoint: dict[str, Any] = {"host": self.settings.bind, "port": self.settings.port}
+        if self.settings.network_path == "ETHERNET_REQUIRED":
+            from .network import ethernet_listener
+
+            endpoint = {
+                "sock": ethernet_listener(
+                    self.settings.network_interface, self.settings.bind, self.settings.port
+                )
+            }
+        server = await serve(
             self.handle,
-            self.settings.bind,
-            self.settings.port,
+            **endpoint,
             ssl=tls,
             process_request=self.authenticate,
             compression=None,
@@ -228,11 +263,43 @@ class EchoGateway:
             origins=[None],
             logger=logger,
         )
+        if self.settings.network_path == "ETHERNET_REQUIRED":
+            self.network_watch = asyncio.create_task(self.watch_network(server))
+        return server
+
+    async def watch_network(self, server: Server) -> None:
+        from .network import require_ethernet
+
+        while True:
+            try:
+                await asyncio.to_thread(
+                    require_ethernet, self.settings.network_interface, self.settings.bind
+                )
+            except (OSError, ValueError):
+                self.network_lost.set()
+                for session in list(self.sessions.values()):
+                    session.last_error = "NETWORK_PATH_UNAVAILABLE"
+                    with contextlib.suppress(ConnectionClosed, TimeoutError):
+                        await session.send("error", {"code": session.last_error})
+                server.close()
+                await asyncio.gather(*(self.drop(s) for s in list(self.sessions.values())))
+                return
+            await asyncio.sleep(0.5)
 
     async def handle(self, socket: ServerConnection) -> None:
         request = socket.request
         if request is None:
             return
+        interface_index = 0
+        if self.settings.network_path == "ETHERNET_REQUIRED":
+            import socket as native_socket
+
+            native = socket.transport.get_extra_info("socket")
+            expected = native_socket.if_nametoindex(self.settings.network_interface)
+            interface_index = native.getsockopt(native_socket.IPPROTO_IP, 25) if native else 0
+            if interface_index != expected:
+                await socket.close(1008, "NETWORK_PATH_UNAVAILABLE")
+                return
         device = request.headers["X-Echo-Device"]
         if request.path == "/audio":
             session = self.sessions.get(device)
@@ -242,6 +309,7 @@ class EchoGateway:
                 and not session.audio
                 and request.headers.get("X-Echo-Session") == session.id
             ):
+                session.metrics["audio_interface_index"] = interface_index
                 await self.audio(session, socket)
             else:
                 await socket.close(1008, "STALE_SESSION")
@@ -258,6 +326,8 @@ class EchoGateway:
             ),
         )
         session = Session(device, socket, buffer)
+        session.metrics["control_interface_index"] = interface_index
+        session.server_state = "JARVIS_LIVE" if self.settings.live_pipeline else "TRANSPORT_ONLY"
         self.sessions[device] = session
         try:
             async with asyncio.timeout(5):
@@ -266,6 +336,8 @@ class EchoGateway:
             if hello["type"] != "hello" or VERSION not in p.get("supported_protocol_versions", []):
                 raise ValueError("PROTOCOL_INCOMPATIBLE")
             if self.settings.playback_prefill_ms != 20 and p.get("playback_prefill") is not True:
+                raise ValueError("PROTOCOL_INCOMPATIBLE")
+            if self.settings.live_pipeline and p.get("live_turns") is not True:
                 raise ValueError("PROTOCOL_INCOMPATIBLE")
             session.rate, session.channels = p.get("uplink_rate"), p.get("uplink_channels")
             session.down_rate, session.down_channels = (
@@ -279,6 +351,10 @@ class EchoGateway:
                 or session.down_channels not in (1, 2)
             ):
                 raise ValueError("AUDIO_FORMAT_UNSUPPORTED")
+            if self.settings.live_pipeline and (
+                session.rate != 16000 or session.down_rate != 48000 or session.down_channels != 1
+            ):
+                raise ValueError("FROZEN_AUDIO_PROFILE_REQUIRED")
             await session.send(
                 "welcome",
                 {
@@ -288,10 +364,14 @@ class EchoGateway:
                     "frame_ms": 20,
                     "max_audio_ms": self.settings.max_audio_ms,
                     "security": self.settings.security,
-                    "pipeline": "NEXT_PHASE",
+                    "pipeline": "LIVE" if self.settings.live_pipeline else "NEXT_PHASE",
+                    "live_turns": self.settings.live_pipeline,
+                    "playback_usage": 1 if self.settings.live_pipeline else 2,
+                    "playback_prefill_ms": self.settings.playback_prefill_ms,
                 },
             )
             await session.send("state", session.snapshot())
+            session.welcomed = True
             while session.alive:
                 async with asyncio.timeout(10):
                     incoming = await socket.recv()
@@ -350,6 +430,7 @@ class EchoGateway:
                 await s.send("audio_start", {"stream_id": s.up_stream})
         elif kind == "clear_context":
             s.context.clear()
+            s.context_epoch += 1
             await s.send("context_state", {"count": 0})
         elif kind == "client_metrics":
             # Fixed numeric allowlist; never retain arbitrary text supplied by the client.
@@ -452,6 +533,9 @@ class EchoGateway:
                         raise ValueError("SYNTHETIC_UPLINK_CORRUPT")
                     s.metrics["synthetic_verified_frames"] = frame.sequence + 1
                 if time.monotonic() < s.speaking_until or s.down_stream:
+                    s.metrics["speaking_suppressed_frames"] = (
+                        s.metrics.get("speaking_suppressed_frames", 0) + 1
+                    )
                     continue
                 if not s.first_receive:
                     s.first_receive, s.first_capture = m1, frame.captured_ns
@@ -600,12 +684,20 @@ class EchoGateway:
             self.sessions.pop(s.device, None)
 
     async def close(self) -> None:
+        if self.network_watch is not None:
+            self.network_watch.cancel()
+            await asyncio.gather(self.network_watch, return_exceptions=True)
         await asyncio.gather(*(self.drop(s) for s in list(self.sessions.values())))
         for buffer in self.contexts.values():
             buffer.clear()
 
 
 async def run(settings: Settings) -> None:
+    if settings.live_pipeline:
+        from .live import run_live
+
+        await run_live(settings)
+        return
     gateway = EchoGateway(settings)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -613,12 +705,18 @@ async def run(settings: Settings) -> None:
         loop.add_signal_handler(sig, stop.set)
     async with await gateway.start():
         print("ECHO_GATEWAY_RUNNING " + settings.security + " TRANSPORT_ONLY", flush=True)
-        await stop.wait()
+        waits = [asyncio.create_task(stop.wait()), asyncio.create_task(gateway.network_lost.wait())]
+        await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
+        for task in waits:
+            task.cancel()
+        await asyncio.gather(*waits, return_exceptions=True)
         await gateway.close()
+        if gateway.network_lost.is_set():
+            raise ValueError("NETWORK_PATH_UNAVAILABLE")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Isolated Echo gateway; no AI pipeline starts")
+    parser = argparse.ArgumentParser(description="Explicit Echo transport or shared live pipeline")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--pair", metavar="DEVICE")
     parser.add_argument("--bind", help="Required explicit private IP when creating pairing")
@@ -647,8 +745,12 @@ def main() -> int:
         else:
             asyncio.run(run(Settings.load(args.config)))
         return 0
-    except (OSError, ValueError, KeyError, TypeError, tomllib.TOMLDecodeError):
-        print("ECHO_CONFIGURATION_ERROR — check private config, bind, pairing and TLS")
+    except (OSError, ValueError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+        print(
+            "NETWORK_PATH_UNAVAILABLE"
+            if str(exc) == "NETWORK_PATH_UNAVAILABLE"
+            else "ECHO_CONFIGURATION_ERROR — check private config, bind, pairing and TLS"
+        )
         return 2
 
 

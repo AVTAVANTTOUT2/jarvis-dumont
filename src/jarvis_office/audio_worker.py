@@ -17,15 +17,19 @@ from jarvis_office.config import Config, load_config
 
 
 class AudioEngine:
-    def __init__(self, config: Config, emit: Callable[[str, dict[str, Any]], None]) -> None:
+    def __init__(
+        self, config: Config, emit: Callable[[str, dict[str, Any]], None], ingress: Any = None
+    ) -> None:
         import sounddevice as sd
 
+        from jarvis_office.audio_ingress import LocalMacIngress
         from jarvis_office.audio_input import AudioError
         from jarvis_office.stt import Recognizer
 
         if config.assets.stt_model is None or config.assets.vad_model is None:
             raise AudioError("selected_stt_assets_required")
         self.config, self.sd, self.emit = config, sd, emit
+        self.ingress = ingress or LocalMacIngress(sd)
         self.recognizer = Recognizer(
             config.assets.stt_model, config.assets.vad_model, config.speech
         )
@@ -58,7 +62,6 @@ class AudioEngine:
         import numpy as np
 
         from jarvis_office.audio_input import AudioError, Normalizer, Segmenter
-        from jarvis_office.capture import CaptureQueue, microphone_preflight, resolve_input
 
         if self.playback is not None or not 0 < seconds <= 300:
             raise AudioError("audio_capture_busy_or_invalid")
@@ -68,15 +71,9 @@ class AudioEngine:
             # Any failed attempt discards all frames and resets every stream state.
             for attempt in range(settings.reconnect_attempts + 1):
                 try:
-                    check = microphone_preflight()
-                    if check["status"] != "PASS":
-                        raise AudioError(str(check["reason"]))
                     if self.cancelled.is_set():
                         return {"cancelled": True}
-                    index, device = resolve_input(
-                        self.sd, settings.input_device, settings.input_rate
-                    )
-                    channel = CaptureQueue(settings.queue_blocks)
+                    channel, device, input_stream = self.ingress.open(settings)
                     normalizer = Normalizer(settings.input_rate, 1)
                     segmenter = Segmenter(settings, realtime=True)
                     self.recognizer.vad.reset()
@@ -87,18 +84,9 @@ class AudioEngine:
                     last_block = level_at = time.perf_counter()
                     with self.lock:
                         if self.cancelled.is_set():
+                            input_stream.close(ignore_errors=False)
                             return {"cancelled": True}
-                        self.input = self.sd.InputStream(
-                            device=index,
-                            samplerate=settings.input_rate,
-                            channels=1,
-                            dtype="float32",
-                            blocksize=round(settings.input_rate * 0.02),
-                            callback=channel.callback,
-                            extra_settings=self.sd.CoreAudioSettings(
-                                change_device_parameters=False
-                            ),
-                        )
+                        self.input = input_stream
                         self.input.start()
                         device.update(
                             stream_rate=getattr(self.input, "samplerate", None),
@@ -160,7 +148,9 @@ class AudioEngine:
                                 "speech_end_estimate": speech_end,
                                 "vad_finalized": utterance.finalized_wall,
                                 "vad_delay_s": (utterance.finalized - utterance.speech_end) / 16000,
-                                "input_clock": "ADC_mapped_to_perf_counter_estimate"
+                                "input_clock": device.get(
+                                    "clock_basis", "ADC_mapped_to_perf_counter_estimate"
+                                )
                                 if origin is not None
                                 else "UNAVAILABLE",
                                 "reconnects": attempt,
@@ -213,6 +203,10 @@ class AudioEngine:
             return {"clock": time.perf_counter()}
         if op == "abort":
             return self.abort()
+        from jarvis_office.audio_ingress import RemotePipeIngress
+
+        if isinstance(self.ingress, RemotePipeIngress):
+            raise AudioError("remote_output_owned_by_gateway")
         if op == "preflight":
             from jarvis_office.capture import microphone_preflight, resolve_input
 
@@ -256,7 +250,7 @@ class AudioEngine:
         return dict(self.playback.progress())
 
 
-async def serve(config: Config, out: BinaryIO) -> int:
+async def serve(config: Config, out: BinaryIO, pcm_fd: int | None = None) -> int:
     from jarvis_office.assets import AssetError
     from jarvis_office.audio_input import AudioError
     from jarvis_office.speech_cli import deny_network
@@ -297,7 +291,14 @@ async def serve(config: Config, out: BinaryIO) -> int:
                     item = {"event": event, "session": session, "turn": engine.turn, "data": data}
                     loop.call_soon_threadsafe(send, item)
 
-                engine = await asyncio.to_thread(AudioEngine, config, emit)
+                if pcm_fd is None:
+                    engine = await asyncio.to_thread(AudioEngine, config, emit)
+                else:
+                    from jarvis_office.audio_ingress import RemotePipeIngress
+
+                    engine = await asyncio.to_thread(
+                        AudioEngine, config, emit, RemotePipeIngress(pcm_fd)
+                    )
                 result = {
                     "code_signature": source_signature(),
                     "load_s": engine.recognizer.load_s,
@@ -382,7 +383,8 @@ def main() -> int:
         os.dup2(2, 1)
         try:
             config = load_config(Path(sys.argv[1]))
-            return asyncio.run(serve(config, out))
+            pcm_fd = int(sys.argv[2]) if len(sys.argv) == 3 else None
+            return asyncio.run(serve(config, out, pcm_fd))
         except Exception:
             return 1  # No raw exception, transcript or asset path on stderr.
 
