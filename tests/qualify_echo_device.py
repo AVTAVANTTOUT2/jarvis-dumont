@@ -14,6 +14,53 @@ from jarvis_office.echo.gateway import EchoGateway, Session, Settings
 from jarvis_office.echo.protocol import Packet
 
 
+def buffer_observations(trace: list[dict], rate: int = 48000) -> dict:
+    """Local Android clocks only; allocation is never treated as available PCM."""
+    if rate <= 0:
+        raise ValueError("INVALID_SAMPLE_RATE")
+    frames = [row for row in trace if row.get("phase") == "U2"]
+    prefill = next((row.get("prefill_frames") for row in trace if row.get("phase") == "U1"), None)
+    gaps = []
+    for previous, current in zip(frames, frames[1:], strict=False):
+        if "receive_ns" not in previous or "receive_ns" not in current:
+            continue
+        gap = (current["receive_ns"] - previous["receive_ns"]) / 1e6
+        if gap <= 40:
+            continue
+        reserve = None
+        if "written_frames" in previous and "head_after" in previous:
+            reserve = (previous["written_frames"] - previous["head_after"]) * 1000 / rate
+        remaining = None
+        if "written_frames" in previous and "head_before" in current:
+            remaining = (previous["written_frames"] - current["head_before"]) * 1000 / rate
+        gaps.append(
+            {
+                "sequence": current["sequence"],
+                "receive_gap_ms": gap,
+                "preceding_write_reserve_ms": reserve,
+                "remaining_before_next_write_ms": remaining,
+                "underrun_observed": current["underruns"] > previous["underruns"],
+            }
+        )
+    return {
+        "clock": "Android_local_only",
+        "sample_rate": rate,
+        "physical_prefill_ms": None if prefill is None else prefill * 1000 / rate,
+        "gaps": gaps,
+        "gap_histogram": [
+            {
+                "threshold_ms": threshold,
+                "count": sum(g["receive_gap_ms"] > threshold for g in gaps),
+                "associated_underruns": sum(
+                    g["receive_gap_ms"] > threshold and g["underrun_observed"] for g in gaps
+                ),
+            }
+            for threshold in (40, 60, 80, 100, 120, 150)
+        ],
+        "note": "Reserve is sampled at the preceding write, not an assumed exact gap-start fill.",
+    }
+
+
 def classify_playback(trace: list[dict]) -> dict:
     """Classify observed counter increments, never equate the total with audible glitches."""
     phases = {row["phase"]: row for row in trace if row["phase"] != "U2"}
@@ -48,6 +95,7 @@ def classify_playback(trace: list[dict]) -> dict:
         "queue_max": max(row["queue_depth"] for row in frames),
         "u6_operation": "pause_flush_before_release",
         "audible_artifact": "HUMAN_REQUIRED",
+        "buffer_observations": buffer_observations(trace),
     }
 
 

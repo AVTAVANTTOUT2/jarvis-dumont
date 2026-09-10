@@ -1,5 +1,16 @@
 # État du projet
 
+## Echo ECHO-02D — remédiation ciblée bloquée
+
+- Baseline physique reproduite : une starvation sur 40 lectures. Prefill de
+  100 ms réellement écrit ; allocation native et réserve disponible distinctes.
+- Deux corrections bornées testées puis retirées : placement de réserve et
+  verrou Wi-Fi pendant lecture. La fiabilité complète n'est pas démontrée.
+- Livrable limité aux diagnostics/tests ; paramètres audio et sender nominal
+  conservés. Budget réel 9/10, PASSIVE et STT/TTS non exécutés dans cette phase.
+- `ECHO_02D_BLOCKED`, `OWNER_DEVICE_ARCHITECTURE_DECISION`.
+  Détails : `src/jarvis_office/echo/ECHO-02D.md`. PR empilées, aucune fusion.
+
 ## Echo ECHO-02C — chantier parallèle
 
 - Deux tours réels Echo → VoiceLoop existant → Echo ont réussi sans redémarrage ;
