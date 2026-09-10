@@ -15,9 +15,27 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.11.29'
-      - run: uv sync --locked --no-python-downloads
+      - run: uv sync --locked --extra private --no-python-downloads
+      - run: uv pip install --python .venv/bin/python -r src/jarvis_office/echo/requirements.txt
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync mypy
       - run: uv run --no-sync python -m unittest discover -s tests -v
+      - run: node --test tests/test_dashboard.mjs
       - run: uv build --no-python-downloads
+      - name: Verify wheel contains only application files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          wheel = next(Path('dist').glob('*.whl'))
+          with ZipFile(wheel) as archive:
+              names = archive.namelist()
+              assert 'jarvis_office/control.html' in names
+              assert all(n.startswith('jarvis_office/') or '.dist-info/' in n for n in names)
+              assert not any(n.endswith(('.wav', '.safetensors', '.env', '.toml')) for n in names)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: office-wheel
+          path: dist/*.whl

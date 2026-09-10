@@ -7,7 +7,7 @@ stt_model = ""
 voice_profile = ""
 vad_model = ""
 
-# For tts-test only: a dedicated interpreter installed from runtime/tts/uv.lock.
+# For tts-test and run: a dedicated interpreter installed from runtime/tts/uv.lock.
 # After an explicit import, use assets/<bundle_id>/model and /voice above.
 [tts]
 # python = "/path/to/dedicated/python"
@@ -22,3 +22,51 @@ max_tokens = 4096
 startup_timeout = 180.0
 fragment_timeout = 60.0
 drain_timeout = 15.0
+
+# One selected CTranslate2 bundle only: assets/stt/<bundle_id>/model above,
+# with assets/stt/<bundle_id>/vad/silero.onnx. Candidates stay under benchmarks/.
+[speech]
+# python = "/path/to/runtime/stt/.venv/bin/python"
+compute_type = "float32" # CPU backend verified; neither CUDA nor Metal.
+cpu_threads = 4
+beam_size = 1
+input_device = "" # Exact unique input name, checked again at every startup.
+input_rate = 48000 # Must be accepted by the selected device.
+vad_threshold = 0.5
+pre_roll_ms = 300 # Quantized upwards to 320 ms (512 samples = 32 ms).
+terminal_silence_ms = 500 # Quantized upwards to 512 ms.
+min_speech_ms = 96
+max_utterance_s = 30
+max_input_s = 60
+queue_blocks = 32
+reconnect_attempts = 2
+
+# DeepSeek HTTP JSON contract; endpoint is fixed in code, no provider/model fallback.
+# The secret is NOT in this TOML: private config/deepseek.env, mode 0600.
+[chat]
+model = "deepseek-v4-flash"
+max_tokens = 256
+connect_timeout = 10.0
+first_content_timeout = 20.0
+idle_timeout = 10.0
+total_timeout = 60.0
+segment_timeout = 0.8
+input_chars = 4096
+output_chars = 4096
+history_turns = 4
+context_chars = 12000
+queue_events = 64
+
+# Phase 05. run starts paused. No fallback or change to macOS global output.
+[voice]
+output_device = "" # Required exact unique local output name; no system-wide change.
+output_rate = 48000
+output_channels = 2
+port = 8768 # 127.0.0.1 only; collision is an error.
+acoustic_delay = 0.35
+text_queue_chars = 2048
+pcm_seconds = 2.0 # Device-format float32 ring, not a count of PCM objects.
+prefill_seconds = 0.12
+arm_seconds = 60
+arm_turns = 3
+stt_timeout = 60.0

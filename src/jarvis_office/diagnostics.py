@@ -203,7 +203,7 @@ def asset_checks(config: Config) -> list[Check]:
         asset_check("voice_profile", assets.voice_profile, inspect_voice),
         asset_check("vad_model", assets.vad_model, inspect_vad),
         Check("voice_rights", "NOT_RUN", "metadata_does_not_establish_consent"),
-        Check("inference", "NOT_RUN", "outside_phase_01"),
+        Check("inference", "NOT_RUN", "not_run_by_read_only_diagnostic"),
     ]
 
 
@@ -231,7 +231,7 @@ def doctor_checks(config: Config) -> list[Check]:
         checks
         + asset_checks(config)
         + [
-            Check(name, "NOT_RUN", "outside_phase_01")
+            Check(name, "NOT_RUN", "not_run_by_read_only_diagnostic")
             for name in ("microphone", "playback", "deepseek_key", "network")
         ]
     )

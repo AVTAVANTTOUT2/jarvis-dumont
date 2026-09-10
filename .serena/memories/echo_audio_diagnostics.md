@@ -1,0 +1,13 @@
+# Echo audio qualification conventions
+
+Physical speaker metrics never replace owner AUDIO_ECHO/ECHO_ARTIFACT and prescribed microphone replay/MIC_ECHO confirmations. ECHO-02 requires these gates and stable transport before VoiceLoop integration; no independent model/pipeline belongs in echo/.
+
+Use tests/qualify_echo_device.py with explicit device/config/report and --phase continuous (one 30-second stream), matrix (ten 3-second streams, one --prefill-ms value), or micro_replay --seconds 6 (owner-ready, RAM-only, max eight seconds). The harness must own the dedicated Echo port; stop only that listener, never the main Jarvis runtime. Install the physical Android runner built with -PechoQualification=true first. No waveform, transcript or credentials belong in reports committed to Git.
+
+Underrun interpretation requires a complete frame/lifecycle trace. Separate U4-U1 data-window increments, U5-U4 post-final-write drain, and U6-U5 pause/flush teardown. U6 observes pause/flush, not AudioTrack.stop(). Missing checkpoints, gaps, counter resets or truncated traces are incomplete, never zero. Check expected completed-stream count separately from the transport pass flag. Keep per-stream trace memory bounded. Compare Mac pacing and Android receipt before increasing buffers; no inter-machine latency PASS from an offset estimate alone.
+
+RAM replay uses the existing server soxr dependency; Android only receives PCM. Clear mutable capture, normalized array and replay byte buffers even if send fails. CI runs python -m unittest discover -s tests and does not require hardware, models or API secrets.
+
+For human replay the physical runner waits for the owner to tap ACTIF, avoiding missed automatic capture windows. The harness prints only capture/replay start markers, never transcripts. Optional --replay-gain 2|4|8 is explicit, server-only and capped at 8,192 PCM units peak; default is 1 and system volume is unchanged. Negative human audibility overrides a technical transport pass; do not mark intelligibility or artifacts confirmed when no sound was heard.
+
+Do not invoke `dumpsys media.audio_flinger` or full bugreports on the June 2026 checkers firmware: the vendor Device::debug callback crashes the native audio HAL. Use AudioService, logcat or the debug EchoService metadata dump instead. TCP metadata probes must collect counters only, never packet payloads. On macOS a TCP_NODELAY getter may return a nonzero flag such as 4; interpret nonzero as enabled, not only equality to 1. Neither kernel retransmissions nor a passing single clip identifies a specific radio/driver cause or qualifies stable audio.

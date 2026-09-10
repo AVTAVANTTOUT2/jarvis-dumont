@@ -1,3 +1,8 @@
-- Reproducible commands and diagnostic exit codes are maintained in README.md; execute from the Office project root.
-- uv run --no-sync uses the already synchronized dedicated environment. Direct .venv/bin/jarvis-office avoids package resolution at diagnostic runtime.
-- Missing assets intentionally return 3 and do not initiate downloads.
+- Reproducible commands and exit codes are maintained in README.md; run from the Office project root.
+- For all tests/chat: uv sync --locked --extra chat --no-python-downloads. Use uv run --no-sync afterward so the selected extra remains installed; direct .venv/bin/jarvis-office avoids runtime package resolution.
+- configure-deepseek --from-env explicitly imports only DEEPSEEK_API_KEY into the private config/deepseek.env (0600). The chat runtime never reads V1 or ambient env keys. Never print the key or place it in process arguments.
+- chat --text sends only the explicit text plus confirmed RAM history; optional --report writes metadata only under the private reports directory. No microphone or audio playback.
+- Missing assets/keys intentionally return 3 and do not initiate downloads. Full tests require NumPy/SoXR and the chat extra, no models, device or remote key.
+- run starts paused on loopback; run --arm --seconds 30 --turns 2 is an explicitly bounded hardware trial. Select exact unique local input/output names in private [speech]/[voice], never numeric indices or global output changes. Ctrl+C or Stop owns complete shutdown. TV: deferred to a future phase.
+- input-list --json and output-list --json query PortAudio formats only in the existing speech runtime. Format support is not stream-open or audible proof. mic-check is a separate permission/conflict snapshot; even the macOS Sound Settings meter can keep an input active. Do not bypass this gate or close another application automatically.
+- run --text "Jarvis, explique le réseau local." --no-play exercises the response without mic/playback. No automatic API retry or quota reset; the phase validation budget is shared across commands and restarts in the private config directory.

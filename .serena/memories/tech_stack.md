@@ -1,5 +1,17 @@
-- Office controller Python 3.12 uses only the standard library; its uv.lock covers dev tools. The build backend is independently pinned.
-- Qwen3 runs in an owned persistent child with a separate Python 3.14 environment locked by runtime/tts/uv.lock. Never install into or import modules from V1.
-- The worker accepts only a verified independent imported bundle, French ICL with WAV plus nonempty transcript. mlx-audio 0.4.5 uses lang_code (not language) and clamps the ICL repetition penalty to at least 1.5.
-- Worker caches belong to Office. On macOS, OS network denial plus a Python audit guard supplement local-only/offline loading.
-- Clean-wheel checks need no MLX, model, audio device, or key. Runtime MLX tests are separate hardware evidence.
+- Office controller Python 3.12 has no runtime dependencies. Root uv.lock covers dev tools plus NumPy/SoXR for portable audio tests; the build backend is pinned.
+- Qwen3 uses an owned persistent Python 3.14 child locked by runtime/tts/uv.lock. Never install into or import modules from V1.
+- The TTS worker accepts only a verified independent bundle, French ICL with WAV and nonempty transcript. mlx-audio 0.4.5 uses lang_code and clamps ICL repetition penalty to at least 1.5.
+- STT uses a separate Python 3.12 runtime locked by runtime/stt/uv.lock: faster-whisper/CTranslate2 CPU, Silero ONNX Runtime, sounddevice capture, continuous SoXR HQ. No Torch, PyAudio, second VAD or engine fallback.
+- Only the explicit benchmark loads two candidates, sequentially with unload verified. The nominal adapter loads one selected bundle and warms up outside requests. CPU compute_type is queried and checked, never inferred as Metal.
+- Caches belong to Office. macOS OS network denial plus Python audit guards supplement local-only loading. Micro preflight uses native permission/CoreAudio input queries plus targeted V1 launchers; it is an instant snapshot.
+- Clean-wheel tests use NumPy/SoXR only and require no MLX/STT engines, models, device or key. Hardware and human qualification are separate evidence.
+- DeepSeek uses the optional chat extra (HTTPX 0.28.1), loaded lazily by the text command. No OpenAI SDK/key, no audio engine in the chat path. Fixed TLS endpoint, disabled thinking, bounded max_tokens and no automatic retry.
+- SSE is parsed as bytes/complete events, not TCP chunks. A segmentation timer must keep the pending network read alive. Require finish_reason=stop and [DONE]; usage-only frames are metadata, reasoning/tools fail closed.
+- Turn is an async context manager with one consumer queue. Saturation fails and closes the stream. RAM history changes only on explicit confirmation of an issued text prefix, with complete/partial and displayed/spoken distinguished. Reset invalidates stale confirmations.
+- The speech segmenter protects incomplete final words, numbers/units, French abbreviations and split punctuation. Markdown/code/URL state is bounded. No V1 source is copied or imported.
+- Voice controller reuses HTTPX and TTSClient; a persistent offline audio worker keeps Recognizer/Silero and sounddevice/SoXR in the STT environment. A source signature guards against editable installs executing another checkout. No engine merge or network service between workers.
+- Audio RPC is bounded JSON with request/session/turn identifiers; PCM credit accounts for device-rate float32 channels AND SoXR delayed samples. One fragment in flight, timeout on a dead consumer. Capture closes before decoding an already-segmented utterance; do not run Silero twice.
+- Prepare the capture cancellation event before scheduling its thread; a late thread must not clear Pause. Drain the capture task before reuse, terminate only its owner if the boundary is uncertain. Finish worker shutdown before cancelling the UI control task.
+- Audio worker owns a fresh process session so cancellation also reaps its short-lived preflight helpers; never signal an inherited process group. If closure fails, expose closure_unverified and forbid rearming.
+- Output segment confirmation is conservative DAC-deadline estimation, not acoustic proof. Keep complete segment prefix only after interruption. Source/ADC/driver clocks need an explicit mapping; MLX relative first-PCM time is not a global timestamp.
+- Local UI has a same-origin POST bootstrap, strict Host/Origin/Fetch Metadata and HttpOnly SameSite cookie; no GET action or public snapshot. Its HTML ships in the wheel and renders model text with textContent.

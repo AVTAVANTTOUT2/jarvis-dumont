@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Jarvis Office · Espace privé</title>
+  <link rel="stylesheet" href="/dashboard/dashboard.css">
+  <script type="module" src="/dashboard/dashboard.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Jarvis Office, vue d’ensemble"><span class="brand-mark" aria-hidden="true">J</span><span>JARVIS<span class="brand-sub">OFFICE / PRIVÉ</span></span></a>
+    <nav aria-label="Navigation principale">
+      <a href="#overview" data-page="overview"><span aria-hidden="true">◈</span>Vue d’ensemble</a>
+      <a href="#conversations" data-page="conversations"><span aria-hidden="true">▤</span>Conversations</a>
+      <a href="#context" data-page="context"><span aria-hidden="true">◷</span>Contexte</a>
+      <a href="#data" data-page="data"><span aria-hidden="true">▦</span>Données</a>
+      <a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span>Réglages</a>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Connexion…</span><small>Stockage local · Mac Office</small></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span class="private-label">ESPACE PERSONNEL</span><div class="terminal"><label for="device-select">Terminal</label><select id="device-select"><option value="">Aucun terminal connecté</option></select></div><button id="quick-off" class="button danger-soft" disabled>Couper le micro</button></header>
+    <main id="main" tabindex="-1">
+      <div id="connection-notice" class="notice" role="status" hidden></div>
+      <div id="feedback" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section id="page-overview" class="page" aria-labelledby="title-overview">
+        <div class="page-heading"><div><p class="eyebrow">VOTRE ASSISTANT, SOUS CONTRÔLE</p><h1 id="title-overview">Vue d’ensemble</h1><p>Le mode choisi et ce que fait réellement votre terminal.</p></div><span class="badge" id="overview-connection">Connexion…</span></div>
+        <div id="alerts"></div>
+        <div class="state-grid">
+          <article class="card state-card"><p class="label">CONNEXION</p><strong id="state-connection">Non mesuré</strong><small id="state-device">Aucun terminal</small></article>
+          <article class="card state-card"><p class="label">MODE CONFIRMÉ</p><strong id="state-mode">Non mesuré</strong><small id="state-requested">Demandé : non mesuré</small></article>
+          <article class="card state-card"><p class="label">ACTIVITÉ</p><strong id="state-activity">Non mesuré</strong><small id="state-turn">Aucun tour actif</small></article>
+          <article class="card state-card"><p class="label">MICRO PHYSIQUE</p><strong id="state-microphone">Non mesuré</strong><small id="state-playback">Lecture : non mesuré</small></article>
+        </div>
+        <div class="overview-grid">
+          <article class="card modes-panel"><div class="card-heading"><h2>Mode du terminal</h2><span class="subtle">Un seul mode à la fois</span></div><div class="mode-options" id="mode-options">
+            <button class="mode-button" data-mode="OFF" disabled><span class="mode-symbol" aria-hidden="true">○</span><span><strong>Micro coupé</strong><small>Capture fermée. Vos données restent consultables.</small></span><span class="mode-check" aria-hidden="true"></span></button>
+            <button class="mode-button" data-mode="ACTIVE" disabled><span class="mode-symbol" aria-hidden="true">◉</span><span><strong>Conversation</strong><small>Posez une question en vous adressant à Jarvis.</small></span><span class="mode-check" aria-hidden="true"></span></button>
+            <button class="mode-button passive" data-mode="PASSIVE" disabled><span class="mode-symbol" aria-hidden="true">◷</span><span><strong>Écoute contextuelle</strong><small>Transcription locale et contexte temporaire visibles.</small></span><span class="mode-check" aria-hidden="true"></span></button>
+          </div><p class="helper" id="command-state" aria-live="polite">Choisissez un terminal pour accéder aux commandes.</p><div class="actions"><button id="interrupt" class="button secondary" disabled>Interrompre la réponse</button><button id="clear-context-overview" class="button ghost" disabled>Effacer le contexte actif</button></div></article>
+          <div class="stack"><article class="card"><div class="card-heading"><h2>Usage nominal</h2><a href="#settings">Configurer →</a></div><div id="budget-summary" class="budget-summary"><strong>Non mesuré</strong></div><p class="helper">Aucun appel pour une page ouverte ou une reconnexion.</p><div class="divider"></div><p class="small" id="diagnostic-budget">Campagne diagnostic : non mesuré</p></article><article class="card"><p class="label">SERVICE PRIVÉ</p><h2>Votre écoute reste volontaire.</h2><p class="small">Une reconnexion remet le terminal sur Micro coupé. Cette page n’utilise jamais le microphone du navigateur.</p><a href="#context">Voir le contexte retenu →</a></article></div>
+        </div>
+        <article class="card"><div class="card-heading"><h2>Dernier échange enregistré</h2><a href="#conversations">Toutes les conversations →</a></div><div id="latest-turn" class="empty">Chargement de l’historique…</div></article>
+      </section>
+
+      <section id="page-conversations" class="page" aria-labelledby="title-conversations" hidden>
+        <div class="page-heading"><div><p class="eyebrow">HISTORIQUE LOCAL</p><h1 id="title-conversations">Conversations</h1><p>Les échanges enregistrés depuis l’activation de la conservation.</p></div></div>
+        <div id="history-notice" class="notice neutral"></div>
+        <form id="conversation-search" class="search-toolbar"><label class="search-field"><span>Rechercher dans les échanges</span><input id="conversation-query" type="search" placeholder="Une phrase, une question…" maxlength="200"></label><label><span>Statut</span><select id="conversation-status"><option value="">Tous les statuts</option><option value="complete">Complets</option><option value="partial">Partiels</option><option value="interrupted">Interrompus</option><option value="error">En erreur</option></select></label><button class="button" type="submit">Rechercher</button></form>
+        <div class="conversation-layout"><aside class="card session-panel"><div class="card-heading"><h2>Sessions</h2><button id="sessions-refresh" class="button icon-button" aria-label="Actualiser les sessions">↻</button></div><button id="all-sessions" class="button secondary full-width">Tous les échanges</button><div id="sessions-list" class="session-list"></div><button id="more-sessions" class="button ghost full-width" hidden>Sessions suivantes</button></aside><div><div id="conversation-scope" class="result-meta"></div><div id="turns-list" class="stack"></div><div class="pagination"><button id="turns-prev" class="button secondary" disabled>← Précédent</button><span id="turns-page"></span><button id="turns-next" class="button secondary" disabled>Suivant →</button></div></div></div>
+      </section>
+
+      <section id="page-context" class="page" aria-labelledby="title-context" hidden>
+        <div class="page-heading"><div><p class="eyebrow">MÉMOIRE TEMPORAIRE</p><h1 id="title-context">Contexte actif</h1><p>Ce qui est réellement retenu pour le prochain échange.</p></div><button id="context-refresh" class="button secondary">Actualiser</button></div>
+        <div class="notice amber"><strong>Une écoute visible, une mémoire limitée.</strong><span>Le contexte est une transcription potentiellement erronée, jamais une instruction système ni une vérité certifiée. Une question adressée peut transmettre une portion bornée de ce contexte à DeepSeek.</span></div>
+        <div class="context-summary"><article class="card"><p class="label">CONSERVATION RAM</p><strong id="context-limits">Non mesuré</strong><p class="helper">Expiration automatique · aucun audio brut archivé par défaut</p></article><article class="card"><p class="label">ARCHIVAGE PASSIF</p><strong id="context-archive">Non mesuré</strong><p class="helper">Option distincte dans Réglages. Consulter une archive ne la réinjecte pas dans le modèle.</p></article><article class="card"><p class="label">PROCHAIN TOUR</p><strong id="context-bound">Non mesuré</strong><p class="helper">Maximum de contexte pouvant accompagner une question adressée.</p></article></div>
+        <article class="card"><div class="card-heading"><h2>Énoncés retenus</h2><button id="clear-context" class="button danger-soft" disabled>Effacer le contexte actif</button></div><div id="context-entries" class="stack"></div></article>
+      </section>
+
+      <section id="page-data" class="page" aria-labelledby="title-data" hidden>
+        <div class="page-heading"><div><p class="eyebrow">EXPLORATEUR EN LECTURE SEULE</p><h1 id="title-data">Données</h1><p>Les tables réelles de votre base Office, avec leur schéma et leurs relations.</p></div><button id="catalog-refresh" class="button secondary">Actualiser</button></div>
+        <div class="data-layout"><aside class="card catalog-panel"><p class="label">TABLES AUTORISÉES</p><div id="catalog-tables" class="catalog-list"></div><details class="restricted"><summary>Éléments restreints</summary><div id="restricted-items" class="small"></div></details></aside><div class="data-main"><article class="card data-card"><div class="card-heading"><div><h2 id="table-title">Sélectionnez une table</h2><p id="table-count" class="helper"></p></div><button id="export-data" class="button secondary" disabled>Exporter</button></div><details id="table-schema"><summary>Schéma et colonnes</summary><div id="schema-content" class="schema-list"></div></details>
+          <form id="data-query-form"><div class="data-toolbar"><label class="search-field"><span>Recherche textuelle</span><input id="data-query" type="search" maxlength="200" placeholder="Rechercher dans cette table"></label><label><span>Trier par</span><select id="data-sort"></select></label><label><span>Ordre</span><select id="data-direction"><option value="asc">Croissant</option><option value="desc">Décroissant</option></select></label><label><span>Par page</span><select id="data-limit"><option>25</option><option selected>50</option><option>100</option></select></label></div><div id="data-filters" class="filter-list"></div><div class="actions query-actions"><button id="add-filter" class="button ghost" type="button">+ Ajouter un filtre</button><button class="button" type="submit">Appliquer</button><button id="reset-filters" class="button ghost" type="button">Réinitialiser</button></div></form><p id="data-scope" class="result-meta"></p><div id="table-result" class="table-scroll" role="region" aria-label="Lignes de la table" tabindex="0"></div><div class="pagination"><button id="data-prev" class="button secondary" disabled>← Précédent</button><span id="data-page"></span><button id="data-next" class="button secondary" disabled>Suivant →</button></div></article><article class="card"><h2>Rapports Office connus</h2><p class="helper">Catalogue limité et assaini. Aucun accès aux autres fichiers du Mac.</p><div id="reports-catalog"></div></article></div></div>
+      </section>
+
+      <section id="page-settings" class="page" aria-labelledby="title-settings" hidden>
+        <div class="page-heading"><div><p class="eyebrow">VOTRE INSTALLATION</p><h1 id="title-settings">Réglages</h1><p>Usage, conservation et état des services.</p></div><button id="settings-refresh" class="button secondary">Actualiser</button></div>
+        <div id="settings-content"><form id="settings-form" class="settings-grid"><article class="card"><div class="card-heading"><h2>Budget nominal</h2><span class="badge cyan" id="budget-choice">CHOIX REQUIS</span></div><p class="small">Choisissez le plafond avant la première activation. À épuisement, les nouveaux appels sont bloqués ; aucun dépassement automatique.</p><div class="form-grid"><label><span>Plafond de requêtes</span><input id="budget-limit" type="number" min="1" max="100000" step="1" placeholder="À choisir explicitement"></label><label><span>Période</span><select id="budget-period"><option value="day">Par jour</option><option value="month">Par mois</option></select></label></div><p id="settings-budget-used" class="helper"></p><p id="settings-diagnostic-budget" class="small"></p></article>
+          <article class="card"><h2>Conversations adressées</h2><label class="switch-row"><span><strong>Conserver les conversations</strong><small>Texte des échanges et statut de livraison sur ce Mac.</small></span><input id="history-enabled" type="checkbox"></label><label><span>Rétention en jours</span><input id="retention-days" type="number" min="1" max="3650" required></label><p id="history-started" class="helper"></p></article>
+          <article class="card"><h2>Écoute contextuelle</h2><label class="switch-row"><span><strong>Archiver le contexte passif</strong><small>Conservation locale supplémentaire. Désactivée initialement ; le contexte RAM reste consultable.</small></span><input id="archive-passive" type="checkbox"></label><label><span>Rétention des archives en jours</span><input id="passive-retention-days" type="number" min="1" max="365" required></label><p class="helper">Les archives ne sont jamais réinjectées automatiquement dans DeepSeek. Aucun audio brut conservé.</p></article>
+          <article class="card"><h2>Sauvegardes locales</h2><label><span>Rétention des sauvegardes en jours</span><input id="backup-retention-days" type="number" min="1" max="365" required></label><p class="small">Sauvegarde cohérente SQLite. Les copies déjà téléchargées ont leur propre durée de vie : une purge ne les efface pas.</p><button id="download-backup" class="button secondary" type="button">Télécharger une sauvegarde…</button></article>
+          <div class="settings-save"><p id="settings-save-note" class="helper">Les changements sont appliqués après enregistrement.</p><button class="button" type="submit">Enregistrer les réglages</button></div>
+        </form>
+        <article class="card"><h2>Appareils et connexion</h2><div id="settings-devices"></div><p class="helper">Le dashboard est réservé à cette machine. L’appairage et la confiance TLS du terminal se règlent sur sa page Commandes. Aucun secret n’est affiché ici.</p></article>
+        <article class="card"><details><summary>Services, versions et diagnostics avancés</summary><div id="settings-diagnostics"></div><p class="helper">Une mesure absente reste « Non mesuré ». La position du lecteur et les temps réseau ne prouvent pas une latence acoustique.</p><div class="divider"></div><button id="preview-voice" class="button secondary" disabled>Tester la voix locale…</button><p class="helper">Une phrase TTS locale connue, sans cloud ni capture. Disponible uniquement connecté, mode Micro coupé confirmé et micro physique fermé.</p><div class="divider"></div><button id="passive-smoke" class="button secondary" disabled>Smoke écoute contextuelle · 1 appel diagnostic max…</button><p class="helper">Uniquement lorsque vous êtes prêt à parler. Phrase locale non adressée, puis question à Jarvis avec contexte. Compteur diagnostic distinct ; aucun plafond nominal choisi automatiquement.</p><a href="#context">Consulter et effacer le contexte actif →</a></details></article>
+        <article class="card danger-zone"><h2>Suppression des archives</h2><p class="small">Ces actions sont distinctes de l’effacement du contexte actif et demandent confirmation.</p><div class="actions"><button id="purge-conversations" class="button danger-soft">Purger les conversations…</button><button id="purge-passive" class="button danger-soft">Supprimer les archives passives…</button></div></article></div>
+      </section>
+      <footer class="main-footer"><span>JARVIS OFFICE</span><span>État observé · données locales · activation volontaire</span></footer>
+    </main>
+  </div>
+  <dialog id="detail-dialog" class="detail-dialog"><div class="dialog-heading"><h2 id="detail-title">Détail</h2><button id="close-detail" class="button icon-button" aria-label="Fermer le détail">✕</button></div><div id="detail-content"></div></dialog>
+  <dialog id="confirm-dialog"><form method="dialog"><p class="eyebrow">CONFIRMATION</p><h2 id="confirm-title"></h2><p id="confirm-message" class="preserve-lines"></p><div class="actions dialog-actions"><button value="cancel" class="button secondary">Annuler</button><button value="confirm" id="confirm-action" class="button">Confirmer</button></div></form></dialog>
+</body>
+</html>

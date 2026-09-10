@@ -1,10 +1,12 @@
 # Private configuration and reports
 .env
 .env.*
+*.env
 !.env.example
 config.toml
 *.local.*
 inventory*.json
+*-api-budget.json
 reports/
 secrets/
 *.pem
@@ -29,6 +31,7 @@ models/
 *.ogg
 *.pcm
 *.safetensors
+*.npy
 *.onnx
 *.pt
 *.bin

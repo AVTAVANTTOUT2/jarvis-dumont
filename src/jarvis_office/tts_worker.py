@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from jarvis_office.assets import verify_bundle
+from jarvis_office.audio_client import source_signature
 from jarvis_office.config import Config, load_config
 from jarvis_office.tts import MAX_FRAME, MAX_REQUEST, MAX_TEXT, TTSError, write_frame
 
@@ -158,6 +159,7 @@ def serve(config: Config, out: BinaryIO, source: BinaryIO) -> int:
             0,
             {
                 "sample_rate": engine.sample_rate,
+                "code_signature": source_signature(),
                 "channels": 1,
                 "warmup_pcm_bytes": warmup["pcm_bytes"],
                 "warmup": warmup,
