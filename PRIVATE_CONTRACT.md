@@ -48,6 +48,9 @@ ring <=256, snapshot si curseur perdu ; consultation sans activation audio.
 mode?,command_id}` ; même gateway.command que l'APK.
 Action administrateur `preview_voice` uniquement : phrase TTS locale fixe,
 mode OFF et capture fermée ; aucun appel cloud. Aucun token Echo ne peut l'appeler.
+Action admin `passive_smoke` confirmée : active PASSIVE après le clic humain,
+borne à une question adressée avec le budget diagnostic historique restant,
+sans choisir ni consommer le budget nominal. Aucune capture avant le clic.
 `GET /api/context?device_id=...` => `{entries:[{text,source,age_s,expires_in_s}],
 limits:{seconds,chars,utterances},archive_enabled,next_turn_max_chars:3500}`.
 `GET /api/settings` / `POST /api/settings` => préférences non secrètes et budget.

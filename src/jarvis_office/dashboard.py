@@ -276,7 +276,8 @@ class DashboardServer:
             raise ValueError()
         action, mode = body.get("action"), body.get("mode")
         if (
-            action not in ("set_mode", "interrupt", "clear_context", "preview_voice")
+            action
+            not in ("set_mode", "interrupt", "clear_context", "preview_voice", "passive_smoke")
             or (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE"))
             or not isinstance(body.get("device_id"), str)
             or len(body["device_id"]) > 128
@@ -284,7 +285,7 @@ class DashboardServer:
             or not 1 <= len(body["command_id"]) <= 64
         ):
             raise ValueError()
-        if action == "clear_context" and body.get("confirm") is not True:
+        if action in {"clear_context", "passive_smoke"} and body.get("confirm") is not True:
             return self._error("CONFIRMATION_REQUIRED")
         if action == "set_mode" and mode != "OFF":
             settings = await self.store.settings()

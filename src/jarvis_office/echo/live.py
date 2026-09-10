@@ -59,7 +59,7 @@ def historical_reports() -> list[dict[str, Any]]:
             catalogue.append(
                 {
                     "name": name,
-                    "sha256": fingerprint(path),
+                    "sha256": fingerprint(path)["sha256"],
                     "restricted": True,
                     "summary": {
                         key: data[key]
@@ -91,6 +91,7 @@ class LiveGateway(EchoGateway):
         self.last_product: dict[str, str] = {}
         self.command_lock = asyncio.Lock()
         self.record_owner: tuple[str, str, str, int] | None = None
+        self.diagnostic_session: str | None = None
         voice.transcript_context = self.transcript_context
         voice.on_turn_finished = self.record_turn
 
@@ -239,6 +240,30 @@ class LiveGateway(EchoGateway):
         if s is None or not s.alive:
             return {"status": "rejected", "error": "DEVICE_DISCONNECTED"}
         action = payload.get("action")
+        if action == "passive_smoke":
+            if s.mode != "OFF" or s.down_stream:
+                return {"status": "rejected", "error": "AUDIO_SESSION_BUSY"}
+            try:
+                diagnostic = json.loads(Path(self.settings.api_budget_file).read_text())
+                if diagnostic["attempts"] >= diagnostic["limit"]:
+                    return {"status": "rejected", "error": "DIAGNOSTIC_BUDGET_EXHAUSTED"}
+            except (OSError, KeyError, ValueError):
+                return {"status": "rejected", "error": "DIAGNOSTIC_BUDGET_UNAVAILABLE"}
+            async with self.command_lock:
+                await self.product_command(
+                    s,
+                    {
+                        "type": "set_mode",
+                        "payload": {
+                            "mode": "PASSIVE",
+                            "command_id": payload.get("command_id"),
+                        },
+                    },
+                    time.monotonic_ns(),
+                    diagnostic=True,
+                )
+                self.voice.remaining = 1
+            return s.command_acks[payload["command_id"]]
         if action == "preview_voice":
             if s.mode != "OFF" or s.down_stream or (s.turn_task and not s.turn_task.done()):
                 return {"status": "rejected", "error": "AUDIO_SESSION_BUSY"}
@@ -365,7 +390,9 @@ class LiveGateway(EchoGateway):
             return
         await self.legacy_command(s, message, received_ns)
 
-    async def product_command(self, s: Session, message: dict[str, Any], received_ns: int) -> None:
+    async def product_command(
+        self, s: Session, message: dict[str, Any], received_ns: int, *, diagnostic: bool = False
+    ) -> None:
         kind, payload = message["type"], message["payload"]
         command_id = payload.get("command_id")
         if not isinstance(command_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", command_id):
@@ -387,11 +414,12 @@ class LiveGateway(EchoGateway):
                 budget = preferences.get("budget", {})
                 if self.store.error:
                     error = "STORAGE_UNAVAILABLE"
-                elif budget.get("limit") is None:
+                elif not diagnostic and budget.get("limit") is None:
                     error = "NOMINAL_BUDGET_REQUIRED"
-                elif budget.get("used", 0) >= budget["limit"]:
+                elif not diagnostic and budget.get("used", 0) >= budget["limit"]:
                     error = "NOMINAL_BUDGET_EXHAUSTED"
         if error is None:
+            self.diagnostic_session = s.id if diagnostic else None
             s.requested_mode = mode
             s.command_id = command_id
             s.generation += 1
@@ -545,7 +573,10 @@ class LiveGateway(EchoGateway):
                         if epoch == (s.id, s.up_stream, s.mode):
                             self.voice.remaining = remaining
                     if self.voice.error or (self.voice.task and self.voice.task.done()):
-                        s.last_error = self.voice.error or "ARM_WINDOW_ENDED"
+                        s.last_error = self.voice.error or (
+                            "" if self.diagnostic_session == s.id else "ARM_WINDOW_ENDED"
+                        )
+                        s.requested_mode = "OFF"
                         await self.stop_audio(s)
                         await s.send("state", s.snapshot())
                 runtime = (
@@ -632,6 +663,8 @@ async def run_live(settings: Settings) -> None:
 
         async def reserve_nominal() -> int:
             try:
+                if remote.bound is not None and gateway.diagnostic_session == remote.bound.id:
+                    return await asyncio.to_thread(reserve)
                 return int((await store.consume_budget())["used"])
             except StorageError as exc:
                 raise ConfigError(gateway.safe_error(str(exc)) or "STORAGE_UNAVAILABLE") from None

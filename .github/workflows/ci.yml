@@ -21,6 +21,7 @@ jobs:
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync mypy
       - run: uv run --no-sync python -m unittest discover -s tests -v
+      - run: node --test tests/test_dashboard.mjs
       - run: uv build --no-python-downloads
       - name: Verify wheel contains only application files
         run: |
