@@ -162,8 +162,9 @@ class Turn:
             raise ChatError("invalid_stream_event")
         model = chunk.get("model")
         if model is not None:
+            # The provider now returns this canonical name for the configured legacy Flash alias.
             if not isinstance(model, str) or not re.fullmatch(
-                r"deepseek-v4-flash(?:[-.][A-Za-z0-9]+)*", model
+                r"(?:deepseek-flash|deepseek-v4-flash(?:[-.][A-Za-z0-9]+)*)", model
             ):
                 raise ChatError("unexpected_returned_model")
             if self.metrics["returned_model"] not in (None, model):

@@ -323,6 +323,21 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 events.append(e)
         return turn, events
 
+    async def test_canonical_flash_response_preserves_configured_request(self):
+        client = self.client(
+            [
+                event("Présent.", model="deepseek-flash"),
+                event(finish="stop", model="deepseek-flash"),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        turn, events = await self.collect(client)
+        self.assertEqual(turn.metrics["status"], "PASS")
+        self.assertEqual(turn.metrics["returned_model"], "deepseek-flash")
+        self.assertTrue(any(e.kind == "segment" for e in events))
+        self.assertEqual(json.loads(self.requests[0].content)["model"], "deepseek-v4-flash")
+        self.assertEqual(len(self.requests), 1)
+
     async def test_exact_contract_model_metrics_history_requires_confirmation(self):
         client = self.client()
         async with client.turn("Une question synthétique", turn_id="turn-1") as turn:
@@ -409,6 +424,14 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             ),
             ([event(delta={"tool_calls": [{"secret": FAKE_KEY}]})], "unexpected_tool_call"),
             ([event("Bonjour", model="deepseek-v4-pro")], "unexpected_returned_model"),
+            ([event("Bonjour", model="deepseek-flash-pro")], "unexpected_returned_model"),
+            (
+                [
+                    event("Bonjour", model="deepseek-flash"),
+                    event("suite", model="deepseek-v4-flash"),
+                ],
+                "returned_model_changed_during_turn",
+            ),
             ([event(finish="stop"), b"data: [DONE]\n\n"], "empty_response"),
             ([event("Fragment", finish="length")], "output_token_limit"),
             ([event("Une réponse coupée")], "truncated_stream"),

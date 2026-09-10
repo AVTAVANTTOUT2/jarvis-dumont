@@ -35,6 +35,8 @@ Protocol 1 requires explicit `live_turns` capability on both sides. Older client
 
 ## Validation and limits
 
+Provider contract update observed on 2026-09-10: the configured `deepseek-v4-flash` request receives the canonical `deepseek-flash` response identifier. The official [model documentation](https://api-docs.deepseek.com/quick_start/pricing) states that the legacy Flash model is retired and the alias is served by Flash V4.1. The parser accepts that exact canonical identifier alongside the former Flash response names, records the actual returned name, and still rejects Pro/unknown names or a model change within a turn. The configured request, non-thinking policy, STT, TTS and audio profile are unchanged. Functional reports must disclose the provider's model transition rather than claim the retired backend was preserved.
+
 CI uses fake HTTP/TTS/recognizer boundaries and no models, real API, LAN or device. `python -m unittest discover -s tests` covers remote PCM through the existing AudioEngine, repeated VoiceLoop turns, single-stream response routing, passive context and zero non-addressed requests, stale callbacks/PCM, network loss, queue generations/age, and an independent request ceiling. Run Ruff and mypy as usual, plus the Echo requirements.
 
 Numeric private reports separate server pipeline timestamps, server remote send, Android local durations and RTT. A remote socket send is never labelled an AudioTrack write or acoustic onset. During-data and drain/teardown underruns require the full physical traces; heartbeat clock estimates alone do not qualify the inter-machine latency budget.
