@@ -43,10 +43,12 @@ class SSE:
         self.pending = b""
         self.data: list[str] = []
         self.event_bytes = self.wire_bytes = 0
+        self.chunks = self.events = self.comments = 0
         self.first_line = True
 
     def feed(self, chunk: bytes) -> list[str]:
         self.wire_bytes += len(chunk)
+        self.chunks += 1
         if len(chunk) > 65536 or self.wire_bytes > 1024 * 1024:
             raise ChatError("sse_wire_limit")
         self.pending += chunk
@@ -68,9 +70,12 @@ class SSE:
             if not line:
                 if self.data:
                     events.append("\n".join(self.data))
+                    self.events += 1
                 self.data = []
                 self.event_bytes = 0
-            elif not line.startswith(":"):
+            elif line.startswith(":"):
+                self.comments += 1
+            else:
                 field, sep, value = line.partition(":")
                 if field == "data":
                     value = value.removeprefix(" ") if sep else ""
@@ -116,6 +121,14 @@ class Turn:
             "stream": True,
             "max_tokens": owner.settings.max_tokens,
             "requests": 0,
+            "phase": "connect",
+            "timeouts": {
+                "connect_s": owner.settings.connect_timeout,
+                "first_content_s": owner.settings.first_content_timeout,
+                "idle_s": owner.settings.idle_timeout,
+                "total_s": owner.settings.total_timeout,
+                "http_read_s": owner.http.timeout.read,
+            },
             "first_content_s": None,
             "first_segment_s": None,
             "text_end_s": None,
@@ -214,6 +227,7 @@ class Turn:
                 self.last_content = time.perf_counter()
                 if self.metrics["first_content_s"] is None:
                     self.metrics["first_content_s"] = self.last_content - self.started
+                    self.metrics["phase"] = "streaming"
             self._emit("delta", text)
             for segment in segmenter.feed(text):
                 self._emit("segment", segment)
@@ -235,6 +249,7 @@ class Turn:
         settings = self.owner.settings
         response: httpx.Response | None = None
         pending: asyncio.Future[bytes] | None = None
+        parser: SSE | None = None
         connections: dict[str, float] = {}
 
         async def trace(name: str, info: dict[str, Any]) -> None:
@@ -321,6 +336,7 @@ class Turn:
             if response.headers.get("content-encoding", "identity").lower() != "identity":
                 raise ChatError("compressed_stream_refused")
             parser, segmenter = SSE(), Pronounce()
+            self.metrics["phase"] = "first_content"
             iterator = response.aiter_raw().__aiter__()
             while True:
                 now = time.perf_counter()
@@ -370,10 +386,12 @@ class Turn:
             self.error = str(exc)
         except httpx.ConnectTimeout:
             self.error = "connect_timeout"
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             self.error = "transport_timeout"
-        except httpx.HTTPError:
+            self.metrics["transport_exception"] = type(exc).__name__
+        except httpx.HTTPError as exc:
             self.error = "network_error"
+            self.metrics["transport_exception"] = type(exc).__name__
         except Exception:
             self.error = "stream_operation_failed"
         finally:
@@ -383,6 +401,13 @@ class Turn:
             if response is not None:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(response.aclose(), timeout=settings.connect_timeout)
+            if parser is not None:
+                self.metrics["wire"] = {
+                    "chunks": parser.chunks,
+                    "bytes": parser.wire_bytes,
+                    "events": parser.events,
+                    "comments": parser.comments,
+                }
             if self.error:
                 self.metrics.update(
                     status="CANCELLED" if self.error == "cancelled" else "FAIL", reason=self.error
@@ -475,7 +500,13 @@ class DeepSeek:
             verify=True,
             follow_redirects=False,
             trust_env=False,
-            timeout=httpx.Timeout(settings.idle_timeout, connect=settings.connect_timeout),
+            timeout=httpx.Timeout(
+                settings.idle_timeout,
+                connect=settings.connect_timeout,
+                # A socket read may legitimately stay silent until the first-content deadline;
+                # Turn._read enforces first-content and idle deadlines itself, always earlier.
+                read=max(settings.first_content_timeout, settings.idle_timeout),
+            ),
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
             transport=transport,
         )

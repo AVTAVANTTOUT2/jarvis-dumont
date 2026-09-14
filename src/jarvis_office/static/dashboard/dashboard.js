@@ -167,7 +167,7 @@ function renderState(snapshot) {
     const code = typeof alert === 'string' ? alert : alert.code;
     if (typeof code === 'string') alerts.append(el('div', `${code} · ${errorLabel({code})}`, 'notice amber'));
   }
-  if (current?.error) alerts.append(el('div', `${current.error} · Vérifiez le terminal avant toute activation.`, 'notice amber'));
+  if (current?.error) alerts.append(el('div', `${current.error} · ${errorLabel({code:current.error}, 'Vérifiez le terminal avant toute activation.')}`, 'notice amber'));
   if (state.online && state.page === 'overview' && oldTurnState !== `${current?.turn_id}/${current?.activity}`) loadLatest();
   if (state.page === 'settings') renderServiceState();
 }

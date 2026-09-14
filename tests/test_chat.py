@@ -3,6 +3,8 @@ import contextlib
 import dataclasses
 import io
 import json
+import re
+import socket
 import ssl
 import stat
 import tempfile
@@ -562,6 +564,173 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(sum(len(a) + len(b) for a, b in client.history) + len(SYSTEM), 1000)
         await client.reset()
         self.assertEqual(client.history, [])
+
+
+SCALED = dataclasses.replace(
+    Chat(), connect_timeout=0.6, first_content_timeout=1.2, idle_timeout=0.6, total_timeout=3.6
+)  # Production 10/20/10/60 s divided by ~16.7: same order, first content = 2 × idle = total / 6.
+
+
+class LoopbackServer:
+    """Real HTTP/1.1 loopback origin: HTTPX socket timeouts stay effective, unlike MockTransport."""
+
+    def __init__(self, *scripts):
+        self.scripts = list(scripts)  # One per connection: bytes to send or seconds of silence.
+        self.connections = self.closed_by_client = 0
+        self.tasks = set()
+
+    async def __aenter__(self):
+        self.server = await asyncio.start_server(self.serve, "127.0.0.1", 0)
+        self.port = self.server.sockets[0].getsockname()[1]
+        return self
+
+    async def __aexit__(self, *_):
+        self.server.close()
+        for task in self.tasks:
+            task.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await self.server.wait_closed()
+
+    async def serve(self, reader, writer):
+        self.tasks.add(asyncio.current_task())
+        self.connections += 1
+        head = await reader.readuntil(b"\r\n\r\n")
+        await reader.readexactly(int(re.search(rb"(?i)content-length: *(\d+)", head)[1]))
+        writer.write(
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n"
+        )
+        eof = asyncio.ensure_future(reader.read())  # Resolves once the client closes its side.
+        try:
+            for step in self.scripts.pop(0):
+                if isinstance(step, float):
+                    done, _ = await asyncio.wait({eof}, timeout=step)
+                    if done:
+                        break
+                else:
+                    writer.write(step)
+                    await writer.drain()
+        except OSError:
+            pass
+        finally:
+            if eof.done() and not eof.cancelled():
+                self.closed_by_client += 1
+            eof.cancel()
+            writer.close()
+
+
+class LoopbackTransport(httpx.AsyncHTTPTransport):
+    """Real socket transport aimed at the loopback origin: the fixed endpoint is never resolved."""
+
+    def __init__(self, port):
+        super().__init__()
+        self.port = port
+
+    async def handle_async_request(self, request):
+        assert request.url.host == "api.deepseek.com"
+        request.url = request.url.copy_with(scheme="http", host="127.0.0.1", port=self.port)
+        return await super().handle_async_request(request)
+
+
+class LoopbackTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    """Timeout contract over a real loopback HTTP origin, with the production timeout ratios."""
+
+    async def asyncSetUp(self):
+        connect = socket.socket.connect
+
+        def loopback_only(sock, address):
+            if address[0] != "127.0.0.1":
+                raise AssertionError("real network forbidden")
+            return connect(sock, address)
+
+        self.guard = patch("socket.socket.connect", new=loopback_only)
+        self.guard.start()
+        self.clients = []
+
+    async def asyncTearDown(self):
+        for client in self.clients:
+            await client.close()
+            self.assertTrue(client.http.is_closed)
+        self.guard.stop()
+        self.assertEqual(asyncio.all_tasks() - {asyncio.current_task()}, set())
+
+    def client(self, server):
+        client = DeepSeek(FAKE_KEY, SCALED, transport=LoopbackTransport(server.port))
+        self.clients.append(client)
+        return client
+
+    async def collect(self, client):
+        events, error = [], None
+        async with client.turn("Explique un réseau local.") as turn:
+            try:
+                async for e in turn:
+                    events.append(e)
+            except ChatError as exc:
+                error = str(exc)
+        return turn, events, error
+
+    async def until(self, condition):
+        for _ in range(200):
+            if condition():
+                return
+            await asyncio.sleep(0.01)
+        self.fail("condition not met within 2 s")
+
+    async def test_a_stall_after_headers_within_first_content_deadline_streams(self):
+        # Incident shape: 200 text/event-stream at once, then silence longer than idle_timeout
+        # but shorter than first_content_timeout, then a valid answer. It must be delivered.
+        async with LoopbackServer([0.9, *complete("Réponse tardive mais valide.")]) as server:
+            turn, events, error = await self.collect(self.client(server))
+        self.assertIsNone(error)
+        self.assertEqual(turn.metrics["status"], "PASS")
+        self.assertEqual(turn.delivered_text, "Réponse tardive mais valide.")
+        self.assertGreater(turn.metrics["first_content_s"], SCALED.idle_timeout)
+
+    async def test_b_keepalive_comments_are_silent_and_first_content_bounded(self):
+        async with LoopbackServer([b": keep-alive\n\n", 0.3] * 12) as server:
+            turn, events, error = await self.collect(self.client(server))
+        self.assertEqual(error, "first_content_timeout")
+        self.assertEqual(events, [])
+        self.assertLess(
+            turn.metrics["elapsed_s"], SCALED.first_content_timeout + SCALED.idle_timeout
+        )
+
+    async def test_c_idle_after_first_content_stays_bounded(self):
+        async with LoopbackServer([event("Bonjour. "), 5.0]) as server:
+            turn, events, error = await self.collect(self.client(server))
+        self.assertEqual(error, "idle_timeout")
+        self.assertEqual(turn.delivered_text, "Bonjour. ")
+        self.assertLess(turn.metrics["elapsed_s"], SCALED.first_content_timeout)
+
+    async def test_d_no_content_until_first_content_deadline(self):
+        async with LoopbackServer([5.0]) as server:
+            turn, events, error = await self.collect(self.client(server))
+        self.assertEqual(error, "first_content_timeout")
+        self.assertEqual(events, [])
+        self.assertGreaterEqual(turn.metrics["elapsed_s"], SCALED.first_content_timeout)
+        self.assertLess(
+            turn.metrics["elapsed_s"], SCALED.first_content_timeout + SCALED.idle_timeout
+        )
+
+    async def test_e_cancel_during_first_content_wait_closes_cleanly(self):
+        async with LoopbackServer([5.0]) as server:
+            client = self.client(server)
+            async with client.turn("Explique un réseau local.") as turn:
+                await asyncio.sleep(0.2)  # Leaving the context cancels the pending read.
+            self.assertEqual((turn.error, turn.metrics["status"]), ("cancelled", "CANCELLED"))
+            self.assertTrue(turn.task.done() and turn.queue.empty())
+            await self.until(lambda: server.closed_by_client == 1)
+            self.assertLess(turn.metrics["elapsed_s"], SCALED.idle_timeout)
+
+    async def test_f_client_reusable_after_first_content_timeout(self):
+        async with LoopbackServer([5.0], complete("Deuxième tour.")) as server:
+            client = self.client(server)
+            turn, _, error = await self.collect(client)
+            self.assertEqual(error, "first_content_timeout")
+            await self.until(lambda: server.closed_by_client == 1)
+            turn, events, error = await self.collect(client)
+            self.assertIsNone(error)
+            self.assertEqual(turn.delivered_text, "Deuxième tour.")
+            self.assertEqual(server.connections, 2)
 
 
 if __name__ == "__main__":

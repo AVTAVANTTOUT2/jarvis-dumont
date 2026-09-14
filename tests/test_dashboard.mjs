@@ -64,6 +64,14 @@ test('known qualification limitations do not imply a failed command', () => {
   assert.equal(errorLabel({code:'KNOWN_PLAYBACK_LIMITATIONS'}), 'Des irrégularités de lecture connues subsistent.');
 });
 
+test('DeepSeek wait timeouts name the cloud wait, never the Echo link, and keep an explicit fallback', () => {
+  for (const code of ['connect_timeout','first_content_timeout','idle_timeout','total_timeout','transport_timeout']) {
+    assert.match(errorLabel({code}), /DeepSeek/);
+    assert.match(errorLabel({code}), /Echo–Mac n’est pas concernée/);
+  }
+  assert.equal(errorLabel({code:'other_error'}, 'Repli explicite.'), 'Repli explicite.');
+});
+
 test('every statically referenced control exists and no browser capture or HTML injection is used', () => {
   const html = readFileSync(root+'index.html','utf8');
   const js = readFileSync(root+'dashboard.js','utf8');
