@@ -13,11 +13,11 @@ const ERROR_LABELS = {
   STORAGE_ERROR: 'Le stockage signale une erreur. Consultez les diagnostics.',
   INVALID_REQUEST: 'La demande est invalide. Vérifiez les champs et leurs limites.',
   QUERY_RESULT_TOO_LARGE_REDUCE_PAGE: 'Ce résultat dépasse la limite de 4 Mio. Réduisez la taille de page ou ajoutez un filtre.',
-  connect_timeout: 'Connexion à DeepSeek non établie dans le délai ; la liaison Echo–Mac n’est pas concernée.',
-  first_content_timeout: 'Aucun texte reçu de DeepSeek avant l’échéance de premier contenu ; la liaison Echo–Mac n’est pas concernée.',
-  idle_timeout: 'Flux DeepSeek silencieux après un début de réponse ; la liaison Echo–Mac n’est pas concernée.',
-  total_timeout: 'Réponse DeepSeek au-delà de la durée totale autorisée ; la liaison Echo–Mac n’est pas concernée.',
-  transport_timeout: 'Lecture HTTP du flux DeepSeek expirée ; la liaison Echo–Mac n’est pas concernée.',
+  connect_timeout: 'Délai du client HTTP DeepSeek du Mac : connexion au service non établie à temps.',
+  first_content_timeout: 'Délai du client HTTP DeepSeek du Mac : aucun texte utile reçu avant l’échéance de premier contenu.',
+  idle_timeout: 'Délai du client HTTP DeepSeek du Mac : plus aucun texte reçu après un début de réponse.',
+  total_timeout: 'Délai du client HTTP DeepSeek du Mac : durée totale de réponse dépassée.',
+  transport_timeout: 'Délai du client HTTP DeepSeek du Mac pendant l’échange (lecture, écriture ou pool de connexions).',
 };
 
 export function errorLabel(error, fallback) {

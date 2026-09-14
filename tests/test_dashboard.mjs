@@ -64,11 +64,12 @@ test('known qualification limitations do not imply a failed command', () => {
   assert.equal(errorLabel({code:'KNOWN_PLAYBACK_LIMITATIONS'}), 'Des irrégularités de lecture connues subsistent.');
 });
 
-test('DeepSeek wait timeouts name the cloud wait, never the Echo link, and keep an explicit fallback', () => {
+test('DeepSeek timeouts are located on the Mac HTTP client, without judging the Echo link', () => {
   for (const code of ['connect_timeout','first_content_timeout','idle_timeout','total_timeout','transport_timeout']) {
-    assert.match(errorLabel({code}), /DeepSeek/);
-    assert.match(errorLabel({code}), /Echo–Mac n’est pas concernée/);
+    assert.match(errorLabel({code}), /^Délai du client HTTP DeepSeek du Mac/);
+    assert.doesNotMatch(errorLabel({code}), /Echo/);
   }
+  assert.match(errorLabel({code:'transport_timeout'}), /lecture, écriture ou pool/);
   assert.equal(errorLabel({code:'other_error'}, 'Repli explicite.'), 'Repli explicite.');
 });
 

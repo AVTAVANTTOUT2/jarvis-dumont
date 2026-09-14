@@ -21,9 +21,13 @@
   inactivité après contenu, aucun contenu, annulation, réutilisation après
   échec). Métriques ajoutées : phase, délais effectifs, compteurs réseau/SSE
   bornés et nom de classe de l'exception HTTPX, jamais son message. Dashboard :
-  libellés des délais DeepSeek distincts de la liaison Echo–Mac.
-- Non établi : pourquoi DeepSeek n'a émis aucun octet pendant 10 s après les
-  en-têtes ; trace de connexion et exception d'origine du tour non conservées.
+  libellés neutres localisant chaque délai sur le client HTTP DeepSeek du Mac,
+  sans préjuger de l'état de la liaison Echo–Mac.
+- Non établi : pourquoi aucun texte utile n'a été reçu pendant environ 10 s
+  après les en-têtes. Les compteurs réseau historiques (blocs, octets,
+  commentaires SSE) n'existaient pas dans cette release, la trace de connexion
+  et l'exception d'origine n'ont pas été conservées : aucun « zéro octet » n'est
+  affirmé, et `transport_timeout` regroupe plusieurs exceptions HTTPX.
   Aucun nouvel appel cloud, budget diagnostic 10/10 et budget nominal inchangés.
   Candidate à construire depuis ce commit sans activation de `current` ;
   PR empilée sur #24, aucune fusion automatique.
