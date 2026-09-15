@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from jarvis_office.storage import OfficeStore, StorageError
 
@@ -31,6 +32,35 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             **kwargs,
         )
 
+    async def test_diagnostic_saturation_is_visible_and_reserves_existing_write_capacity(self):
+        capacity = self.store.queue.maxsize // 2
+        for i in range(capacity):
+            self.assertTrue(
+                self.store.record_event("command", details={"generation": i}, diagnostic=True)
+            )
+        self.assertFalse(self.store.record_event("command", diagnostic=True))
+        self.assertFalse(
+            self.store.record_event("command", details={"oversize": "x" * 4097}, diagnostic=True)
+        )
+        self.assertEqual(self.store.status()["diagnostic_dropped"], 2)
+        self.assertIsNone(self.store.error)
+        self.assertTrue(self.store.record_event("ordinary_event"))
+        await self.store.flush()
+        self.assertEqual((await self.store.rows(table="events"))["total"], capacity + 1)
+        self.assertIsNone(self.store.error)
+        metrics = {"existing": "x" * 16000, "llm": {"timeline": {"padding": "y" * 1000}}}
+        self.assertTrue(self.turn(metrics=metrics))
+        self.assertEqual(self.store.status()["diagnostic_dropped"], 3)
+        queued = self.store.queue.get_nowait()
+        self.store.queue.task_done()
+        saved_metrics = queued[1][-1]
+        self.assertEqual(saved_metrics["existing"], metrics["existing"])
+        self.assertTrue(saved_metrics["diagnostic_truncated"])
+        self.assertNotIn("timeline", saved_metrics["llm"])
+        self.assertIn("timeline", metrics["llm"])  # No mutation of the caller's metrics.
+        self.assertLessEqual(len(json.dumps(saved_metrics)), 16384)
+        self.assertIsNone(self.store.error)
+
     async def test_initial_schema_history_and_passive_are_explicit(self):
         settings = await self.store.settings()
         self.assertFalse(settings["history_enabled"])
@@ -46,6 +76,13 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         catalog = await self.store.catalog()
         self.assertEqual(len(catalog["tables"]), 7)
         self.assertEqual(self.store.status()["journal_mode"], "delete")
+
+    async def test_business_write_failure_still_sets_global_storage_error(self):
+        with patch.object(self.store, "_record_event", side_effect=sqlite3.OperationalError):
+            self.assertTrue(self.store.record_event("business_event"))
+            await self.store.flush()
+        self.assertEqual(self.store.error, "STORAGE_OPERATION_FAILED")
+        self.assertEqual(self.store.diagnostic_dropped, 0)
 
     async def test_partial_turn_and_safe_json_are_persisted_with_relations(self):
         enabled = await self.store.update_settings({"history_enabled": True})

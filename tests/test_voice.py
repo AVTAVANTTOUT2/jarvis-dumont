@@ -334,6 +334,11 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
                 patch("jarvis_office.credentials.load_key", return_value="test_key_only"),
                 patch("jarvis_office.assets.private_root", return_value=Path(root)),
                 patch("jarvis_office.runtime.private_root", return_value=Path(root)),
+                patch("jarvis_office.runtime.log_directory", return_value=Path(root) / "logs"),
+                patch(
+                    "pathlib.Path.home",
+                    side_effect=AssertionError("real home must not be touched"),
+                ),
             ):
                 result = await run_command(
                     Config(),
@@ -360,6 +365,11 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
                 patch("jarvis_office.credentials.load_key", return_value="test_key_only"),
                 patch("jarvis_office.assets.private_root", return_value=Path(root)),
                 patch("jarvis_office.runtime.private_root", return_value=Path(root)),
+                patch("jarvis_office.runtime.log_directory", return_value=Path(root) / "logs"),
+                patch(
+                    "pathlib.Path.home",
+                    side_effect=AssertionError("real home must not be touched"),
+                ),
             ):
                 result = await run_command(
                     Config(),

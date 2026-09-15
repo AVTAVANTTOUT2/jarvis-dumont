@@ -127,7 +127,7 @@ class OfficeStore:
     def __init__(self, path: Path, *, queue_size: int = 128) -> None:
         self.path = Path(path)
         self.queue: asyncio.Queue[
-            tuple[Callable[..., Any], tuple[Any, ...], asyncio.Future[Any] | None]
+            tuple[Callable[..., Any], tuple[Any, ...], asyncio.Future[Any] | None, bool]
         ] = asyncio.Queue(queue_size)
         self.worker: asyncio.Task[None] | None = None
         self.generation = 0
@@ -135,6 +135,7 @@ class OfficeStore:
         self.ready = False
         self._closing = False
         self._last_retention = 0.0
+        self.diagnostic_dropped = 0
         self._mutation_lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -187,12 +188,15 @@ class OfficeStore:
 
     async def _work(self) -> None:
         while True:
-            fn, args, future = await self.queue.get()
+            fn, args, future, diagnostic = await self.queue.get()
             try:
                 result = await asyncio.to_thread(self._execute, fn, args)
                 if future is not None and not future.done():
                     future.set_result(result)
             except Exception as exc:
+                if diagnostic:
+                    self.diagnostic_dropped = min(2**63 - 1, self.diagnostic_dropped + 1)
+                    continue
                 code = str(exc) if isinstance(exc, StorageError) else "STORAGE_OPERATION_FAILED"
                 if not isinstance(exc, StorageError) or code.startswith("STORAGE"):
                     self.error = code
@@ -215,7 +219,7 @@ class OfficeStore:
             raise StorageError("STORAGE_UNAVAILABLE")
         future = asyncio.get_running_loop().create_future()
         try:
-            self.queue.put_nowait((fn, args, future))
+            self.queue.put_nowait((fn, args, future, False))
         except asyncio.QueueFull:
             self.error = "STORAGE_QUEUE_FULL"
             raise StorageError(self.error) from None
@@ -226,12 +230,12 @@ class OfficeStore:
             future.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
             raise
 
-    def _enqueue(self, fn: Callable[..., Any], *args: Any) -> bool:
+    def _enqueue(self, fn: Callable[..., Any], *args: Any, diagnostic: bool = False) -> bool:
         if not self.ready or self._closing:
             self.error = "STORAGE_UNAVAILABLE"
             return False
         try:
-            self.queue.put_nowait((fn, args, None))
+            self.queue.put_nowait((fn, args, None, diagnostic))
             return True
         except asyncio.QueueFull:
             self.error = "STORAGE_QUEUE_FULL"
@@ -261,6 +265,7 @@ class OfficeStore:
             "journal_mode": "delete",
             "schema_version": SCHEMA_VERSION,
             "generation": self.generation,
+            "diagnostic_dropped": self.diagnostic_dropped,
         }
 
     @staticmethod
@@ -410,6 +415,33 @@ class OfficeStore:
         if any(len(value) > 100000 for value in (user_text, assistant_text, delivered_text)):
             safe_metrics["storage_text_truncated"] = True
         if len(_json(safe_metrics)) > 16384:
+            # New optional diagnostics cannot make a previously storable turn fail.
+            llm = safe_metrics.get("llm", {})
+            removed = 0
+            for key in ("timeline", "request_context"):
+                if isinstance(llm, dict) and key in llm:
+                    del llm[key]
+                    removed += 1
+            for key in (
+                "capture_opened",
+                "first_block_consumed",
+                "last_block_consumed",
+                "input_closed",
+                "segmentation_reason",
+                "input_blocks",
+                "input_audio_s",
+                "normalized_samples",
+                "utterance_samples",
+            ):
+                if key in safe_metrics:
+                    del safe_metrics[key]
+                    removed += 1
+            if removed:
+                self.diagnostic_dropped = min(2**63 - 1, self.diagnostic_dropped + 1)
+                safe_metrics["diagnostic_truncated"] = True
+                if len(_json(safe_metrics)) > 16384:
+                    del safe_metrics["diagnostic_truncated"]
+        if len(_json(safe_metrics)) > 16384:
             raise StorageError("METRICS_TOO_LARGE")
         return self._enqueue(self._record_turn, *ids, generation, *texts, status, safe_metrics)
 
@@ -511,8 +543,19 @@ class OfficeStore:
         *,
         device_id: str | None = None,
         details: dict[str, Any] | None = None,
+        diagnostic: bool = False,
     ) -> bool:
         payload = _json(redact(details or {}))
+        # Best-effort metadata must not set the storage error that gates the product.
+        # Leave half the existing queue for ordinary writes; never wait for diagnostic space.
+        if diagnostic and (
+            not self.ready
+            or self._closing
+            or len(payload) > 4096
+            or self.queue.qsize() >= max(1, self.queue.maxsize // 2)
+        ):
+            self.diagnostic_dropped = min(2**63 - 1, self.diagnostic_dropped + 1)
+            return False
         if len(payload) > 4096:
             raise StorageError("EVENT_TOO_LARGE")
         return self._enqueue(
@@ -520,6 +563,7 @@ class OfficeStore:
             _identifier(kind),
             _identifier(device_id) if device_id else None,
             payload,
+            diagnostic=diagnostic,
         )
 
     def _record_event(

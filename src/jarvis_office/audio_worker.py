@@ -82,6 +82,7 @@ class AudioEngine:
                     adc_previous: float | None = None
                     origin: float | None = None
                     last_block = level_at = time.perf_counter()
+                    first_consumed: float | None = None
                     with self.lock:
                         if self.cancelled.is_set():
                             input_stream.close(ignore_errors=False)
@@ -92,9 +93,10 @@ class AudioEngine:
                             stream_rate=getattr(self.input, "samplerate", None),
                             stream_channels=getattr(self.input, "channels", None),
                         )
+                    capture_opened = time.perf_counter()
                     self.emit(
                         "listening",
-                        {"device": device, "microphone": "open", "opened_at": time.perf_counter()},
+                        {"device": device, "microphone": "open", "opened_at": capture_opened},
                     )
                     while time.perf_counter() < deadline and not self.cancelled.is_set():
                         if channel.lost:
@@ -106,6 +108,8 @@ class AudioEngine:
                                 raise AudioError("capture_disconnected") from None
                             continue
                         last_block = time.perf_counter()
+                        if first_consumed is None:
+                            first_consumed = last_block
                         if (
                             block.sequence != sequence + 1
                             or block.start_sample != expected
@@ -132,6 +136,7 @@ class AudioEngine:
                         if utterances:
                             utterance = utterances[0]  # Close immediately; no backlog during STT.
                             self.stop_input()
+                            input_closed = time.perf_counter()
                             if channel.lost:
                                 raise AudioError("capture_discontinuity")
                             if self.cancelled.is_set():
@@ -142,6 +147,15 @@ class AudioEngine:
                                 else None
                             )
                             timing = {
+                                "capture_opened": capture_opened,
+                                "first_block_consumed": first_consumed,
+                                "last_block_consumed": last_block,
+                                "input_closed": input_closed,
+                                "segmentation_reason": utterance.reason,
+                                "input_blocks": sequence,
+                                "input_audio_s": expected / settings.input_rate,
+                                "normalized_samples": segmenter.seen,
+                                "utterance_samples": len(utterance.audio),
                                 "speech_start_estimate": origin + utterance.speech_start / 16000
                                 if origin is not None
                                 else None,

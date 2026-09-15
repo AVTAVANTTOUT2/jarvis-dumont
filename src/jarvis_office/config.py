@@ -183,7 +183,11 @@ def load_config(path: Path | None = None) -> Config:
         speech = Speech(**speech_values)
         if speech.compute_type not in {"float32", "int8", "int8_float32"}:
             raise ConfigError("invalid_cpu_compute_type")
-        if not isinstance(speech.input_device, str) or len(speech.input_device) > 256:
+        if (
+            not isinstance(speech.input_device, str)
+            or len(speech.input_device) > 256
+            or any(ord(c) < 32 for c in speech.input_device)
+        ):
             raise ConfigError("invalid_input_device")
         if type(speech.vad_threshold) not in (int, float) or not 0 < speech.vad_threshold < 1:
             raise ConfigError("invalid_vad_threshold")

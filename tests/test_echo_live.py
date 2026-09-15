@@ -432,6 +432,23 @@ class BoundaryTests(unittest.TestCase):
             self.assertTrue(results[0]["accepted"])
             self.assertEqual(results[0]["timing"]["normalized_rate"], 16000)
             self.assertEqual(results[0]["timing"]["input_clock"], "server_receive_estimate")
+            timing = results[0]["timing"]
+            self.assertEqual(timing["segmentation_reason"], "terminal_silence")
+            self.assertEqual(timing["input_samples"], timing["input_blocks"] * 320)
+            self.assertEqual(timing["input_audio_s"], timing["input_samples"] / 16000)
+            self.assertLessEqual(timing["utterance_samples"], timing["normalized_samples"])
+            self.assertLessEqual(timing["normalized_samples"], timing["input_samples"])
+            boundaries = [
+                timing[key]
+                for key in (
+                    "capture_opened",
+                    "first_block_consumed",
+                    "last_block_consumed",
+                    "vad_finalized",
+                    "input_closed",
+                )
+            ]
+            self.assertEqual(boundaries, sorted(boundaries))
             engine.sd.InputStream.assert_not_called()
             self.assertIsNone(engine.input)
         finally:

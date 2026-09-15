@@ -65,6 +65,7 @@ class VoiceLoop:
         self.audio_offset = 0.0
         self.audio_clock_uncertainty = 0.0
         self.stt_deadline: float | None = None
+        self.request_context_metadata: dict[str, Any] | None = None
         self.abort_turn: str | None = None
         self.abort_task: asyncio.Task[dict[str, Any]] | None = None
 
@@ -180,7 +181,13 @@ class VoiceLoop:
         self._progress(result, identifier, final=True)
 
     async def _respond(
-        self, text: str, identifier: str, *, no_play: bool = False, context: str = ""
+        self,
+        text: str,
+        identifier: str,
+        *,
+        no_play: bool = False,
+        context: str = "",
+        context_metadata: dict[str, Any] | None = None,
     ) -> None:
         question = addressed(text)
         if question is None:
@@ -218,7 +225,9 @@ class VoiceLoop:
             self.output_device = result["device"]
         if self.turn != identifier:
             raise asyncio.CancelledError
-        async with self.chat.turn(question, turn_id=identifier, context=context) as turn:
+        async with self.chat.turn(
+            question, turn_id=identifier, context=context, context_metadata=context_metadata
+        ) as turn:
             self.metrics["request_started"] = turn.started
 
             async def receive() -> None:
@@ -450,6 +459,7 @@ class VoiceLoop:
                     break
                 if not result.get("accepted"):
                     continue
+                self.request_context_metadata = None
                 context = (
                     self.transcript_context(result["text"])
                     if self.transcript_context is not None
@@ -469,11 +479,19 @@ class VoiceLoop:
                 ):
                     value = result.get(key, timing.get(key))
                     self.metrics[key] = value + self.audio_offset if value is not None else None
-                if self.metrics["vad_finalized"] is not None:
+                if (
+                    self.metrics["vad_finalized"] is not None
+                    and self.metrics["stt_started"] is not None
+                ):
                     self.metrics["stt_wait_s"] = (
                         self.metrics["stt_started"] - self.metrics["vad_finalized"]
                     )
-                await self._respond(result["text"], identifier, context=context)
+                await self._respond(
+                    result["text"],
+                    identifier,
+                    context=context,
+                    context_metadata=self.request_context_metadata,
+                )
                 # Remain inhibited until playback ended, then acoustic hold, new stream/VAD/SoXR.
                 await asyncio.sleep(self.config.voice.acoustic_delay)
                 self.metrics["rearm_eligible"] = time.perf_counter()

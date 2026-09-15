@@ -3,6 +3,7 @@
 import asyncio
 import secrets
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +225,108 @@ class RemoteEchoAudio:
         self.listen_owner: tuple[str, int, str] | None = None
         self.listen_context_epoch = 0
         self.listen_storage_generation = 0
+        self.capture_diagnostics: deque[dict[str, Any]] = deque(maxlen=20)
+        self.capture_diagnostics_overwritten = 0
+        self.capture_diagnostics_stale_events = 0
+        self.capture: dict[str, Any] | None = None
+        self.server_epoch = ""
+
+    @staticmethod
+    def count(capture: dict[str, Any], key: str, amount: int = 1) -> None:
+        value = capture[key] + amount
+        if value > 2**63 - 1:
+            capture["counter_saturated"] = True
+        capture[key] = min(value, 2**63 - 1)
+
+    def worker_diagnostic(self, capture: dict[str, Any], timing: object) -> dict[str, Any]:
+        clean: dict[str, Any] = {}
+        if not isinstance(timing, dict):
+            capture["diagnostic_incomplete"] = True
+            return clean
+        worker = capture.setdefault("worker", {})
+        for key in (
+            "capture_opened",
+            "first_block_consumed",
+            "last_block_consumed",
+            "input_closed",
+            "vad_finalized",
+            "input_samples",
+            "input_blocks",
+            "input_audio_s",
+            "normalized_samples",
+            "utterance_samples",
+            "callback_dropped",
+            "reconnects",
+            "stt_started",
+            "stt_finished",
+            "speech_start_estimate",
+            "speech_end_estimate",
+            "vad_delay_s",
+            "pre_roll_s",
+            "terminal_silence_ms",
+            "normalized_rate",
+            "vad_frame_samples",
+            "rms_capture",
+        ):
+            if key not in timing:
+                continue
+            value = timing[key]
+            # Compare JSON numbers before any float conversion; the bounds also reject NaN/inf.
+            if (type(value) in (int, float) and 0 <= value < 2**63) or (
+                value is None
+                and key in ("first_block_consumed", "speech_start_estimate", "speech_end_estimate")
+            ):
+                clean[key] = worker[key] = value
+            else:
+                worker.pop(key, None)
+                capture["diagnostic_incomplete"] = True
+        reason = timing.get("segmentation_reason")
+        if reason in ("terminal_silence", "max_duration"):
+            clean["segmentation_reason"] = capture["segmentation_reason"] = reason
+        elif "segmentation_reason" in timing:
+            capture["segmentation_reason"] = "UNKNOWN"
+        clock = timing.get("input_clock")
+        if clock in (
+            "server_receive_estimate",
+            "ADC_mapped_to_perf_counter_estimate",
+            "UNAVAILABLE",
+        ):
+            clean["input_clock"] = worker["input_clock"] = clock
+        elif "input_clock" in timing:
+            worker.pop("input_clock", None)
+        if len(clean) != len(timing):
+            capture["diagnostic_incomplete"] = True
+        return clean
+
+    def context_observed(self, outcome: str, chars: int, *, entry_id: str | None = None) -> None:
+        capture = self.capture
+        if (
+            capture is None
+            or self.voice is None
+            or self.bound is None
+            or capture["turn_id"] != self.voice.turn
+            or capture["conversation_session"] != self.voice.session
+            or capture["echo_connection_session"] != self.bound.id
+        ):
+            self.capture_diagnostics_stale_events = min(
+                2**63 - 1, self.capture_diagnostics_stale_events + 1
+            )
+            return
+        capture.update(
+            context_delivery_s=time.perf_counter(),
+            context_outcome=outcome,
+            context_chars=chars,
+            context_entry_id=entry_id,
+        )
+
+    def close_ingress_diagnostic(self, capture: dict[str, Any] | None = None) -> None:
+        capture = self.capture if capture is None else capture
+        if (
+            capture is not None
+            and capture["ingress_opened_s"] is not None
+            and capture["ingress_closed_s"] is None
+        ):
+            capture["ingress_closed_s"] = time.perf_counter()
 
     @property
     def session(self) -> str:
@@ -246,25 +349,116 @@ class RemoteEchoAudio:
             or item.get("session") != self.voice.session
             or item.get("turn") != self.voice.turn
         ):
+            self.capture_diagnostics_stale_events = min(
+                2**63 - 1, self.capture_diagnostics_stale_events + 1
+            )
             return
-        if item.get("event") == "listening" and self.bound is not None:
-            self.token = item.get("data", {}).get("device", {}).get("ingress_token", "")
+        if item.get("event") == "listening":
+            if self.bound is not None:
+                self.token = item.get("data", {}).get("device", {}).get("ingress_token", "")
+            data = item.get("data", {})
+            capture = (
+                self.capture if self.capture and self.capture["turn_id"] == item.get("turn") else {}
+            )
+            opened_metadata = self.worker_diagnostic(
+                capture, {"capture_opened": data.get("opened_at")}
+            )
+            worker_opened = opened_metadata.get("capture_opened")
+            if worker_opened is None:
+                item = {
+                    **item,
+                    "data": {key: value for key, value in data.items() if key != "opened_at"},
+                }
+            if (
+                self.bound is not None
+                and self.capture is not None
+                and self.capture["turn_id"] == item.get("turn")
+            ):
+                self.count(self.capture, "worker_listen_events")
+                opened = time.perf_counter()
+                if self.capture["ingress_opened_s"] is None:
+                    self.capture["ingress_opened_s"] = opened
+                self.capture["last_ingress_opened_s"] = opened
+                self.capture["status"] = "LISTENING"
+                self.capture["worker_opened_s"] = worker_opened
+                if len(self.capture_diagnostics) > 1 and self.capture["worker_listen_events"] == 1:
+                    previous = self.capture_diagnostics[-2]
+                    if (
+                        all(
+                            previous[key] == self.capture[key]
+                            for key in (
+                                "echo_connection_session",
+                                "conversation_session",
+                                "generation",
+                                "context_generation",
+                                "archive_generation",
+                            )
+                        )
+                        and previous["ingress_closed_s"] is not None
+                    ):
+                        previous["rearmed_s"] = self.capture["ingress_opened_s"]
+                        previous["input_closed_interval_s"] = (
+                            previous["rearmed_s"] - previous["ingress_closed_s"]
+                        )
         elif item.get("event") == "transcribing":
+            capture = (
+                self.capture if self.capture and self.capture["turn_id"] == item.get("turn") else {}
+            )
+            data = item.get("data", {})
+            timing = self.worker_diagnostic(capture, data.get("timing", {}))
+            item = {**item, "data": {**data, "timing": timing}}
+            if self.capture is not None and self.capture["turn_id"] == item.get("turn"):
+                self.close_ingress_diagnostic()
+                self.capture["transcribing_event_s"] = time.perf_counter()
             self.token = ""
         self.voice.audio_event(item)
 
     def feed(self, session: Session, packet: Packet, received: int) -> None:
+        capture = self.capture
+        owned = capture is not None and (
+            capture["echo_connection_session"],
+            capture["stream_id"],
+        ) == (session.id, packet.stream)
+        if owned:
+            assert capture is not None
+            self.count(capture, "received_frames")
+            self.count(capture, "received_samples", len(packet.pcm) // (2 * packet.channels))
+            capture["received_audio_s"] = min(
+                2**63 - 1,
+                capture["received_audio_s"] + len(packet.pcm) / (2 * packet.channels * packet.rate),
+            )
+            if capture["first_frame_received_ns"] is None:
+                capture["first_frame_received_ns"] = received
+            capture["last_frame_received_ns"] = received
         if (
             session is not self.bound
             or not session.alive
             or session.mode == "OFF"
             or not self.token
         ):
+            if owned:
+                assert capture is not None
+                self.count(capture, "ignored_frames")
+                if capture["ingress_closed_s"] is not None and not self.token:
+                    self.count(capture, "ignored_while_closed_frames")
             session.metrics["suppressed_frames"] = session.metrics.get("suppressed_frames", 0) + 1
             return
         if self.listen_owner != (session.id, packet.stream, self.voice.turn):
+            if owned:
+                assert capture is not None
+                self.count(capture, "ignored_frames")
             return
-        self.worker.feed_remote(self.token, packet.pcm, time.perf_counter())
+        try:
+            self.worker.feed_remote(self.token, packet.pcm, time.perf_counter())
+        except LoopError:
+            if owned:
+                assert capture is not None
+                self.count(capture, "ingress_failed_frames")
+            raise
+        if owned:
+            assert capture is not None
+            self.count(capture, "forwarded_frames")
+            self.count(capture, "forwarded_samples", len(packet.pcm) // (2 * packet.channels))
 
     async def call(
         self, op: str, *, turn: str = "", timeout: float = 5, **args: Any
@@ -288,11 +482,87 @@ class RemoteEchoAudio:
             self.listen_storage_generation = (
                 self.voice.archive_generation() if self.voice.archive_generation else 0
             )
+            capture = {
+                "turn_id": turn,
+                "echo_connection_session": s.id,
+                "server_epoch": self.server_epoch,
+                "conversation_session": self.voice.session,
+                "generation": s.generation,
+                "context_generation": s.context_epoch,
+                "archive_generation": self.listen_storage_generation,
+                "stream_id": s.up_stream,
+                "clock": "controller_perf_counter_absolute_seconds",
+                "frame_clock": "server_monotonic_ns",
+                "worker_clock": "audio_worker_perf_counter",
+                "audio_worker_pid": self.worker.process.pid if self.worker.process else None,
+                "listen_requested_s": time.perf_counter(),
+                "ingress_opened_s": None,
+                "worker_opened_s": None,
+                "ingress_closed_s": None,
+                "first_frame_received_ns": None,
+                "last_frame_received_ns": None,
+                "received_frames": 0,
+                "worker_listen_events": 0,
+                "counter_saturated": False,
+                "received_samples": 0,
+                "received_audio_s": 0.0,
+                "forwarded_frames": 0,
+                "forwarded_samples": 0,
+                "ignored_frames": 0,
+                "ingress_failed_frames": 0,
+                "ignored_while_closed_frames": 0,
+                "segmentation_reason": "UNKNOWN",
+                "rearmed_s": None,
+                "status": "REQUESTED",
+            }
+            self.capture = capture
+            if len(self.capture_diagnostics) == self.capture_diagnostics.maxlen:
+                self.capture_diagnostics_overwritten = min(
+                    2**63 - 1, self.capture_diagnostics_overwritten + 1
+                )
+            self.capture_diagnostics.append(capture)
             s.current_turn = ""
-            await s.send("audio_start", {"stream_id": s.up_stream})
             try:
-                return await self.worker.call(op, turn=turn, timeout=timeout, **args)
+                await s.send("audio_start", {"stream_id": s.up_stream})
+                result = await self.worker.call(op, turn=turn, timeout=timeout, **args)
+                timing = self.worker_diagnostic(capture, result.get("timing", {}))
+                clocks = {
+                    key: result[key]
+                    for key in (
+                        "speech_start_estimate",
+                        "speech_end_estimate",
+                        "vad_finalized",
+                        "stt_started",
+                        "stt_finished",
+                    )
+                    if key in result
+                }
+                clean_clocks = self.worker_diagnostic(capture, clocks)
+                result = {
+                    **result,
+                    "timing": timing,
+                    **{key: clean_clocks.get(key) for key in clocks},
+                }
+                capture.update(
+                    result_received_s=time.perf_counter(),
+                    produced_chars=len(result.get("text", "")),
+                    accepted=bool(result.get("accepted")),
+                    status="CANCELLED"
+                    if result.get("cancelled")
+                    else "SILENCE"
+                    if result.get("silence")
+                    else "RESULT",
+                )
+                return result
+            except asyncio.CancelledError:
+                capture["status"] = "CANCELLED"
+                raise
+            except Exception:
+                capture["status"] = "FAILED"
+                raise
             finally:
+                self.close_ingress_diagnostic(capture)
+                capture["listen_finished_s"] = time.perf_counter()
                 self.token = ""
         if self.listen_owner != (s.id, s.up_stream, turn):
             raise LoopError("stale_remote_turn")
@@ -325,6 +595,7 @@ class RemoteEchoAudio:
         return await self.egress.feed(turn, pcm)
 
     async def abort(self, turn: str) -> dict[str, Any]:
+        self.close_ingress_diagnostic()
         self.token = ""
         self.listen_owner = None
         if self.egress is not None:
@@ -332,6 +603,7 @@ class RemoteEchoAudio:
         return await self.worker.abort(turn)
 
     async def close(self) -> None:
+        self.close_ingress_diagnostic()
         self.token = ""
         if self.egress is not None:
             await self.egress.abort()

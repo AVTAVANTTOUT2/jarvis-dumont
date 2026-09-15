@@ -1,5 +1,77 @@
 # État du projet
 
+## État courant — intégration locale, 15 septembre 2026
+
+- Base privée #25 : `6e82247656c55ebf2b08920f3564a61748408f4a`.
+  Intégration sur `codex/private-diagnostics-integration`, séparée des worktrees
+  d'origine. Aucune nouvelle release activée, capture ou tentative cloud.
+- La première contre-revue a confirmé B2, B3, B4, B5 et N1, mais reproduit deux
+  défauts : une mesure worker rejetée encore exportée via VoiceLoop (B1), et une
+  finalisation manquante après annulation pendant la fermeture HTTP (B6).
+  Les corrections filtrent désormais résultats et callbacks worker avant
+  VoiceLoop, conservent les mesures nominales admises et finalisent les tours
+  avec jonction protégée pendant la fermeture annulée. Contrôle de l'implémenteur :
+  103 tests distincts réussis, dont 5 reproductions indépendantes réutilisées,
+  sans déclenchement de garde ; Ruff/format réussis. Revue finale indépendante
+  encore requise ; deux tests de pipes sont confiés à son exécuteur dédié.
+- Isolation des journaux de tests et validation des caractères de contrôle du
+  périphérique d'entrée reprises depuis les correctifs Claude existants, avec
+  adaptation aux deux tests `run_command` réellement présents sur #25.
+  Revue indépendante : 7 tests distincts réussis, Ruff/format et diff check
+  réussis, aucun accès production ou réseau. Ce résultat couvre ces adaptations.
+- Supervision : journal expurgé des phases et sorties, 64 événements et deux
+  fichiers de 64 Kio maximum, avec conservation du journal précédent lors de
+  la reprise. Les trois tentatives, délais, signaux et contrat OFF restent
+  inchangés. Le compteur de tentative après arrêt entre deux essais a été
+  corrigé après reproduction. 11 tests distincts, Ruff/format, typage et diff
+  check réussis ; revue finale de l'intégration encore requise.
+- Les 7 tests Node du dashboard passent. Les compteurs ci-dessus décrivent
+  des périmètres distincts ou recouvrants ; ils ne sont pas additionnés en un
+  total de qualification. Aucune preuve simulée ne vaut validation matérielle.
+- Le dernier audit opérationnel du 15 septembre a trouvé le job privé chargé
+  mais arrêté (confirmé à 16:14 UTC), avec la release sélectionnée
+  `0.3.0-6e82247656c5`. L'ancien état
+  STARTING ne prouve pas une instance vivante ; la cause de sortie reste inconnue.
+  Les observations de service actif ci-dessous sont historiques.
+- Rappel PASSIVE, fidélité STT réelle, réponse Echo entendue, anti-réinjection,
+  fiabilité audio prolongée et latence acoustique restent non qualifiés.
+
+## Historique local — premier bilan des correctifs, 15 septembre 2026
+
+- Travail local dans le worktree isolé issu de `6e82247656c55ebf2b08920f3564a61748408f4a` ;
+  aucune release construite, activation, modification Android, configuration ou budget.
+  Les trois tests RCA préexistants non commités sont conservés et enrichis.
+- Instrumentation additive des commandes, du contexte réellement incorporé aux
+  messages HTTP, des frontières capture/STT/réarmement et des lectures HTTP/SSE.
+  Schéma, bornes, sources et limites : [DIAGNOSTIC_METADATA.md](DIAGNOSTIC_METADATA.md).
+  Aucun texte, hash de phrase, secret ou PCM ajouté aux nouvelles métadonnées.
+- Correctifs locaux B1–B6 après revue indépendante : filtre numérique worker avant
+  rétention et callback, pertes SQLite diagnostiques isolées, finalisation des
+  échecs d'audio_start, résultat d'envoi observé sous verrou, preuve de
+  non-préparation et finalisation des annulations précoces de tour. N1 traité :
+  les résumés exportés sont des instantanés ; l'anneau garde son enrichissement.
+  Neuf nouvelles méthodes de régression, défauts reproduits avant correction ;
+  les échecs d'écriture métier conservent leur erreur globale.
+- Vérifications hors ligne : 130 tests distincts réussis, Ruff/format et mypy
+  (35 modules) réussis ; réseau externe et accès aux fichiers de production
+  interdits avant les imports, huit modules directement vérifiés dans ce worktree.
+  Les contrôles de santé sont des tests loopback isolés. Trois tests VoiceTests
+  de démarrage/sous-processus exclus ; aucun test matériel ou moteur réel.
+  Ce contrôle de l'implémenteur prépare une relecture ciblée, sans constituer une
+  nouvelle revue indépendante ni une autorisation de déploiement.
+- Production observée en lecture seule le 14 septembre à 22:15 UTC : toujours
+  `0.3.0-6e82247656c5`, instance identique, service prêt, Echo connecté OFF,
+  flux arrêtés, contexte RAM vide, aucune configuration d'enregistrement active
+  dans Android ; diagnostic 10/10 et nominal 7/500 sur la journée UTC du 14.
+  Historique désactivé, archivage passif activé : préférences conservées.
+- Cette instrumentation n'est pas en service. Les causes des échecs humains
+  restent ouvertes : attente du premier contenu, origine des changements de mode,
+  coupure signalée et inclusion réelle du contexte lors de l'ancien essai.
+  Aucun nouveau test humain ni appel d'inférence n'a été effectué.
+- Les sections suivantes conservent leur chronologie historique ; elles ne
+  remplacent pas ce constat courant. Le PROJECT_STATE du worktree de déploiement,
+  déjà modifié avant cette mission, n'a pas été écrasé.
+
 ## Délai du flux DeepSeek — candidate du 14 septembre 2026
 
 - Incident du smoke PASSIVE humain sur la release active 0.3.0-70d83c3eed73 :

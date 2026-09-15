@@ -210,9 +210,13 @@ def status() -> dict[str, Any]:
         os.close(fd)
 
 
+def log_directory() -> Path:
+    return Path.home() / "Library/Logs/JarvisOffice"
+
+
 class RuntimeLog:
     def __init__(self, directory: Path | None = None) -> None:
-        directory = directory or Path.home() / "Library/Logs/JarvisOffice"
+        directory = directory or log_directory()
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         if directory.is_symlink() or directory.stat().st_mode & 0o077:
             raise ConfigError("log_directory_not_private")
