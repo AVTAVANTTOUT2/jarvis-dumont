@@ -1,6 +1,39 @@
 # État du projet
 
-## État courant — intégration locale, 15 septembre 2026
+## État courant — candidate intégrée en service, 15 septembre 2026
+
+- Release active : `0.3.0-83cf03dfa735`, source revue
+  `83cf03dfa7351999e962f710388e73775068d159`. Construction hors réseau depuis
+  le commit, wheel non editable, trois environnements définitifs et actifs vérifiés.
+  SHA-256 wheel : `9a6b065dec800581de8e7412167f37a4de38a94ce8d5a98981b68b1a45fc5163`.
+- Contre-revue finale indépendante : `READY_FOR_CANDIDATE_PREPARATION`,
+  B1–B6/N1 et supervision confirmés ; 156 tests distincts réussis, aucun échec,
+  erreur, skip ou déclenchement de garde. Un test nécessitant de tuer un enfant
+  réel est exclu avant constitution de cette suite. Ruff/format (76 fichiers),
+  mypy (35 modules) et les 7 tests Node passent ; ces périmètres ne s'additionnent
+  pas en une qualification matérielle.
+- Sauvegarde privée et restauration SQLite isolée validées avant bascule atomique.
+  Ancienne release #25 vérifiée et conservée pour rollback, non exécuté.
+  Le job privé, précédemment arrêté, a été démarré depuis la candidate à 16:45 UTC.
+- Vérification du runtime à 16:47 UTC : 20/20 contrôles de santé réussis,
+  identité installée et époque serveur stables, moteurs prêts, état paused,
+  Echo CONNECTED/OFF. Télémétrie Android fraîche : microphone false et playing false.
+  Dashboard HTTP 200, fermeture de la session de contrôle HTTP 204.
+- Aucune nouvelle capture, transcription, réponse TTS ou tentative cloud.
+  Warmup local attesté indirectement par la readiness ; sa branche produit ne
+  livre pas le PCM au lecteur. Les files internes et l'écoute acoustique ne sont
+  pas directement mesurées. Aucun changement APK, configuration, plafond ou appairage.
+- Diagnostic 10/10 inchangé par empreinte. Ligne nominale SQLite inchangée
+  (7/500 pour le 14 septembre) ; dashboard 0/500 pour le 15 septembre par calcul
+  journalier existant. Les cinq archives présentes sont conservées à l'identique ;
+  seule la date de dernière présence de l'appareil change dans les données SQLite.
+- PR #24 et #25 restent ouvertes ; aucune publication ni fusion GitHub.
+  Le présent bilan documentaire est postérieur au commit de la release.
+- Restent ouverts : premier contenu DeepSeek et réponse réellement entendue,
+  fidélité STT, rappel PASSIVE, anti-réinjection, fiabilité prolongée et latence
+  acoustique. La cause historique de l'arrêt du superviseur n'est pas établie.
+
+## Historique — intégration locale avant activation, 15 septembre 2026
 
 - Base privée #25 : `6e82247656c55ebf2b08920f3564a61748408f4a`.
   Intégration sur `codex/private-diagnostics-integration`, séparée des worktrees
