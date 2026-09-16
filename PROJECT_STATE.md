@@ -1,5 +1,17 @@
 # État du projet
 
+## Mise en service — DeepSeek V4.1 Flash, 16 septembre 2026
+
+- Release `0.3.0-90e679016c44` vérifiée puis activée atomiquement ; la release
+  précédente `0.3.0-8b72c208029f` reste disponible. Le service privé a
+  redémarré prêt et en pause, avec le microphone fermé, aucune écoute et
+  aucune erreur runtime.
+- Les TOML privés demandent désormais `deepseek-flash` (DeepSeek-V4.1-Flash),
+  non réfléchissant. L'ancien identifiant `deepseek-v4-flash` n'est plus
+  envoyé. Aucune requête DeepSeek n'a été déclenchée pour cette bascule.
+- Le manifeste conserve `sqlite_schema_max: 2` ; la mémoire persistante et
+  le schéma SQLite restent ceux de la mise en service précédente.
+
 ## Mise en service — Mémoire persistante, 16 septembre 2026
 
 - Release `0.3.0-8b72c208029f` vérifiée puis activée atomiquement ; la release
