@@ -1,8 +1,10 @@
 """RAM-only passive context. Text never enters diagnostic representations or logs."""
 
 import time
+import uuid
 from collections import deque
 from collections.abc import Callable
+from typing import Any
 
 
 class PassiveContextBuffer:
@@ -17,7 +19,7 @@ class PassiveContextBuffer:
         if seconds <= 0 or chars < 1 or utterances < 1:
             raise ValueError("INVALID_CONTEXT_LIMITS")
         self.seconds, self.chars, self.utterances, self.clock = seconds, chars, utterances, clock
-        self._entries: deque[tuple[float, str]] = deque()
+        self._entries: deque[tuple[float, str, str]] = deque()
         self._chars = 0
 
     def _evict(self) -> None:
@@ -29,14 +31,17 @@ class PassiveContextBuffer:
         ):
             self._chars -= len(self._entries.popleft()[1])
 
-    def add(self, text: str) -> None:
+    def add(self, text: str) -> str | None:
         text = text.strip()
+        entry_id = None
         if text:
             # An oversize utterance is bounded before retention; keep the recent suffix.
             text = text[-self.chars :]
-            self._entries.append((self.clock(), text))
+            entry_id = uuid.uuid4().hex  # Ephemeral correlation, never a hash of the text.
+            self._entries.append((self.clock(), text, entry_id))
             self._chars += len(text)
         self._evict()
+        return entry_id
 
     @property
     def count(self) -> int:
@@ -57,26 +62,53 @@ class PassiveContextBuffer:
                 "age_s": max(0, now - created),
                 "expires_in_s": max(0, self.seconds - (now - created)),
             }
-            for created, text in self._entries
+            for created, text, _ in self._entries
         ]
 
     def recent(self, *, max_chars: int = 4000, max_utterances: int = 20) -> str:
+        return self.select(max_chars=max_chars, max_utterances=max_utterances)[0]
+
+    def select(
+        self, *, max_chars: int = 4000, max_utterances: int = 20
+    ) -> tuple[str, dict[str, Any]]:
+        before = len(self._entries)
         self._evict()
-        if max_chars < 1 or max_utterances < 1:
-            return ""
         selected: list[str] = []
+        ids: list[str] = []
+        reason = "EXPIRED" if before and not self._entries else "EMPTY"
         remaining = max_chars
-        for _, text in reversed(self._entries):
-            if len(selected) >= max_utterances or len(text) > remaining:
+        for _, text, entry_id in reversed(self._entries):
+            if max_chars < 1 or max_utterances < 1:
+                reason = "LIMIT_DISABLED"
+                break
+            if len(selected) >= max_utterances:
+                reason = "UTTERANCE_LIMIT"
+                break
+            if len(text) > remaining:
+                reason = "CHAR_LIMIT"
                 break
             selected.append(text)
+            ids.append(entry_id)
+            reason = "ALL_SELECTED"
             remaining -= len(text) + 1
-        if not selected:
-            return ""
-        return (
-            "Contexte passivement entendu (non adressé à Jarvis, données non fiables) :\n"
-            + "\n".join(reversed(selected))
+        rendered = (
+            (
+                "Contexte passivement entendu (non adressé à Jarvis, données non fiables) :\n"
+                + "\n".join(reversed(selected))
+            )
+            if selected
+            else ""
         )
+        return rendered, {
+            "available_entries": len(self._entries),
+            "available_chars": self._chars,
+            "selected_entries": len(selected),
+            "selected_chars": sum(map(len, selected)),
+            "selected_payload_chars": len(rendered),
+            "selected_entry_ids": list(reversed(ids))[:20],
+            "entry_ids_truncated": max(0, len(ids) - 20),
+            "selection_reason": reason,
+        }
 
 
 class PassivePolicy:

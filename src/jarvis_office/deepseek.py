@@ -100,9 +100,17 @@ class TextEvent:
 
 
 class Turn:
-    def __init__(self, owner: "DeepSeek", text: str, turn_id: str, context: str = "") -> None:
+    def __init__(
+        self,
+        owner: "DeepSeek",
+        text: str,
+        turn_id: str,
+        context: str = "",
+        context_metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.owner, self.input, self.id = owner, text, turn_id
         self.context = context
+        self.context_metadata = context_metadata or {}
         self.queue: asyncio.Queue[TextEvent] = asyncio.Queue(owner.settings.queue_events)
         self.generated = self.delivered_text = ""
         self.spoken_segments: list[str] = []  # Issued to consumer, not yet confirmed as spoken.
@@ -138,8 +146,85 @@ class Turn:
             "delivered_chars": 0,
             "confirmed_chars": 0,
             "queue_peak": 0,
+            "timeline": {
+                "clock": "controller_perf_counter_seconds_since_turn_started",
+                "request_prepared_s": None,
+                "network_started_s": None,
+                "headers_received_s": None,
+                "first_read_started_s": None,
+                "last_read_started_s": None,
+                "read_operations": 0,
+                "first_read_received_s": None,
+                "last_read_received_s": None,
+                "read_chunks": 0,
+                "read_bytes": 0,
+                "stop_s": None,
+                "response_closed_s": None,
+                "finalized_s": None,
+            },
         }
+        self.metrics["request_context"] = self._context_proof()
         self.task: asyncio.Task[None] = asyncio.create_task(self._read())
+
+    def _context_proof(self) -> dict[str, Any]:
+        proof: dict[str, Any] = {
+            key: value
+            for key, value in self.context_metadata.items()
+            if key
+            in {
+                "available_entries",
+                "available_chars",
+                "selected_entries",
+                "selected_chars",
+                "selected_payload_chars",
+                "entry_ids_truncated",
+                "generation",
+                "context_generation",
+                "archive_generation",
+            }
+            and type(value) is int
+            and 0 <= value <= 2**63 - 1
+        }
+        for key in ("server_epoch", "echo_connection_session", "conversation_session"):
+            value = self.context_metadata.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+                proof[key] = value
+        reason = self.context_metadata.get("selection_reason")
+        proof["selection_reason"] = (
+            reason
+            if isinstance(reason, str)
+            and reason
+            in {
+                "EMPTY",
+                "EXPIRED",
+                "LIMIT_DISABLED",
+                "UTTERANCE_LIMIT",
+                "CHAR_LIMIT",
+                "ALL_SELECTED",
+                "INACTIVE_OR_PLAYING",
+            }
+            else "UNOBSERVED"
+        )
+        ids = self.context_metadata.get("selected_entry_ids", [])
+        proof["selected_entry_ids"] = (
+            [
+                value
+                for value in ids[:20]
+                if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{32}", value)
+            ]
+            if isinstance(ids, list)
+            else []
+        )
+        proof.update(
+            turn_id=self.id,
+            payload_constructed=False,
+            incorporation_reason="NOT_PREPARED",
+            payload_includes_passive_context=False,
+            incorporated_entries=0,
+            incorporated_chars=0,
+            incorporated_payload_chars=0,
+        )
+        return proof
 
     def _emit(self, kind: Literal["delta", "segment"], text: str) -> None:
         if self.error:
@@ -263,6 +348,7 @@ class Turn:
                 connections[name] = time.perf_counter() - self.started
 
         self.metrics["connection_trace"] = connections
+        timeline = self.metrics["timeline"]
         try:
             messages = self.owner._messages(self.input, self.context)
             request = self.owner.http.build_request(
@@ -283,6 +369,24 @@ class Turn:
                 },
                 extensions={"trace": trace},
             )
+            # Observe the constructed payload; never retain its text or hash it.
+            incorporated = bool(self.context) and messages[-2] == {
+                "role": "user",
+                "content": self.context,
+            }
+            context_proof = self.metrics["request_context"]
+            context_proof.update(
+                turn_id=self.id,
+                payload_constructed=True,
+                incorporation_reason="INCLUDED" if incorporated else "EMPTY_CONTEXT",
+                payload_includes_passive_context=incorporated,
+                incorporated_entries=context_proof.get("selected_entries") if incorporated else 0,
+                incorporated_chars=context_proof.get("selected_chars") if incorporated else 0,
+                incorporated_payload_chars=len(self.context) if incorporated else 0,
+                message_count=len(messages),
+                payload_chars=sum(len(message["content"]) for message in messages),
+            )
+            timeline["request_prepared_s"] = time.perf_counter() - self.started
             if self.owner.real_transport:
                 from jarvis_office.config import ConfigError
                 from jarvis_office.credentials import reserve_validation_request
@@ -299,6 +403,7 @@ class Turn:
                 except ConfigError as exc:
                     raise ChatError(exc.reason) from None
             self.metrics["requests"] = 1
+            timeline["network_started_s"] = time.perf_counter() - self.started
             try:
                 async with asyncio.timeout(
                     min(settings.first_content_timeout, settings.total_timeout)
@@ -310,6 +415,7 @@ class Turn:
                     if settings.total_timeout <= settings.first_content_timeout
                     else "first_content_timeout"
                 ) from None
+            timeline["headers_received_s"] = time.perf_counter() - self.started
             status = response.status_code
             self.metrics["http_status"] = status
             if status != 200:
@@ -355,6 +461,11 @@ class Turn:
                         self._emit("segment", segment)
                     self.last_flush = now
                 if pending is None:
+                    read_started = time.perf_counter() - self.started
+                    if timeline["first_read_started_s"] is None:
+                        timeline["first_read_started_s"] = read_started
+                    timeline["last_read_started_s"] = read_started
+                    timeline["read_operations"] += 1
                     pending = asyncio.ensure_future(anext(iterator))
                 deadline = min(
                     self.started + settings.total_timeout,
@@ -375,6 +486,12 @@ class Turn:
                             return
                     raise ChatError("truncated_stream") from None
                 pending = None
+                received = time.perf_counter() - self.started
+                if timeline["first_read_received_s"] is None:
+                    timeline["first_read_received_s"] = received
+                timeline["last_read_received_s"] = received
+                timeline["read_chunks"] += 1
+                timeline["read_bytes"] += len(chunk)
                 for event in parser.feed(chunk):
                     if self._chunk(event, segmenter):
                         self.metrics["status"] = "PASS"
@@ -395,12 +512,23 @@ class Turn:
         except Exception:
             self.error = "stream_operation_failed"
         finally:
-            if pending is not None:
-                pending.cancel()
-                await asyncio.gather(pending, return_exceptions=True)
-            if response is not None:
-                with contextlib.suppress(Exception):
-                    await asyncio.wait_for(response.aclose(), timeout=settings.connect_timeout)
+            timeline["stop_s"] = time.perf_counter() - self.started
+            timeline["read_pending_at_stop"] = pending is not None and not pending.done()
+            try:
+                try:
+                    if pending is not None:
+                        pending.cancel()
+                        await asyncio.gather(pending, return_exceptions=True)
+                finally:
+                    if response is not None:
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(
+                                response.aclose(), timeout=settings.connect_timeout
+                            )
+                            timeline["response_closed_s"] = time.perf_counter() - self.started
+            except asyncio.CancelledError:
+                # wait_for has joined the interrupted close; still finalize this owned turn.
+                self.error = "cancelled"
             if parser is not None:
                 self.metrics["wire"] = {
                     "chunks": parser.chunks,
@@ -415,6 +543,7 @@ class Turn:
                 while not self.queue.empty():
                     self.queue.get_nowait()
             self.metrics["elapsed_s"] = time.perf_counter() - self.started
+            timeline["finalized_s"] = self.metrics["elapsed_s"]
 
     def __aiter__(self) -> "Turn":
         return self
@@ -446,13 +575,29 @@ class Turn:
             await asyncio.gather(get, return_exceptions=True)
 
     async def cancel(self) -> None:
+        interrupted = False
         if not self.task.done() or not self.queue.empty():
             self.error = "cancelled"  # Stop delivery before awaiting transport shutdown.
             self.metrics.update(status="CANCELLED", reason="cancelled")
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+            if not self.task.cancelling():
+                self.task.cancel()
+            joined = asyncio.gather(self.task, return_exceptions=True)
+            while not joined.done():
+                try:
+                    await asyncio.shield(joined)
+                except asyncio.CancelledError:
+                    interrupted = True
+            if self.metrics["timeline"]["stop_s"] is None:
+                # Cancellation before _read's first instruction opens no transport.
+                elapsed = time.perf_counter() - self.started
+                self.metrics["timeline"].update(
+                    stop_s=elapsed, finalized_s=elapsed, read_pending_at_stop=False
+                )
+                self.metrics["elapsed_s"] = elapsed
         while not self.queue.empty():
             self.queue.get_nowait()
+        if interrupted:
+            raise asyncio.CancelledError
 
     def confirm(
         self, text: str, *, channel: Literal["displayed", "spoken"], complete: bool
@@ -553,7 +698,12 @@ class DeepSeek:
 
     @contextlib.asynccontextmanager
     async def turn(
-        self, text: str, *, turn_id: str | None = None, context: str = ""
+        self,
+        text: str,
+        *,
+        turn_id: str | None = None,
+        context: str = "",
+        context_metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[Turn]:
         if self.closed or self.active is not None:
             raise ChatError("client_closed" if self.closed else "one_active_turn_only")
@@ -564,13 +714,15 @@ class DeepSeek:
         identifier = str(uuid.uuid4()) if turn_id is None else turn_id
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier):
             raise ChatError("invalid_turn_id")
-        turn = self.active = Turn(self, text, identifier, context)
+        turn = self.active = Turn(self, text, identifier, context, context_metadata)
         try:
             yield turn
         finally:
-            await turn.cancel()
-            turn.context = ""
-            self.active = None
+            try:
+                await turn.cancel()
+            finally:
+                turn.context = ""
+                self.active = None
 
     async def reset(self) -> None:
         if self.active is not None:

@@ -161,10 +161,13 @@ class FileAndImportTests(unittest.TestCase):
             "pre_roll_ms=true",
             "vad_threshold=nan",
             'python="https://private.invalid/token"',
+            'input_device="mic\\u0001"',
         ):
             config.write_text("[speech]\n" + value)
             with self.subTest(value=value), self.assertRaises(ConfigError):
                 load_config(config)
+        config.write_text('[speech]\ninput_device="Blue Snowball"')
+        self.assertEqual(load_config(config).speech.input_device, "Blue Snowball")
 
 
 class CaptureTests(unittest.TestCase):

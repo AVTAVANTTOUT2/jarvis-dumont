@@ -186,10 +186,10 @@ class Session:
             }
         return result
 
-    async def send(self, kind: str, payload: dict[str, Any] | None = None) -> None:
+    async def send(self, kind: str, payload: dict[str, Any] | None = None) -> bool:
         async with self.lock:
             if not self.alive:
-                return
+                return False
             message = {
                 "type": kind,
                 "protocol": VERSION,
@@ -201,6 +201,7 @@ class Session:
             self.tx += 1
             async with asyncio.timeout(0.5):
                 await self.control.send(json.dumps(message, separators=(",", ":")))
+            return True
 
     def snapshot(self) -> dict[str, Any]:
         return {

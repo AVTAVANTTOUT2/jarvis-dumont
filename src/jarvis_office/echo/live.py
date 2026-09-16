@@ -87,6 +87,7 @@ class LiveGateway(EchoGateway):
         self.sent_turn = ""
         self.store: Any = None
         self.server_epoch = uuid.uuid4().hex
+        self.remote.server_epoch = self.server_epoch
         self.event_id = 0
         self.last_product: dict[str, str] = {}
         self.command_lock = asyncio.Lock()
@@ -261,6 +262,7 @@ class LiveGateway(EchoGateway):
                     },
                     time.monotonic_ns(),
                     diagnostic=True,
+                    surface="dashboard",
                 )
                 self.voice.remaining = 1
             return s.command_acks[payload["command_id"]]
@@ -284,6 +286,7 @@ class LiveGateway(EchoGateway):
                 },
             },
             time.monotonic_ns(),
+            surface="dashboard",
         )
         return s.command_acks.get(command_id, {"status": "rejected", "error": "INVALID_COMMAND"})
 
@@ -331,12 +334,15 @@ class LiveGateway(EchoGateway):
     def transcript_context(self, text: str) -> str:
         s = self.remote.bound
         if s is None or not s.alive or s.mode == "OFF" or s.down_stream:
+            self.voice.request_context_metadata = {"selection_reason": "INACTIVE_OR_PLAYING"}
+            self.remote.context_observed("INACTIVE_OR_PLAYING", len(text))
             return ""
         self.transcriptions += 1
         if addressed(text) is None:
             self.non_addressed += 1
             if s.mode == "PASSIVE" and s.context_epoch == self.remote.listen_context_epoch:
-                s.context.add(text)
+                entry_id = s.context.add(text)
+                self.remote.context_observed("APPENDED", len(text), entry_id=entry_id)
                 self.passive_appends += 1
                 if self.store is not None:
                     self.store.record_passive(
@@ -346,6 +352,8 @@ class LiveGateway(EchoGateway):
                         text=text,
                         source="echo",
                     )
+            else:
+                self.remote.context_observed("MODE_OR_GENERATION_EXCLUDED", len(text))
             return ""
         if self.store is not None:
             self.record_owner = (
@@ -362,9 +370,22 @@ class LiveGateway(EchoGateway):
                 user_text=text,
                 status="partial",
             )
-        return s.context.recent(max_chars=3500, max_utterances=20)
+        context, selection = s.context.select(max_chars=3500, max_utterances=20)
+        self.voice.request_context_metadata = {
+            **selection,
+            "server_epoch": self.server_epoch,
+            "echo_connection_session": s.id,
+            "conversation_session": self.voice.session,
+            "generation": s.generation,
+            "context_generation": s.context_epoch,
+            "archive_generation": self.remote.listen_storage_generation,
+        }
+        self.remote.context_observed("ADDRESSED", len(text))
+        return context
 
-    async def command(self, s: Session, message: dict[str, Any], received_ns: int) -> None:
+    async def command(
+        self, s: Session, message: dict[str, Any], received_ns: int, *, surface: str = "echo"
+    ) -> None:
         kind, payload = message["type"], message["payload"]
         if kind == "client_state":
             microphone, playing = payload.get("microphone"), payload.get("playing")
@@ -386,19 +407,44 @@ class LiveGateway(EchoGateway):
             self.settings.private_product or "command_id" in payload
         ):
             async with self.command_lock:
-                await self.product_command(s, message, received_ns)
+                await self.product_command(s, message, received_ns, surface=surface)
             return
         await self.legacy_command(s, message, received_ns)
 
     async def product_command(
-        self, s: Session, message: dict[str, Any], received_ns: int, *, diagnostic: bool = False
+        self,
+        s: Session,
+        message: dict[str, Any],
+        received_ns: int,
+        *,
+        diagnostic: bool = False,
+        surface: str = "internal",
     ) -> None:
         kind, payload = message["type"], message["payload"]
         command_id = payload.get("command_id")
         if not isinstance(command_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", command_id):
             raise ValueError("INVALID_COMMAND_ID")
+        audit = {
+            "surface": surface,
+            "command_id": command_id,
+            "action": kind,
+            "server_epoch": self.server_epoch,
+            "echo_connection_session": s.id,
+            "conversation_session": self.voice.session,
+            "turn_id": self.voice.turn if self.remote.bound is s and self.voice.turn else None,
+            "generation_before": s.generation,
+            "context_generation_before": s.context_epoch,
+            "clock": "server_monotonic_ns",
+            "received_ns": received_ns,
+            "processing_ns": time.monotonic_ns(),
+            "mode": payload.get("mode")
+            if kind == "set_mode" and payload.get("mode") in ("OFF", "ACTIVE", "PASSIVE")
+            else "OFF"
+            if kind != "set_mode"
+            else "INVALID",
+        }
         if command_id in s.command_acks:
-            await s.send("command_ack", s.command_acks[command_id])
+            await self.command_ack(s, s.command_acks[command_id], audit, deduplicated=True)
             return
         error = None
         mode = payload.get("mode") if kind == "set_mode" else "OFF"
@@ -448,21 +494,36 @@ class LiveGateway(EchoGateway):
             "error": error,
         }
         s.command_acks[command_id] = ack
-        if self.store is not None:
-            self.store.record_event(
-                "command",
-                device_id=s.device,
-                details={
-                    "action": kind,
-                    "mode": mode,
-                    "status": ack["status"],
-                    "error": error,
-                },
-            )
+        audit["mode"] = mode if mode in {"OFF", "ACTIVE", "PASSIVE"} else "INVALID"
         while len(s.command_acks) > 64:
             del s.command_acks[next(iter(s.command_acks))]
-        await s.send("command_ack", ack)
+        await self.command_ack(s, ack, audit, deduplicated=False)
         await self.publish_state(s, force=True)
+
+    async def command_ack(
+        self, s: Session, ack: dict[str, Any], audit: dict[str, Any], *, deduplicated: bool
+    ) -> None:
+        audit.update(
+            status=ack["status"],
+            error=ack["error"],
+            deduplicated=deduplicated,
+            requested_mode=s.requested_mode,
+            confirmed_mode=s.mode,
+            generation=s.generation,
+            context_generation=s.context_epoch,
+            conversation_session_after=self.voice.session,
+            decision_ns=time.monotonic_ns(),
+            ack_send_status="FAILED",
+        )
+        try:
+            sent = await s.send("command_ack", ack)
+            audit["ack_send_status"] = "SENT" if sent else "SKIPPED_INVALIDATED"
+        finally:
+            audit["ack_finished_ns"] = time.monotonic_ns()
+            if self.store is not None:
+                self.store.record_event(
+                    "command", device_id=s.device, details=audit, diagnostic=True
+                )
 
     async def legacy_command(self, s: Session, message: dict[str, Any], received_ns: int) -> None:
         mode = message["payload"].get("mode") if message["type"] == "set_mode" else None
@@ -497,8 +558,19 @@ class LiveGateway(EchoGateway):
             await self.voice.chat.reset()
 
     def report(self) -> dict[str, Any]:
+        captures = [
+            {key: dict(value) if key == "worker" else value for key, value in capture.items()}
+            if len(json.dumps(capture, ensure_ascii=True)) <= 4096
+            else {
+                "server_epoch": capture["server_epoch"],
+                "turn_id": capture["turn_id"],
+                "diagnostic_truncated": True,
+            }
+            for capture in self.remote.capture_diagnostics
+        ]
         return {
             "phase": "ECHO-02C",
+            "server_epoch": self.server_epoch,
             "uptime_s": time.monotonic() - self.started,
             "security": self.settings.security,
             "network_path": self.settings.network_path,
@@ -513,6 +585,13 @@ class LiveGateway(EchoGateway):
             "connections": self.connections,
             "turns": self.voice.results,
             "current_metrics": self.voice.metrics,
+            "capture_diagnostics": captures,
+            "capture_diagnostics_truncated": sum(
+                bool(c.get("diagnostic_truncated")) for c in captures
+            ),
+            "capture_diagnostics_overwritten": self.remote.capture_diagnostics_overwritten,
+            "capture_diagnostics_stale_events": self.remote.capture_diagnostics_stale_events,
+            "storage_diagnostic_dropped": getattr(self.store, "diagnostic_dropped", 0),
             "sessions": [
                 {**s.snapshot(), "metrics": s.metrics, "timings": s.timing_summary()}
                 for s in self.sessions.values()
@@ -573,11 +652,38 @@ class LiveGateway(EchoGateway):
                         if epoch == (s.id, s.up_stream, s.mode):
                             self.voice.remaining = remaining
                     if self.voice.error or (self.voice.task and self.voice.task.done()):
+                        internal = {
+                            "surface": "internal",
+                            "action": "set_mode",
+                            "mode": "OFF",
+                            "command_id": None,
+                            "related_command_id": s.command_id or None,
+                            "server_epoch": self.server_epoch,
+                            "echo_connection_session": s.id,
+                            "conversation_session": self.voice.session,
+                            "turn_id": self.voice.turn or None,
+                            "generation": s.generation,
+                            "clock": "server_monotonic_ns",
+                            "received_ns": time.monotonic_ns(),
+                        }
                         s.last_error = self.voice.error or (
                             "" if self.diagnostic_session == s.id else "ARM_WINDOW_ENDED"
                         )
                         s.requested_mode = "OFF"
                         await self.stop_audio(s)
+                        if self.store is not None:
+                            self.store.record_event(
+                                "command",
+                                device_id=s.device,
+                                diagnostic=True,
+                                details={
+                                    **internal,
+                                    "status": "applied",
+                                    "confirmed_mode": s.mode,
+                                    "decision_ns": time.monotonic_ns(),
+                                    "ack_send_status": "NOT_ATTEMPTED",
+                                },
+                            )
                         await s.send("state", s.snapshot())
                 runtime = (
                     "OFF"

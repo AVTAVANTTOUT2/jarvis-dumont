@@ -10,7 +10,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import httpx
 
@@ -57,6 +57,33 @@ class Wire(httpx.AsyncByteStream):
                 yield item
 
     async def aclose(self):
+        self.closed = True
+
+
+class ClosingWire(Wire):
+    def __init__(self, outcome, *, defer_cancel=False):
+        super().__init__(complete())
+        self.outcome, self.defer_cancel = outcome, defer_cancel
+        self.entered, self.cancelled, self.release = (
+            asyncio.Event(),
+            asyncio.Event(),
+            asyncio.Event(),
+        )
+        self.close_task = None
+
+    async def aclose(self):
+        self.close_task = asyncio.current_task()
+        self.entered.set()
+        try:
+            if self.outcome == "fail":
+                raise RuntimeError("synthetic-close-failure")
+            if self.outcome == "wait":
+                await self.release.wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            if self.defer_cancel:
+                await self.release.wait()
+            raise
         self.closed = True
 
 
@@ -565,6 +592,231 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         await client.reset()
         self.assertEqual(client.history, [])
 
+    async def test_context_metadata_describes_intercepted_payload_without_content(self):
+        from jarvis_office.echo.context import PassiveContextBuffer
+
+        first, second = "Fait synthétique confidentiel alpha.", "Autre fait synthétique beta."
+        now = [0.0]
+        buffer = PassiveContextBuffer(seconds=30, clock=lambda: now[0])
+        client = self.client()
+        for operation, chars, limit, expected, reason in (
+            ("empty", 3500, 20, 0, "EMPTY"),
+            ("add", 3500, 20, 2, "ALL_SELECTED"),
+            ("keep", len(second), 20, 1, "CHAR_LIMIT"),
+            ("keep", 3500, 1, 1, "UTTERANCE_LIMIT"),
+            ("keep", 1, 20, 0, "CHAR_LIMIT"),
+            ("expire", 3500, 20, 0, "EXPIRED"),
+            ("clear", 3500, 20, 0, "EMPTY"),
+        ):
+            if operation == "add":
+                buffer.add(first)
+                buffer.add(second)
+            elif operation == "expire":
+                now[0] = 31.0
+            elif operation == "clear":
+                buffer.add(first)
+                buffer.clear()
+            context, selection = buffer.select(max_chars=chars, max_utterances=limit)
+            selection["ignored_untrusted_field"] = first
+            async with client.turn(
+                "Question de fixture", context=context, context_metadata=selection
+            ) as turn:
+                async for _ in turn:
+                    pass
+            payload = json.loads(self.requests[-1].content)
+            proof = turn.metrics["request_context"]
+            self.assertEqual(proof["selection_reason"], reason)
+            self.assertEqual(proof["selected_entries"], expected)
+            self.assertEqual(proof["incorporated_entries"], expected)
+            self.assertEqual(proof["payload_includes_passive_context"], bool(expected))
+            self.assertEqual(proof["incorporated_payload_chars"], len(context))
+            self.assertEqual(
+                proof["payload_chars"], sum(len(m["content"]) for m in payload["messages"])
+            )
+            self.assertEqual(len(payload["messages"]), 3 if expected else 2)
+            if expected:
+                self.assertEqual(payload["messages"][-2], {"role": "user", "content": context})
+                self.assertEqual(
+                    proof["selected_chars"],
+                    len(first) + len(second) if expected == 2 else len(second),
+                )
+            self.assertEqual(len(proof["selected_entry_ids"]), expected)
+            exported = json.dumps(proof)
+            for text in (first, second, "Question de fixture", FAKE_KEY):
+                self.assertNotIn(text, exported)
+            self.assertLess(len(exported), 4096)
+
+        for _ in range(25):
+            buffer.add(first)
+        context, selection = buffer.select(max_chars=3000, max_utterances=25)
+        async with client.turn("Question", context=context, context_metadata=selection) as turn:
+            async for _ in turn:
+                pass
+        self.assertEqual(turn.metrics["request_context"]["incorporated_entries"], 25)
+        self.assertEqual(len(turn.metrics["request_context"]["selected_entry_ids"]), 20)
+        self.assertEqual(turn.metrics["request_context"]["entry_ids_truncated"], 5)
+
+    async def test_prepared_payload_is_not_a_network_attempt_when_reservation_is_refused(self):
+        client = self.client()
+        client.real_transport = True  # Still MockTransport; only the injected reservation runs.
+        client.reserve_request = Mock(side_effect=ConfigError("test_budget_exhausted"))
+        async with client.turn("Question de fixture") as turn:
+            await turn.task
+        self.assertEqual(turn.error, "test_budget_exhausted")
+        self.assertTrue(turn.metrics["request_context"]["payload_constructed"])
+        self.assertIsNotNone(turn.metrics["timeline"]["request_prepared_s"])
+        self.assertIsNone(turn.metrics["timeline"]["network_started_s"])
+        self.assertEqual(turn.metrics["requests"], 0)
+        self.assertEqual(self.requests, [])
+
+    async def test_request_build_encoding_failure_retains_safe_unprepared_proof(self):
+        client = self.client()
+        metadata = {
+            "server_epoch": "server-fixture",
+            "selected_entries": 1,
+            "selected_chars": 7,
+            "selection_reason": "ALL_SELECTED",
+            "ignored": "private-build-fixture",
+        }
+        with patch.object(client.http, "build_request", wraps=client.http.build_request) as build:
+            async with client.turn(
+                "private-build-fixture\ud800", context="context fixture", context_metadata=metadata
+            ) as turn:
+                with self.assertRaisesRegex(ChatError, "stream_operation_failed"):
+                    async for _ in turn:
+                        pass
+        build.assert_called_once()
+        self.assertEqual(self.requests, [])
+        self.assertEqual(turn.metrics["requests"], 0)
+        self.assertEqual(turn.metrics["status"], "FAIL")
+        proof = turn.metrics["request_context"]
+        self.assertFalse(proof["payload_constructed"])
+        self.assertFalse(proof["payload_includes_passive_context"])
+        self.assertEqual(proof["incorporation_reason"], "NOT_PREPARED")
+        self.assertEqual(proof["selected_entries"], 1)
+        self.assertEqual(proof["selected_chars"], 7)
+        self.assertEqual(proof["server_epoch"], "server-fixture")
+        self.assertEqual(proof["incorporated_entries"], 0)
+        self.assertNotIn("payload_chars", proof)
+        for value in ("private-build-fixture", "context fixture", "\\ud800"):
+            self.assertNotIn(value, json.dumps(proof))
+        timeline = turn.metrics["timeline"]
+        self.assertIsNone(timeline["request_prepared_s"])
+        self.assertIsNone(timeline["network_started_s"])
+        self.assertIsNone(timeline["response_closed_s"])
+        self.assertLessEqual(timeline["stop_s"], timeline["finalized_s"])
+        self.assertTrue(turn.task.done())
+
+    async def test_immediate_turn_exit_finalizes_without_preparing_request(self):
+        client = self.client()
+        with patch.object(client.http, "build_request", wraps=client.http.build_request) as build:
+            async with client.turn(
+                "immediate-exit-fixture",
+                context="unused context",
+                context_metadata={"selected_entries": 1, "conversation_session": "session-fixture"},
+            ) as turn:
+                pass
+        build.assert_not_called()
+        self.assertEqual(self.requests, [])
+        self.assertEqual(turn.metrics["requests"], 0)
+        self.assertEqual(turn.metrics["status"], "CANCELLED")
+        self.assertEqual(turn.error, "cancelled")
+        proof = turn.metrics["request_context"]
+        self.assertEqual(proof["turn_id"], turn.id)
+        self.assertEqual(proof["selected_entries"], 1)
+        self.assertEqual(proof["conversation_session"], "session-fixture")
+        self.assertFalse(proof["payload_constructed"])
+        self.assertFalse(proof["payload_includes_passive_context"])
+        self.assertEqual(proof["incorporation_reason"], "NOT_PREPARED")
+        self.assertNotIn("immediate-exit-fixture", json.dumps(proof))
+        timeline = turn.metrics["timeline"]
+        self.assertIsNone(timeline["network_started_s"])
+        self.assertIsNone(timeline["request_prepared_s"])
+        self.assertIsNone(timeline["response_closed_s"])
+        self.assertLessEqual(timeline["stop_s"], timeline["finalized_s"])
+        self.assertFalse(timeline["read_pending_at_stop"])
+        self.assertTrue(turn.task.cancelled())
+        self.assertTrue(turn.queue.empty())
+        self.assertIsNone(client.active)
+
+    async def test_response_close_success_and_failure_have_distinct_final_evidence(self):
+        for outcome in ("success", "fail"):
+            with self.subTest(outcome=outcome):
+                wire = ClosingWire(outcome)
+                client = self.client(
+                    handler=lambda request, wire=wire: httpx.Response(
+                        200, headers={"content-type": "text/event-stream"}, stream=wire
+                    )
+                )
+                async with client.turn("synthetic question") as turn:
+                    async for _ in turn:
+                        pass
+                    await turn.task
+                timeline = turn.metrics["timeline"]
+                self.assertTrue(wire.entered.is_set())
+                self.assertTrue(wire.close_task.done())
+                self.assertLessEqual(timeline["stop_s"], timeline["finalized_s"])
+                self.assertEqual(timeline["response_closed_s"] is not None, outcome == "success")
+                self.assertEqual(wire.closed, outcome == "success")
+                if outcome == "success":
+                    self.assertLessEqual(timeline["stop_s"], timeline["response_closed_s"])
+                    self.assertLessEqual(timeline["response_closed_s"], timeline["finalized_s"])
+
+    async def test_cancel_during_response_close_finalizes_joined_turn(self):
+        wire = ClosingWire("wait")
+        client = self.client(
+            handler=lambda request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+        async with client.turn("synthetic question") as turn:
+            await asyncio.wait_for(wire.entered.wait(), 1)
+            await asyncio.wait_for(turn.cancel(), 1)
+            self.assertTrue(turn.task.done())
+            self.assertTrue(wire.close_task.done())
+            self.assertTrue(turn.queue.empty())
+            self.assertEqual(turn.error, "cancelled")
+        self.assertIsNone(client.active)
+        self.assertFalse(wire.closed)
+        self.assertIsNone(turn.metrics["timeline"]["response_closed_s"])
+        self.assertLessEqual(
+            turn.metrics["timeline"]["stop_s"], turn.metrics["timeline"]["finalized_s"]
+        )
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_cancel_caller_and_concurrent_cancel_still_join_response_cleanup(self):
+        wire = ClosingWire("wait", defer_cancel=True)
+        client = self.client(
+            handler=lambda request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=wire
+            )
+        )
+        async with client.turn("synthetic question") as turn:
+            await asyncio.wait_for(wire.entered.wait(), 1)
+            first = asyncio.create_task(turn.cancel())
+            await asyncio.wait_for(wire.cancelled.wait(), 1)
+            first.cancel()
+            second = asyncio.create_task(turn.cancel())
+            await asyncio.sleep(0)
+            self.assertFalse(first.done())
+            self.assertFalse(second.done())
+            self.assertFalse(wire.close_task.done())
+            self.assertIs(client.active, turn)
+            wire.release.set()
+            results = await asyncio.wait_for(
+                asyncio.gather(first, second, return_exceptions=True), 1
+            )
+            self.assertIsInstance(results[0], asyncio.CancelledError)
+            self.assertIsNone(results[1])
+            self.assertTrue(turn.task.done())
+            self.assertTrue(wire.close_task.done())
+        self.assertIsNone(client.active)
+        self.assertFalse(wire.closed)
+        self.assertIsNone(turn.metrics["timeline"]["response_closed_s"])
+        self.assertIsNotNone(turn.metrics["timeline"]["finalized_s"])
+        self.assertTrue(turn.queue.empty())
+        self.assertEqual(len(self.requests), 1)
+
 
 SCALED = dataclasses.replace(
     Chat(), connect_timeout=0.6, first_content_timeout=1.2, idle_timeout=0.6, total_timeout=3.6
@@ -731,6 +983,74 @@ class LoopbackTimeoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(error)
             self.assertEqual(turn.delivered_text, "Deuxième tour.")
             self.assertEqual(server.connections, 2)
+
+    async def test_g_single_comment_then_content_survives_segment_timers(self):
+        # Synthetic comment: the incident retained its byte count, not its raw bytes.
+        comment = b": offline-fixture\n\n"
+        async with LoopbackServer([comment, 0.9, *complete("Contenu de test.")]) as server:
+            turn, _, error = await self.collect(self.client(server))
+        self.assertIsNone(error)
+        self.assertEqual(turn.delivered_text, "Contenu de test.")
+        self.assertEqual(turn.metrics["wire"]["comments"], 1)
+        self.assertGreater(turn.metrics["first_content_s"], SCALED.idle_timeout)
+        self.assertLess(turn.metrics["first_content_s"], SCALED.first_content_timeout)
+        self.assertEqual(server.connections, 1)
+
+        timeline = turn.metrics["timeline"]
+        self.assertEqual(timeline["read_chunks"], turn.metrics["wire"]["chunks"])
+        self.assertEqual(timeline["read_bytes"], turn.metrics["wire"]["bytes"])
+        self.assertGreater(turn.metrics["wire"]["events"], 0)
+        self.assertEqual(timeline["read_operations"], timeline["read_chunks"])
+        self.assertFalse(timeline["read_pending_at_stop"])
+        self.assertLess(timeline["first_read_received_s"], turn.metrics["first_content_s"])
+        self.assertLessEqual(timeline["last_read_received_s"], timeline["stop_s"])
+        self.assertLessEqual(turn.metrics["first_content_s"], timeline["stop_s"])
+        self.assertEqual(turn.metrics["requests"], 1)
+
+    async def test_h_single_comment_then_silence_has_no_content_and_closes(self):
+        comment = b": offline-fixture\n\n"
+        async with LoopbackServer([comment, 5.0]) as server:
+            turn, events, error = await self.collect(self.client(server))
+            await self.until(lambda: server.closed_by_client == 1)
+        self.assertEqual(error, "first_content_timeout")
+        self.assertEqual(events, [])
+        self.assertEqual(turn.metrics["http_status"], 200)
+        self.assertEqual(
+            turn.metrics["wire"],
+            {"chunks": 1, "bytes": len(comment), "events": 0, "comments": 1},
+        )
+        self.assertIsNone(turn.metrics["first_content_s"])
+        self.assertEqual(turn.metrics["generated_chars"], 0)
+        self.assertNotIn("transport_exception", turn.metrics)
+        self.assertGreaterEqual(turn.metrics["elapsed_s"], SCALED.first_content_timeout)
+        self.assertLess(
+            turn.metrics["elapsed_s"], SCALED.first_content_timeout + SCALED.idle_timeout
+        )
+        self.assertEqual(server.connections, 1)
+        self.assertTrue(turn.task.done() and turn.queue.empty())
+
+        timeline = turn.metrics["timeline"]
+        self.assertEqual(timeline["read_chunks"], 1)
+        self.assertEqual(timeline["read_bytes"], len(comment))
+        self.assertEqual(timeline["read_operations"], 2)  # Timer wakeups reuse the pending read.
+        self.assertTrue(timeline["read_pending_at_stop"])
+        milestones = [
+            timeline[key]
+            for key in (
+                "request_prepared_s",
+                "network_started_s",
+                "headers_received_s",
+                "first_read_started_s",
+                "first_read_received_s",
+                "last_read_started_s",
+                "stop_s",
+                "response_closed_s",
+                "finalized_s",
+            )
+        ]
+        self.assertEqual(milestones, sorted(milestones))
+        self.assertGreaterEqual(timeline["stop_s"], SCALED.first_content_timeout)
+        self.assertNotIn(comment.decode().strip(), json.dumps(turn.metrics))
 
 
 if __name__ == "__main__":
