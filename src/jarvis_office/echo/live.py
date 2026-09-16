@@ -18,8 +18,9 @@ from jarvis_office.assets import atomic_json, fingerprint, private_root
 from jarvis_office.audio_client import LoopError
 from jarvis_office.config import ConfigError, load_config
 from jarvis_office.credentials import load_key, reserve_validation_request
-from jarvis_office.deepseek import DeepSeek
+from jarvis_office.deepseek import ChatError, DeepSeek
 from jarvis_office.runtime import Instance
+from jarvis_office.storage import StorageError
 from jarvis_office.voice import VoiceLoop, addressed
 
 from .audio import RemoteEchoAudio, RemoteEchoEgress
@@ -93,6 +94,15 @@ class LiveGateway(EchoGateway):
         self.command_lock = asyncio.Lock()
         self.record_owner: tuple[str, str, str, int] | None = None
         self.diagnostic_session: str | None = None
+        self.memory_task: asyncio.Task[None] | None = None
+        self.memory_status: dict[str, Any] = {
+            "state": "disabled",
+            "pending_turns": 0,
+            "summary_present": False,
+            "commits": 0,
+            "last_error": None,
+            "updated_at": None,
+        }
         voice.transcript_context = self.transcript_context
         voice.on_turn_finished = self.record_turn
 
@@ -107,7 +117,7 @@ class LiveGateway(EchoGateway):
         )
         # Remote playback acknowledges a whole stream; a partial stream is never "heard".
         try:
-            self.store.record_turn(
+            recorded = self.store.record_turn(
                 owner[0],
                 owner[1],
                 turn,
@@ -118,10 +128,103 @@ class LiveGateway(EchoGateway):
                 status=status,
                 metrics=metrics,
             )
-        except Exception:
+            proof = metrics.get("llm", {}).get("request_context", {})
+            if (
+                recorded
+                and status in {"complete", "interrupted"}
+                and delivered
+                and not proof.get("payload_includes_passive_context", False)
+                and hasattr(self.store, "memory_context")
+            ):
+                self.schedule_memory_rollup(owner[0])
+        except (StorageError, TypeError, ValueError):
             # Persistence failure is visible and prevents new arming, never breaks audio cleanup.
             self.store.error = "STORAGE_WRITE_FAILED"
         self.record_owner = None
+
+    async def load_memory(self, device: str) -> None:
+        """Restore bounded persistent context for the selected device."""
+        if self.store is None or not hasattr(self.store, "memory_context"):
+            return
+        await self.store.flush()
+        memory = await self.store.memory_context(device)
+        history = [(item["user_text"], item["delivered_text"]) for item in memory["pending"]]
+        self.voice.chat.restore_memory(memory["summary"], history)
+        self.memory_status.update(
+            state="idle" if memory["enabled"] else "disabled",
+            pending_turns=memory["pending_count"],
+            summary_present=bool(memory["summary"]),
+            last_error=None,
+            updated_at=memory["updated_at"],
+        )
+
+    def schedule_memory_rollup(self, device: str) -> None:
+        """Replace an obsolete background rollup with one fresh bounded attempt."""
+        previous = self.memory_task
+        if previous is not None and not previous.done():
+            previous.cancel()
+
+        async def run() -> None:
+            if previous is not None:
+                await asyncio.gather(previous, return_exceptions=True)
+            await self.rollup_memory(device)
+
+        self.memory_task = asyncio.create_task(run(), name="office-memory-rollup")
+
+    async def rollup_memory(self, device: str) -> None:
+        """Summarize eligible persisted turns once; stale commits are rejected by storage."""
+        try:
+            await self.store.flush()
+            memory = await self.store.memory_context(device)
+            self.memory_status.update(
+                state="summarizing" if memory["should_summarize"] else "idle",
+                pending_turns=memory["pending_count"],
+                summary_present=bool(memory["summary"]),
+                last_error=None,
+                updated_at=memory["updated_at"],
+            )
+            if not memory["should_summarize"] or not memory["rollup"]:
+                return
+            summary = await self.voice.chat.summarize_memory(memory["summary"], memory["rollup"])
+            cursor = memory["rollup"][-1]
+            committed = await self.store.commit_memory(
+                device,
+                generation=memory["generation"],
+                revision=memory["revision"],
+                through_created_at=cursor["created_at"],
+                through_turn_id=cursor["turn_id"],
+                summary=summary,
+            )
+            if committed:
+                current = await self.store.memory_context(device)
+                self.memory_status.update(
+                    state="idle",
+                    pending_turns=current["pending_count"],
+                    summary_present=True,
+                    commits=self.memory_status["commits"] + 1,
+                    updated_at=current["updated_at"],
+                )
+                if self.remote.bound is not None and self.remote.bound.device == device:
+                    self.voice.chat.restore_memory(
+                        current["summary"],
+                        [
+                            (item["user_text"], item["delivered_text"])
+                            for item in current["pending"]
+                        ],
+                    )
+        except asyncio.CancelledError:
+            self.memory_status["state"] = "idle"
+            raise
+        except (ChatError, StorageError):
+            self.memory_status.update(state="error", last_error="MEMORY_ROLLUP_FAILED")
+
+    async def cancel_memory_rollup(self) -> None:
+        """Cancel and drain the owned rollup task."""
+        task = self.memory_task
+        if task is not None and not task.done():
+            task.cancel()
+        if task is not None and task is not asyncio.current_task():
+            await asyncio.gather(task, return_exceptions=True)
 
     def product_state(self, s: Session) -> dict[str, Any]:
         fresh = s.alive and time.monotonic() - s.physical_at < 3
@@ -208,6 +311,11 @@ class LiveGateway(EchoGateway):
             "output_verified": any(s.audio is not None for s in self.sessions.values()),
             "error": self.safe_error(self.voice.error),
             "budget": {"nominal": preferences.get("budget", {}), "diagnostic": diagnostic},
+            "memory": {
+                **self.memory_status,
+                "enabled": preferences.get("memory_enabled", False),
+                "budget_source": "nominal",
+            },
             "storage": self.store.status(),
             "settings": preferences,
             "versions": {
@@ -273,7 +381,7 @@ class LiveGateway(EchoGateway):
                 return {"status": "rejected", "error": "SERVER_NOT_READY"}
             s.turn_task = asyncio.create_task(self.preview_voice(s))
             return {"status": "applied", "error": None, "command_id": payload.get("command_id")}
-        if action not in {"set_mode", "interrupt", "clear_context"}:
+        if action not in {"set_mode", "interrupt", "clear_context", "clear_memory"}:
             return {"status": "rejected", "error": "INVALID_COMMAND"}
         command_id = payload.get("command_id", "")
         await self.command(
@@ -355,6 +463,8 @@ class LiveGateway(EchoGateway):
             else:
                 self.remote.context_observed("MODE_OR_GENERATION_EXCLUDED", len(text))
             return ""
+        if self.memory_task is not None and not self.memory_task.done():
+            self.memory_task.cancel()
         if self.store is not None:
             self.record_owner = (
                 s.device,
@@ -403,7 +513,7 @@ class LiveGateway(EchoGateway):
             s.playback_frames = frames if playing else None
             s.physical_stream, s.physical_at = stream, time.monotonic()
             return
-        if kind in {"set_mode", "interrupt", "clear_context"} and (
+        if kind in {"set_mode", "interrupt", "clear_context", "clear_memory"} and (
             self.settings.private_product or "command_id" in payload
         ):
             async with self.command_lock:
@@ -472,19 +582,32 @@ class LiveGateway(EchoGateway):
             s.last_error = ""
             await self.publish_state(s, force=True)
             try:
-                if kind in {"clear_context", "interrupt"}:
+                if kind in {"clear_context", "clear_memory", "interrupt"}:
                     await self.stop_audio(s)
                     if kind == "clear_context":
                         s.context.clear()
                         s.context_epoch += 1
                         await self.voice.control("clear")
                         await s.send("context_state", {"count": 0})
+                    elif kind == "clear_memory":
+                        if self.store is None:
+                            raise StorageError("STORAGE_UNAVAILABLE")
+                        await self.cancel_memory_rollup()
+                        await self.voice.chat.reset()
+                        await self.store.clear_memory(s.device)
+                        self.memory_status.update(
+                            state="idle",
+                            pending_turns=0,
+                            summary_present=False,
+                            last_error=None,
+                            updated_at=None,
+                        )
                     await s.send("state", s.snapshot())
                 else:
                     await self.legacy_command(s, message, received_ns)
                 if s.mode != mode:
                     error = "MODE_NOT_APPLIED"
-            except (LoopError, ValueError, TimeoutError):
+            except (ChatError, LoopError, StorageError, ValueError, TimeoutError):
                 error = "COMMAND_FAILED"
                 s.requested_mode = "OFF"
                 await self.stop_audio(s)
@@ -535,6 +658,10 @@ class LiveGateway(EchoGateway):
             if self.remote.bound is not s:
                 await self.voice.control("clear")
                 self.remote.bound = s
+            if self.diagnostic_session == s.id:
+                self.voice.chat.restore_memory("", [])
+            elif self.store is not None:
+                await self.load_memory(s.device)
             await self.voice.control("resume")
 
     async def stop_audio(self, s: Session, *, notify: bool = True) -> None:
@@ -552,10 +679,16 @@ class LiveGateway(EchoGateway):
         if self.store is not None:
             self.store.close_session(s.id)
         if self.remote.bound is s:
+            await self.cancel_memory_rollup()
             self.remote.bound = None
             self.remote.listen_owner = None
             self.remote.token = ""
             await self.voice.chat.reset()
+
+    async def close(self) -> None:
+        """Drain memory work before closing sessions, engines and persistent storage."""
+        await self.cancel_memory_rollup()
+        await super().close()
 
     def report(self) -> dict[str, Any]:
         captures = [

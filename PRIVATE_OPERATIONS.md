@@ -32,8 +32,13 @@ Le compteur de diagnostic ECHO-02C reste indépendant et n'est jamais réinitial
 L'historique adressé commence seulement après activation explicite (30 jours
 proposés) ; le contexte passif reste en RAM sauf option d'archivage séparée.
 Une archive consultée ne devient jamais automatiquement un prompt.
+La mémoire persistante se choisit dans Réglages, implique l'historique, et
+réinjecte seulement un résumé plus les derniers tours confirmés. Les résumés
+utilisent le budget nominal, s'annulent si une parole arrive, et survivent aux
+redémarrages jusqu'à « Effacer la mémoire ». Aucun backfill des échanges
+antérieurs à l'activation.
 
-SQLite : `data/office.sqlite3` hors releases, schéma 1, journal DELETE,
+SQLite : `data/office.sqlite3` hors releases, schéma 2, journal DELETE,
 transactions/file bornées. Les exports ont un périmètre explicite et les CSV
 neutralisent les formules. La sauvegarde utilise l'API SQLite ; restauration
 opérateur via `OfficeStore.restore_isolated(source,destination)` vers un chemin
@@ -42,7 +47,7 @@ pour démontrer un retour arrière. Les exports déjà copiés ne sont pas effac
 par une purge ; les sauvegardes ont leur rétention séparée.
 
 Couple compatible : serveur 0.3.0, APK 0.3.0-private/code 11, PCM protocole 1,
-capacités private_state_v1/playback_envelope_v1, SQLite schéma 1. La bouche suit
+capacités private_state_v1/playback_envelope_v1, SQLite schéma 2. La bouche suit
 la position AudioTrack locale et une énergie PCM ; aucune précision phonétique
 ou latence acoustique n'est annoncée. Aucun nouvel STT/TTS/poids/gain/prefill.
 

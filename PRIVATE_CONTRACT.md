@@ -16,8 +16,10 @@ dans hello et négociées dans welcome.capabilities. Aucun moteur dans les UI.
 `error: code|null`, `capabilities`. Inconnu = null. La capture physique vient
 d'Android, jamais de `up_stream`. Session neuve/reconnexion = OFF, flux invalidés.
 
-Commandes existantes `set_mode {mode}`, `clear_context {}` et nouvelle
-`interrupt {}` acceptent `command_id` dans payload (UUID/identifiant <=64 chars).
+Commandes existantes `set_mode {mode}`, `clear_context {}`, `clear_memory {}`
+et `interrupt {}` acceptent `command_id` dans payload (UUID/identifiant <=64 chars).
+`clear_memory` exige une confirmation dashboard distincte ; il oublie le résumé
+réinjecté après redémarrage, sans supprimer les conversations consultables.
 `command_ack {command_id, status: applied|rejected, error: code|null}` termine
 la demande sous 5 secondes, sinon UI affiche délai dépassé et coupe localement.
 Un accusé confirme la transition serveur ; les faits physiques restent séparés.
@@ -47,8 +49,9 @@ CSRF sur toutes mutations, CSP ; tokens Echo refusés pour les API admin.
 budget, storage, versions, alerts}`.
 `GET /api/events?after=N&epoch=UUID` => `{server_epoch,event_id,reset,events,snapshot}`,
 ring <=256, snapshot si curseur perdu ; consultation sans activation audio.
-`POST /api/command` => `{device_id,action: set_mode|interrupt|clear_context,
-mode?,command_id}` ; même gateway.command que l'APK.
+`POST /api/command` => `{device_id,action: set_mode|interrupt|clear_context|
+clear_memory,mode?,command_id,confirm?}` ; même gateway.command que l'APK.
+`clear_memory` et `clear_context` exigent `confirm: true`.
 Action administrateur `preview_voice` uniquement : phrase TTS locale fixe,
 mode OFF et capture fermée ; aucun appel cloud. Aucun token Echo ne peut l'appeler.
 Action admin `passive_smoke` confirmée : active PASSIVE après le clic humain,
@@ -73,10 +76,13 @@ Les vues Conversations réutilisent sessions/tours ; aucune démo ni SQL libre.
 
 ## Stockage et intégration
 
-SQLite Office privée hors release : devices, sessions, turns, events,
-preferences, passive_archives, schema_migrations ; secrets et PCM exclus.
-Historique adressé explicite, désactivable, rétention initiale 30 jours, date
-d'activation visible. Archives passives désactivées initialement, RAM effective
+SQLite Office privée hors release : devices, sessions, turns,
+conversation_memory, events, preferences, passive_archives, schema_migrations ;
+secrets et PCM exclus. Schéma 2. Historique adressé explicite, désactivable,
+rétention initiale 30 jours, date d'activation visible. Mémoire persistante
+explicite, liée à l'historique, sans backfill : un résumé borné plus les derniers
+tours confirmés, rollups nominaux préemptibles, rétention jusqu'à « Effacer la
+mémoire ». Archives passives désactivées initialement, RAM effective
 1800s/20000 caractères/100 énoncés. Consultation ne réinjecte aucune archive.
 File d'écritures bornée hors audio, erreurs visibles, transactions courtes.
 Journal DELETE initialement (WAL seulement après audit correctifs SQLite).

@@ -617,6 +617,94 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.call_args.kwargs["status"], "interrupted")
         self.assertEqual(record.call_args.kwargs["delivered_text"], "préfixe")
 
+    async def test_mode_activation_restores_persistent_summary_and_recent_turns(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = OfficeStore(fixtures.Path(root) / "office.sqlite3")
+            await store.start()
+            self.gateway.store = store
+            self.voice.archive_generation = lambda: store.generation
+            try:
+                await store.update_settings({"memory_enabled": True, "budget": {"limit": 10}})
+                store.record_turn(
+                    "test",
+                    "archived",
+                    "summarized",
+                    generation=store.generation,
+                    user_text="Quelle couleur ai-je choisie ?",
+                    delivered_text="Vous avez choisi turquoise.",
+                    status="complete",
+                )
+                await store.flush()
+                memory = await store.memory_context("test")
+                cursor = memory["pending"][-1]
+                await store.commit_memory(
+                    "test",
+                    generation=memory["generation"],
+                    revision=memory["revision"],
+                    through_created_at=cursor["created_at"],
+                    through_turn_id=cursor["turn_id"],
+                    summary="Le propriétaire a choisi la couleur turquoise.",
+                )
+                store.record_turn(
+                    "test",
+                    "archived",
+                    "recent",
+                    generation=store.generation,
+                    user_text="Je préfère aussi les réponses courtes.",
+                    delivered_text="Les réponses resteront courtes.",
+                    status="complete",
+                )
+                await store.flush()
+
+                await self.command("set_mode", mode="ACTIVE", command_id="memory-restore")
+                await fixtures.LiveTests.wait_for(self, lambda: self.voice.state == "listening")
+
+                self.assertEqual(
+                    self.chat.memory_summary,
+                    "Le propriétaire a choisi la couleur turquoise.",
+                )
+                self.assertEqual(
+                    self.chat.history,
+                    [
+                        (
+                            "Je préfère aussi les réponses courtes.",
+                            "Les réponses resteront courtes.",
+                        )
+                    ],
+                )
+                await self.command("set_mode", mode="OFF", command_id="memory-stop")
+            finally:
+                self.gateway.store = None
+                await store.close()
+
+    async def test_four_confirmed_turns_roll_up_in_background(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = OfficeStore(fixtures.Path(root) / "office.sqlite3")
+            await store.start()
+            self.gateway.store = store
+            try:
+                await store.update_settings({"memory_enabled": True})
+                for index in range(4):
+                    turn = f"memory-{index}"
+                    self.gateway.record_owner = ("test", self.s.id, turn, store.generation)
+                    self.gateway.record_turn(
+                        turn,
+                        f"Question confirmée {index}",
+                        f"Réponse confirmée {index}",
+                        f"Réponse confirmée {index}",
+                        {"status": "PASS"},
+                    )
+                async with asyncio.timeout(2):
+                    while self.gateway.memory_task is None or not self.gateway.memory_task.done():
+                        await asyncio.sleep(0.01)
+
+                memory = await store.memory_context("test")
+                self.assertIn("Turquoise", memory["summary"])
+                self.assertEqual(memory["pending"], [])
+            finally:
+                self.gateway.store = None
+                await store.close()
+
     async def test_envelope_is_bounded_and_does_not_change_pcm(self):
         samples = np.concatenate((np.zeros(960, np.float32), np.full(1920, 0.1, np.float32)))
         outputs = []

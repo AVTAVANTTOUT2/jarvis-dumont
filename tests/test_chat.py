@@ -392,6 +392,108 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(client.history), 1)
         self.assertTrue(self.wires[0].closed)
 
+    async def test_restored_memory_is_untrusted_user_context_and_globally_bounded(self):
+        settings = dataclasses.replace(Chat(), context_chars=1000)
+        client = self.client(settings=settings)
+        client.restore_memory(
+            "La couleur préférée est turquoise. " + "m" * 700,
+            [("Question récente", "Réponse récente")],
+        )
+
+        async with client.turn("Quelle couleur ai-je choisie ?") as turn:
+            async for _ in turn:
+                pass
+
+        messages = json.loads(self.requests[0].content)["messages"]
+        self.assertEqual(messages[0], {"role": "system", "content": SYSTEM})
+        self.assertTrue(
+            any(
+                message["role"] == "user"
+                and "Mémoire conversationnelle" in message["content"]
+                and "turquoise" in message["content"]
+                for message in messages[1:-1]
+            )
+        )
+        self.assertLessEqual(sum(len(message["content"]) for message in messages), 1000)
+
+    async def test_memory_summary_uses_one_budgeted_request_without_touching_history(self):
+        reserve = Mock(return_value=12)
+        client = self.client(chunks=complete("Résumé fidèle et compact."))
+        client.real_transport = True
+        client.reserve_request = reserve
+
+        summary = await client.summarize_memory(
+            "Le propriétaire préfère le bleu.",
+            [
+                {
+                    "user_text": "Je choisis turquoise.",
+                    "delivered_text": "Votre choix est turquoise.",
+                }
+            ],
+        )
+
+        self.assertEqual(summary, "Résumé fidèle et compact.")
+        self.assertEqual(client.history, [])
+        self.assertEqual(len(self.requests), 1)
+        reserve.assert_called_once_with()
+        messages = json.loads(self.requests[0].content)["messages"]
+        self.assertNotEqual(messages[0]["content"], SYSTEM)
+        self.assertTrue(all(message["role"] in {"system", "user"} for message in messages))
+
+    async def test_queued_memory_restore_keeps_turn_committed_while_active(self):
+        client = self.client()
+        async with client.turn("Question en cours") as turn:
+            async for _ in turn:
+                pass
+            client.restore_memory("Le propriétaire a choisi turquoise.", [])
+            self.assertEqual(client.memory_summary, "")
+            turn.confirm(turn.delivered_text, channel="displayed", complete=True)
+        committed = list(client.history)
+
+        async with client.turn("Quelle couleur ai-je choisie ?") as turn:
+            async for _ in turn:
+                pass
+
+        self.assertEqual(client.memory_summary, "Le propriétaire a choisi turquoise.")
+        self.assertEqual(client.history, committed)
+        messages = json.loads(self.requests[1].content)["messages"]
+        self.assertTrue(
+            any(
+                message["role"] == "user" and "turquoise" in message["content"]
+                for message in messages
+            )
+        )
+        self.assertEqual(messages[-3]["content"], committed[0][0])
+        self.assertEqual(messages[-2]["content"], committed[0][1])
+
+    async def test_normal_turn_preempts_background_memory_summary_without_retry(self):
+        def handler(request):
+            wire = (
+                Wire([10.0, *complete()]) if not self.wires else Wire(complete("Réponse normale."))
+            )
+            self.wires.append(wire)
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=wire)
+
+        client = self.client(handler=handler)
+        summary = asyncio.create_task(
+            client.summarize_memory(
+                "",
+                [{"user_text": "Question", "delivered_text": "Réponse"}],
+            )
+        )
+        async with asyncio.timeout(1):
+            while not self.requests:
+                await asyncio.sleep(0)
+
+        async with client.turn("Nouvelle demande") as turn:
+            async for _ in turn:
+                pass
+
+        with self.assertRaises(asyncio.CancelledError):
+            await summary
+        self.assertEqual(len(self.requests), 2)
+        self.assertTrue(self.wires[0].closed)
+
     async def test_slow_stream_first_segment_before_end_and_no_half_word(self):
         prefix = "Un réseau local relie simplement plusieurs appareils dans votre "
         client = self.client(

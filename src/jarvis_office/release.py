@@ -289,7 +289,7 @@ def build(source: Path, uv: Path, config: Config) -> dict[str, Any]:
             "name": name,
             "sha": sha,
             "version": version,
-            "sqlite_schema_max": 1,
+            "sqlite_schema_max": 2,
             "assets": assets,
             "built_utc": datetime.now(UTC).isoformat(),
             "platform": platform.platform(),

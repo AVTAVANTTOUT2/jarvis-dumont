@@ -158,7 +158,9 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_data_routes_scope_confirmation_and_backup(self):
         async with self.client.get(self.server.url + "/api/data/catalog") as response:
-            self.assertEqual(len((await response.json())["tables"]), 7)
+            tables = (await response.json())["tables"]
+            self.assertEqual(len(tables), 8)
+            self.assertIn("conversation_memory", [table["name"] for table in tables])
         url = self.server.url + "/api/data/rows?table=sqlite_schema"
         async with self.client.get(url) as response:
             self.assertEqual(response.status, 400)
@@ -186,6 +188,29 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 400)
         await response.release()
+
+    async def test_clear_memory_requires_confirm_and_memory_keeps_history(self):
+        response = await self.post(
+            "/api/command",
+            {"device_id": "echo", "action": "clear_memory", "command_id": "memory"},
+        )
+        self.assertEqual(response.status, 400)
+        await response.release()
+        response = await self.post(
+            "/api/command",
+            {
+                "device_id": "echo",
+                "action": "clear_memory",
+                "command_id": "memory",
+                "confirm": True,
+            },
+        )
+        self.assertEqual((await response.json())["status"], "applied")
+        response = await self.post("/api/settings", {"memory_enabled": True})
+        self.assertTrue((await response.json())["history_enabled"])
+        response = await self.post("/api/settings", {"history_enabled": False})
+        self.assertEqual(response.status, 400)
+        self.assertEqual((await response.json())["error"], "MEMORY_REQUIRES_HISTORY")
 
     async def test_lan_configuration_and_request_size_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "DASHBOARD_LOOPBACK_ONLY"):

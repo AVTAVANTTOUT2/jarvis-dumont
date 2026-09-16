@@ -59,7 +59,7 @@ async function confirmAction(title, message, action = 'Confirmer') {
 }
 function tableMeta(name = state.table) { return state.catalog?.tables?.find(item => item.name === name); }
 function primaryKey(name) {
-  const known = {devices:'device_id', sessions:'session_id', turns:'turn_id', events:'event_id', preferences:'key', passive_archives:'id', schema_migrations:'version'};
+  const known = {devices:'device_id', sessions:'session_id', turns:'turn_id', conversation_memory:'device_id', events:'event_id', preferences:'key', passive_archives:'id', schema_migrations:'version'};
   return tableMeta(name)?.columns?.find(column => column.primary_key)?.name || known[name];
 }
 function parseJSON(value) {
@@ -168,6 +168,11 @@ function renderState(snapshot) {
     if (typeof code === 'string') alerts.append(el('div', `${code} · ${errorLabel({code})}`, 'notice amber'));
   }
   if (current?.error) alerts.append(el('div', `${current.error} · ${errorLabel({code:current.error}, 'Vérifiez le terminal avant toute activation.')}`, 'notice amber'));
+  const memory = snapshot.memory || {};
+  const memoryState = memory.enabled === true
+    ? (memory.summary_present ? 'Résumé disponible après redémarrage.' : 'Mémoire activée, en attente de tours confirmés.')
+    : 'Mémoire persistante désactivée.';
+  $('memory-overview').textContent = memory.last_error ? errorLabel({code: memory.last_error}, memoryState) : memoryState;
   if (state.online && state.page === 'overview' && oldTurnState !== `${current?.turn_id}/${current?.activity}`) loadLatest();
   if (state.page === 'settings') renderServiceState();
 }
@@ -177,7 +182,7 @@ async function sendCommand(action, mode) {
   if (mode && mode !== 'OFF' && nominalBudget()?.limit == null) {
     location.hash = '#settings'; notify('Choisissez votre plafond d’usage nominal avant d’activer le terminal.', 'amber'); return;
   }
-  const command = {device_id: state.device, action, command_id: crypto.randomUUID(), ...(mode ? {mode} : {}), ...(['clear_context','preview_voice','passive_smoke'].includes(action) ? {confirm:true} : {})};
+  const command = {device_id: state.device, action, command_id: crypto.randomUUID(), ...(mode ? {mode} : {}), ...(['clear_context','clear_memory','preview_voice','passive_smoke'].includes(action) ? {confirm:true} : {})};
   state.pending = command.command_id; renderControls();
   try {
     const result = await api.post('/api/command', command, {timeout:5500});
@@ -191,6 +196,10 @@ async function sendCommand(action, mode) {
 }
 async function clearContext() {
   if (await confirmAction('Effacer le contexte actif ?', 'Les énoncés actuellement retenus en RAM seront effacés et le terminal reviendra sur Micro coupé. Les conversations enregistrées et les archives passives sont conservées.', 'Effacer le contexte')) await sendCommand('clear_context');
+}
+async function clearMemory() {
+  if (!state.device) { notify('Choisissez un terminal avant d’effacer la mémoire.'); return; }
+  if (await confirmAction('Effacer la mémoire persistante ?', 'Le résumé réinjecté après redémarrage sera oublié. Les conversations enregistrées restent consultables et ne seront pas relues automatiquement.', 'Effacer la mémoire')) await sendCommand('clear_memory');
 }
 async function loadSettings() {
   const settings = await api.get('/api/settings'); state.settings = settings;
@@ -408,11 +417,17 @@ async function showSettings() {
     $('budget-limit').value=settings.budget?.limit ?? ''; $('budget-period').value=settings.budget?.period || 'month';
     set('budget-choice',settings.budget?.limit == null ? 'CHOIX REQUIS' : 'PLAFOND DÉFINI');
     $('history-enabled').checked=settings.history_enabled === true; $('retention-days').value=settings.retention_days;
+    $('memory-enabled').checked=settings.memory_enabled === true;
     $('archive-passive').checked=settings.archive_passive === true; $('passive-retention-days').value=settings.passive_retention_days;
     $('backup-retention-days').value=settings.backup_retention_days;
     set('settings-budget-used',`Consommation : ${settings.budget?.used ?? 'Non mesuré'} requêtes · période commencée le ${date(settings.budget?.period_started_at)}. Plafond vide : activation bloquée.`);
     set('settings-diagnostic-budget',diagnosticBudget());
     set('history-started',settings.history_started_at ? `Historique commencé le ${date(settings.history_started_at)}. Aucun échange antérieur reconstruit.` : 'L’historique commencera à l’activation de cette option.');
+    set('memory-started',settings.memory_started_at ? `Mémoire commencée le ${date(settings.memory_started_at)}. Aucun échange antérieur n’est résumé.` : 'La mémoire commencera à l’activation de cette option.');
+    const memory=state.snapshot?.memory || {};
+    const pending=typeof memory.pending_turns === 'number' ? `${memory.pending_turns} tour(s) en attente de résumé` : 'aucun lot en attente';
+    set('memory-status', memory.last_error ? errorLabel({code:memory.last_error}) : `État : ${memory.state || 'disabled'} · ${pending}.`);
+    $('clear-memory').disabled = !device() || Boolean(state.pending);
     renderServiceState();
   } catch(error) { $('settings-form').inert=true; fail(error); }
 }
@@ -420,7 +435,8 @@ async function saveSettings(event) {
   event.preventDefault(); const button=event.submitter;
   if(!state.settings)return;
   if($('archive-passive').checked && !state.settings.archive_passive && !await confirmAction('Archiver le contexte passif ?', `Les prochains énoncés contextuels seront conservés localement pendant ${$('passive-retention-days').value} jour(s), en plus de la mémoire RAM. Aucun audio brut ne sera conservé.`,'Activer l’archivage')) return;
-  const body={history_enabled:$('history-enabled').checked,retention_days:Number($('retention-days').value),archive_passive:$('archive-passive').checked,passive_retention_days:Number($('passive-retention-days').value),backup_retention_days:Number($('backup-retention-days').value),budget:{limit:$('budget-limit').value === '' ? null : Number($('budget-limit').value),period:$('budget-period').value,exhaustion:'block'}};
+  if($('memory-enabled').checked && !state.settings.memory_enabled && !await confirmAction('Activer la mémoire persistante ?', 'Les tours confirmés seront résumés en arrière-plan. Chaque résumé consomme le budget nominal. Rien n’est reconstruit avant cette activation. Le résumé survit aux redémarrages jusqu’à un effacement explicite.','Activer la mémoire')) return;
+  const body={history_enabled:$('history-enabled').checked || $('memory-enabled').checked,memory_enabled:$('memory-enabled').checked,retention_days:Number($('retention-days').value),archive_passive:$('archive-passive').checked,passive_retention_days:Number($('passive-retention-days').value),backup_retention_days:Number($('backup-retention-days').value),budget:{limit:$('budget-limit').value === '' ? null : Number($('budget-limit').value),period:$('budget-period').value,exhaustion:'block'}};
   button.disabled=true;
   try { await api.post('/api/settings',body); await Promise.all([showSettings(),refreshState()]); notify('Réglages enregistrés. Aucun mode audio n’a été activé.','success'); }
   catch(error){fail(error);}finally{button.disabled=false;}
@@ -466,6 +482,7 @@ $('device-select').onchange=()=>{state.device=$('device-select').value; if(state
 for(const button of document.querySelectorAll('[data-mode]'))button.onclick=()=>sendCommand('set_mode',button.dataset.mode);
 $('quick-off').onclick=()=>sendCommand('set_mode','OFF'); $('interrupt').onclick=()=>sendCommand('interrupt');
 $('clear-context-overview').onclick=clearContext; $('clear-context').onclick=clearContext;
+$('clear-memory').onclick=clearMemory;
 $('context-refresh').onclick=loadContext;
 $('conversation-search').onsubmit=event=>{event.preventDefault();state.turnOffset=0;loadTurns();};
 $('all-sessions').onclick=()=>{state.session='';state.turnOffset=0;for(const item of $('sessions-list').querySelectorAll('button'))item.setAttribute('aria-pressed','false');loadTurns();};

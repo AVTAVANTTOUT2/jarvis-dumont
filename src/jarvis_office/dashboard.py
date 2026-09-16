@@ -231,6 +231,8 @@ class DashboardServer:
             self.store.status(),
             history_enabled=settings["history_enabled"],
             history_started_at=settings["history_started_at"],
+            memory_enabled=settings["memory_enabled"],
+            memory_started_at=settings["memory_started_at"],
         )
         state.setdefault("alerts", [])
         if self.store.error:
@@ -286,7 +288,14 @@ class DashboardServer:
         action, mode = body.get("action"), body.get("mode")
         if (
             action
-            not in ("set_mode", "interrupt", "clear_context", "preview_voice", "passive_smoke")
+            not in (
+                "set_mode",
+                "interrupt",
+                "clear_context",
+                "clear_memory",
+                "preview_voice",
+                "passive_smoke",
+            )
             or (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE"))
             or not isinstance(body.get("device_id"), str)
             or len(body["device_id"]) > 128
@@ -294,7 +303,10 @@ class DashboardServer:
             or not 1 <= len(body["command_id"]) <= 64
         ):
             raise ValueError()
-        if action in {"clear_context", "passive_smoke"} and body.get("confirm") is not True:
+        if (
+            action in {"clear_context", "clear_memory", "passive_smoke"}
+            and body.get("confirm") is not True
+        ):
             return self._error("CONFIRMATION_REQUIRED")
         if action == "set_mode" and mode != "OFF":
             settings = await self.store.settings()

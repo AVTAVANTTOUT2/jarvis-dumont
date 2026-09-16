@@ -62,6 +62,8 @@ test('API and error renderer hide raw response details', async () => {
 test('known qualification limitations do not imply a failed command', () => {
   assert.equal(errorLabel({code:'KNOWN_STT_LIMITATIONS'}), 'Des erreurs de transcription connues subsistent.');
   assert.equal(errorLabel({code:'KNOWN_PLAYBACK_LIMITATIONS'}), 'Des irrégularités de lecture connues subsistent.');
+  assert.equal(errorLabel({code:'MEMORY_REQUIRES_HISTORY'}), 'Activez d’abord la conservation des conversations.');
+  assert.equal(errorLabel({code:'MEMORY_ROLLUP_FAILED'}), 'Le résumé n’a pas pu être mis à jour. Le contexte déjà chargé reste utilisé.');
 });
 
 test('DeepSeek timeouts are located on the Mac HTTP client, without judging the Echo link', () => {

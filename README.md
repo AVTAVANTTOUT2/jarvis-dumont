@@ -67,8 +67,8 @@ Logs JSON sans paroles ni réponses, rotation 1 Mo × 4 fichiers sous Logs/Jarvi
 Limites : semi-duplex, aucun barge-in. En Conversation Echo, toute parole acceptée
 est une demande. En CLI locale et en écoute contextuelle, adresse « Jarvis » vérifiée
 **après STT local**, pas de wake word acoustique ni identification du locuteur. Le
-texte de la demande et quelques tours RAM vont à DeepSeek ; aucun audio/profil,
-aucune mémoire persistante ou outil d'action.
+texte de la demande, le résumé persisté s'il est activé et quelques tours RAM
+vont à DeepSeek ; aucun audio/profil ni outil d'action.
 
 ## Installation et vérification
 

@@ -1,5 +1,16 @@
 # État du projet
 
+## Travail local — Mémoire persistante, 16 septembre 2026
+
+- Sur `feature/persistent-conversation-memory` : résumé SQLite v2, rollups
+  nominaux préemptibles, restauration après redémarrage, bouton distinct
+  « Effacer la mémoire ». Aucun backfill. Le service privé actif n'embarque
+  pas encore ce code.
+- Suite : 251 tests réussis ; 7 tests Node ; Ruff et format sur 76 fichiers ;
+  mypy strict sur 35 modules ; wheel/sdist 0.3.0 construits. Aucune capture
+  matérielle ni requête DeepSeek déclenchée par ces contrôles. Aucune release
+  ni activation.
+
 ## Mise en service — Conversation continue et phrases longues, 16 septembre 2026
 
 - Les modes Echo ACTIVE/PASSIVE ne s'arrêtent plus après le compteur technique

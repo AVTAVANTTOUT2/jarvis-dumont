@@ -20,16 +20,24 @@ TABLES = (
     "devices",
     "sessions",
     "turns",
+    "conversation_memory",
     "events",
     "preferences",
     "passive_archives",
     "schema_migrations",
 )
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MEMORY_SUMMARY_CHARS = 4000
+MEMORY_CONTEXT_TURNS = 4
+MEMORY_ROLLUP_TURNS = 4
+MEMORY_ROLLUP_CHARS = 6000
+MEMORY_TURN_CHARS = 4096
 DEFAULTS: dict[str, Any] = {
     "history_enabled": False,
     "retention_days": 30,
     "history_started_at": None,
+    "memory_enabled": False,
+    "memory_started_at": None,
     "archive_passive": False,
     "passive_retention_days": 1,
     "backup_retention_days": 7,
@@ -61,6 +69,11 @@ CREATE TABLE IF NOT EXISTS turns (
  generation INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, created_at);
 CREATE INDEX IF NOT EXISTS turns_created ON turns(created_at);
+CREATE TABLE IF NOT EXISTS conversation_memory (
+ device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+ summary_text TEXT NOT NULL, through_created_at TEXT, through_turn_id TEXT,
+ generation INTEGER NOT NULL, revision INTEGER NOT NULL,
+ started_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events (
  event_id INTEGER PRIMARY KEY, device_id TEXT REFERENCES devices(device_id),
  session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
@@ -73,6 +86,9 @@ CREATE TABLE IF NOT EXISTS passive_archives (
  session_id TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
  text TEXT NOT NULL, source TEXT NOT NULL, generation INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS passive_expiry ON passive_archives(expires_at);
+INSERT OR IGNORE INTO schema_migrations
+ VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+PRAGMA user_version=2;
 COMMIT;
 """
 
@@ -92,6 +108,16 @@ def _json(value: Any) -> str:
 def _identifier(value: str) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value):
         raise StorageError("INVALID_IDENTIFIER")
+    return value
+
+
+def _timestamp(value: str) -> str:
+    if not isinstance(value, str) or len(value) > 64:
+        raise StorageError("INVALID_TIMESTAMP")
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise StorageError("INVALID_TIMESTAMP") from None
     return value
 
 
@@ -172,11 +198,6 @@ class OfficeStore:
             db.execute("PRAGMA journal_mode=DELETE")
             db.executescript(SCHEMA)
             with db:
-                db.execute(
-                    "INSERT OR IGNORE INTO schema_migrations VALUES (?,?)",
-                    (SCHEMA_VERSION, utc_now()),
-                )
-                db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                 for key, value in DEFAULTS.items():
                     db.execute(
                         "INSERT OR IGNORE INTO preferences VALUES (?,?)", (key, _json(value))
@@ -301,6 +322,7 @@ class OfficeStore:
     def _update_settings(self, db: sqlite3.Connection, changes: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "history_enabled",
+            "memory_enabled",
             "retention_days",
             "archive_passive",
             "passive_retention_days",
@@ -311,7 +333,7 @@ class OfficeStore:
             raise StorageError("INVALID_SETTINGS")
         settings = self._current_settings(db)
         for key, value in changes.items():
-            if key in ("history_enabled", "archive_passive"):
+            if key in ("history_enabled", "memory_enabled", "archive_passive"):
                 if type(value) is not bool:
                     raise StorageError("INVALID_SETTINGS")
             elif key.endswith("days"):
@@ -339,15 +361,29 @@ class OfficeStore:
                 merged["used"] = max(used, merged["used"])
                 value = merged
             settings[key] = value
+        if settings["memory_enabled"]:
+            if changes.get("history_enabled") is False:
+                raise StorageError("MEMORY_REQUIRES_HISTORY")
+            settings["history_enabled"] = True
         if settings["history_enabled"] and settings["history_started_at"] is None:
             settings["history_started_at"] = utc_now()
+        if settings["memory_enabled"] and settings["memory_started_at"] is None:
+            settings["memory_started_at"] = utc_now()
         previous = self._settings(db)
-        if any(settings[key] != previous[key] for key in ("history_enabled", "archive_passive")):
+        if any(
+            settings[key] != previous[key]
+            for key in ("history_enabled", "memory_enabled", "archive_passive")
+        ):
             self.generation += 1
             settings["generation"] = self.generation
         with db:
             for key, value in settings.items():
                 db.execute("UPDATE preferences SET value_json=? WHERE key=?", (_json(value), key))
+            if settings["generation"] != previous["generation"]:
+                db.execute(
+                    "UPDATE conversation_memory SET generation=?,revision=revision+1,updated_at=?",
+                    (settings["generation"], utc_now()),
+                )
         self._retain(db)
         return settings
 
@@ -491,6 +527,218 @@ class OfficeStore:
             )
         self._retain(db)
 
+    async def memory_context(self, device_id: str) -> dict[str, Any]:
+        """Load one bounded persistent summary and bounded unsummarized turns."""
+        return dict(await self._call(self._memory_context, _identifier(device_id)))
+
+    def _memory_context(self, db: sqlite3.Connection, device: str) -> dict[str, Any]:
+        settings = self._settings(db)
+        empty = {
+            "enabled": False,
+            "generation": settings["generation"],
+            "revision": 0,
+            "summary": "",
+            "pending": [],
+            "rollup": [],
+            "pending_count": 0,
+            "pending_chars": 0,
+            "should_summarize": False,
+            "updated_at": None,
+        }
+        if not settings["memory_enabled"]:
+            return empty
+        stamp = utc_now()
+        with db:
+            self._device(db, device, stamp)
+            db.execute(
+                "INSERT OR IGNORE INTO conversation_memory VALUES (?,?,NULL,NULL,?,?,?,?)",
+                (
+                    device,
+                    "",
+                    settings["generation"],
+                    0,
+                    settings["memory_started_at"] or stamp,
+                    stamp,
+                ),
+            )
+        memory = db.execute(
+            "SELECT * FROM conversation_memory WHERE device_id=?", (device,)
+        ).fetchone()
+        if memory is None:
+            raise StorageError("MEMORY_UNAVAILABLE")
+        where = (
+            "device_id=? AND created_at>=? AND status IN ('complete','interrupted') "
+            "AND delivered_text<>'' AND "
+            "COALESCE(json_extract(metrics_json,"
+            "'$.llm.request_context.payload_includes_passive_context'),0)<>1"
+        )
+        values: list[Any] = [device, memory["started_at"]]
+        if memory["through_created_at"] is not None:
+            where += " AND (created_at>? OR (created_at=? AND turn_id>?))"
+            values.extend(
+                [
+                    memory["through_created_at"],
+                    memory["through_created_at"],
+                    memory["through_turn_id"],
+                ]
+            )
+        count, chars = db.execute(
+            f"SELECT COUNT(*),COALESCE(SUM(length(user_text)+length(delivered_text)),0) "
+            f"FROM turns WHERE {where}",
+            values,
+        ).fetchone()
+        columns = (
+            "turn_id,created_at,status,"
+            f"substr(user_text,1,{MEMORY_TURN_CHARS}) AS user_text,"
+            f"substr(delivered_text,1,{MEMORY_TURN_CHARS}) AS delivered_text"
+        )
+        recent = list(
+            db.execute(
+                f"SELECT {columns} FROM turns WHERE {where} "
+                "ORDER BY created_at DESC,turn_id DESC LIMIT ?",
+                [*values, MEMORY_CONTEXT_TURNS],
+            )
+        )
+        recent.reverse()
+        should_summarize = count >= MEMORY_ROLLUP_TURNS or chars >= MEMORY_ROLLUP_CHARS
+        rollup_piece = MEMORY_ROLLUP_CHARS // (MEMORY_ROLLUP_TURNS * 2)
+        rollup = (
+            list(
+                db.execute(
+                    "SELECT turn_id,created_at,status,"
+                    f"substr(user_text,1,{rollup_piece}) AS user_text,"
+                    f"substr(delivered_text,1,{rollup_piece}) AS delivered_text "
+                    f"FROM turns WHERE {where} "
+                    "ORDER BY created_at,turn_id LIMIT ?",
+                    [*values, MEMORY_ROLLUP_TURNS],
+                )
+            )
+            if should_summarize
+            else []
+        )
+        return {
+            "enabled": True,
+            "generation": memory["generation"],
+            "revision": memory["revision"],
+            "summary": memory["summary_text"],
+            "pending": [dict(row) for row in recent],
+            "rollup": [dict(row) for row in rollup],
+            "pending_count": count,
+            "pending_chars": chars,
+            "should_summarize": should_summarize,
+            "updated_at": memory["updated_at"],
+        }
+
+    async def commit_memory(
+        self,
+        device_id: str,
+        *,
+        generation: int,
+        revision: int,
+        through_created_at: str,
+        through_turn_id: str,
+        summary: str,
+    ) -> bool:
+        """Commit a summary only if its source generation and revision are current."""
+        if (
+            type(generation) is not int
+            or generation < 0
+            or type(revision) is not int
+            or revision < 0
+            or not isinstance(summary, str)
+            or len(summary) > MEMORY_SUMMARY_CHARS
+        ):
+            raise StorageError("INVALID_MEMORY")
+        safe_summary = redact(summary.strip())
+        if not isinstance(safe_summary, str):
+            raise StorageError("INVALID_MEMORY")
+        return bool(
+            await self._call(
+                self._commit_memory,
+                _identifier(device_id),
+                generation,
+                revision,
+                _timestamp(through_created_at),
+                _identifier(through_turn_id),
+                safe_summary,
+            )
+        )
+
+    def _commit_memory(
+        self,
+        db: sqlite3.Connection,
+        device: str,
+        generation: int,
+        revision: int,
+        created_at: str,
+        turn: str,
+        summary: str,
+    ) -> bool:
+        settings = self._settings(db)
+        memory = db.execute(
+            "SELECT * FROM conversation_memory WHERE device_id=?", (device,)
+        ).fetchone()
+        if (
+            not settings["memory_enabled"]
+            or generation != settings["generation"]
+            or memory is None
+            or memory["generation"] != generation
+            or memory["revision"] != revision
+        ):
+            return False
+        cursor_values: list[Any] = [memory["started_at"]]
+        cursor = ""
+        if memory["through_created_at"] is not None:
+            cursor = " AND (created_at>? OR (created_at=? AND turn_id>?))"
+            cursor_values.extend(
+                [
+                    memory["through_created_at"],
+                    memory["through_created_at"],
+                    memory["through_turn_id"],
+                ]
+            )
+        eligible = db.execute(
+            "SELECT 1 FROM turns WHERE device_id=? AND turn_id=? AND created_at=? "
+            "AND created_at>=? AND status IN ('complete','interrupted') "
+            "AND delivered_text<>'' AND "
+            "COALESCE(json_extract(metrics_json,"
+            "'$.llm.request_context.payload_includes_passive_context'),0)<>1" + cursor,
+            [device, turn, created_at, *cursor_values],
+        ).fetchone()
+        if eligible is None:
+            return False
+        with db:
+            changed = db.execute(
+                "UPDATE conversation_memory SET summary_text=?,through_created_at=?,"
+                "through_turn_id=?,revision=revision+1,updated_at=? "
+                "WHERE device_id=? AND generation=? AND revision=?",
+                (summary, created_at, turn, utc_now(), device, generation, revision),
+            ).rowcount
+        return changed == 1
+
+    async def clear_memory(self, device_id: str) -> dict[str, Any]:
+        """Forget one device's persistent summary without deleting conversation archives."""
+        async with self._mutation_lock:
+            return dict(await self._call(self._clear_memory, _identifier(device_id)))
+
+    def _clear_memory(self, db: sqlite3.Connection, device: str) -> dict[str, Any]:
+        settings = self._settings(db)
+        stamp = utc_now()
+        with db:
+            self._device(db, device, stamp)
+            db.execute(
+                "INSERT INTO conversation_memory VALUES (?,?,NULL,NULL,?,?,?,?) "
+                "ON CONFLICT(device_id) DO UPDATE SET summary_text='',"
+                "through_created_at=NULL,through_turn_id=NULL,"
+                "generation=excluded.generation,revision=conversation_memory.revision+1,"
+                "started_at=excluded.started_at,updated_at=excluded.updated_at",
+                (device, "", settings["generation"], 0, stamp, stamp),
+            )
+        row = db.execute(
+            "SELECT revision FROM conversation_memory WHERE device_id=?", (device,)
+        ).fetchone()
+        return {"device_id": device, "revision": row["revision"], "cleared_at": stamp}
+
     def record_passive(
         self,
         device_id: str,
@@ -627,6 +875,8 @@ class OfficeStore:
             db.execute(
                 "UPDATE preferences SET value_json=? WHERE key='generation'", (_json(generation),)
             )
+            if scope == "conversations":
+                db.execute("DELETE FROM conversation_memory")
             cursor = db.execute(
                 "DELETE FROM sessions"
                 if scope == "conversations"
@@ -855,11 +1105,13 @@ class OfficeStore:
         return target
 
     @staticmethod
-    def _validate_backup(db: sqlite3.Connection) -> None:
+    def _validate_backup(
+        db: sqlite3.Connection, *, versions: tuple[int, ...] = (SCHEMA_VERSION,)
+    ) -> None:
         if (
             db.execute("PRAGMA integrity_check").fetchone()[0] != "ok"
             or db.execute("PRAGMA foreign_key_check").fetchone() is not None
-            or db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
+            or db.execute("PRAGMA user_version").fetchone()[0] not in versions
         ):
             raise StorageError("BACKUP_INVALID")
 
@@ -873,9 +1125,9 @@ class OfficeStore:
         src = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
         dst = sqlite3.connect(destination)
         try:
-            OfficeStore._validate_backup(src)
+            OfficeStore._validate_backup(src, versions=(1, SCHEMA_VERSION))
+            source_version = int(src.execute("PRAGMA user_version").fetchone()[0])
             src.backup(dst)
-            OfficeStore._validate_backup(dst)
         except Exception:
             dst.close()
             destination.unlink(missing_ok=True)
@@ -883,3 +1135,11 @@ class OfficeStore:
         finally:
             src.close()
             dst.close()
+        try:
+            if source_version < SCHEMA_VERSION:
+                OfficeStore(destination)._initialize()
+            with sqlite3.connect(destination) as restored:
+                OfficeStore._validate_backup(restored)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise

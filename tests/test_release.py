@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -96,6 +97,23 @@ class LifecycleTests(unittest.TestCase):
         release.rollback()
         self.assertEqual(release.active_name(), a)
         self.assertTrue(release.target(b).exists())
+
+    def test_activation_refuses_sqlite_schema_above_manifest_max(self):
+        name = self.candidate(1)
+        (self.root / "data").mkdir()
+        with sqlite3.connect(self.root / "data/office.sqlite3") as connection:
+            connection.execute("PRAGMA user_version=2")
+        path = release.target(name) / "release.json"
+        data = json.loads(path.read_text())
+        data["sqlite_schema_max"] = 1
+        path.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ConfigError, "release_database_schema_incompatible"):
+            release.activate(name)
+        self.assertIsNone(release.active_name())
+        data["sqlite_schema_max"] = 2
+        path.write_text(json.dumps(data))
+        release.activate(name)
+        self.assertEqual(release.active_name(), name)
 
     def test_invalid_candidate_never_changes_current(self):
         a, b = self.candidate(1), self.candidate(2)

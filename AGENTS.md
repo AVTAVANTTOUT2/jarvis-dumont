@@ -8,6 +8,8 @@
   échecs STT/lecture conservés. TLS et authentification appareil obligatoires.
 - Contrat commun : PRIVATE_CONTRACT.md. Historique adressé activable/rétention
   configurable ; contexte passif RAM visible, archivage distinct désactivé.
+  Mémoire persistante explicite, distincte de l'effacement de contexte : résumé
+  borné plus tours confirmés, sans backfill ni réinjection d'archives passives.
   Aucun PCM conservé par défaut. Consultation sans réinjection automatique.
   Budget nominal choisi dans l'UI, compteur diagnostic 9/10 préservé séparément.
 
