@@ -13,10 +13,15 @@ const ERROR_LABELS = {
   STORAGE_ERROR: 'Le stockage signale une erreur. Consultez les diagnostics.',
   INVALID_REQUEST: 'La demande est invalide. Vérifiez les champs et leurs limites.',
   QUERY_RESULT_TOO_LARGE_REDUCE_PAGE: 'Ce résultat dépasse la limite de 4 Mio. Réduisez la taille de page ou ajoutez un filtre.',
+  connect_timeout: 'Délai du client HTTP DeepSeek du Mac : connexion au service non établie à temps.',
+  first_content_timeout: 'Délai du client HTTP DeepSeek du Mac : aucun texte utile reçu avant l’échéance de premier contenu.',
+  idle_timeout: 'Délai du client HTTP DeepSeek du Mac : plus aucun texte reçu après un début de réponse.',
+  total_timeout: 'Délai du client HTTP DeepSeek du Mac : durée totale de réponse dépassée.',
+  transport_timeout: 'Délai du client HTTP DeepSeek du Mac pendant l’échange (lecture, écriture ou pool de connexions).',
 };
 
-export function errorLabel(error) {
-  return ERROR_LABELS[error?.code] || 'La demande n’a pas abouti. Actualisez l’état avant de réessayer.';
+export function errorLabel(error, fallback) {
+  return ERROR_LABELS[error?.code] || fallback || 'La demande n’a pas abouti. Actualisez l’état avant de réessayer.';
 }
 
 export function queryString(values) {

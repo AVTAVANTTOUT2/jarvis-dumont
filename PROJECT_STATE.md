@@ -1,5 +1,37 @@
 # État du projet
 
+## Délai du flux DeepSeek — candidate du 14 septembre 2026
+
+- Incident du smoke PASSIVE humain sur la release active 0.3.0-70d83c3eed73 :
+  HTTP 200 `text/event-stream`, zéro texte généré, `transport_timeout` après
+  10,36 s mesurées depuis la création du tour. Délais effectifs vérifiés dans
+  `config/private-voice.toml` : connexion 10 s, premier contenu 20 s, inactivité
+  10 s, total 60 s ; `deepseek.py`/`config.py` installés identiques à `70d83c3`.
+- Défaut client démontré : le client HTTPX imposait un délai de lecture socket
+  égal à `idle_timeout` (10 s). Un flux muet après les en-têtes expirait donc à
+  10 s + connexion, avant l'échéance applicative de premier contenu (20 s).
+  Reproduit sur origine HTTP loopback réelle, sans MockTransport, avec les
+  rapports de production réduits (0,6/1,2/0,6/3,6 s) : silence 0,9 s puis
+  réponse valide donnait `transport_timeout` ; après correctif, réponse livrée.
+- Correctif minimal : délai de lecture HTTPX = max(premier contenu, inactivité).
+  La boucle `Turn._read` reste seule juge des échéances premier contenu,
+  inactivité et totale, toujours antérieures ; connexion, écriture, pool,
+  annulation et absence de retry inchangés. Six scénarios loopback dans
+  `tests/test_chat.py` (silence puis réponse, commentaires keep-alive muets,
+  inactivité après contenu, aucun contenu, annulation, réutilisation après
+  échec). Métriques ajoutées : phase, délais effectifs, compteurs réseau/SSE
+  bornés et nom de classe de l'exception HTTPX, jamais son message. Dashboard :
+  libellés neutres localisant chaque délai sur le client HTTP DeepSeek du Mac,
+  sans préjuger de l'état de la liaison Echo–Mac.
+- Non établi : pourquoi aucun texte utile n'a été reçu pendant environ 10 s
+  après les en-têtes. Les compteurs réseau historiques (blocs, octets,
+  commentaires SSE) n'existaient pas dans cette release, la trace de connexion
+  et l'exception d'origine n'ont pas été conservées : aucun « zéro octet » n'est
+  affirmé, et `transport_timeout` regroupe plusieurs exceptions HTTPX.
+  Aucun nouvel appel cloud, budget diagnostic 10/10 et budget nominal inchangés.
+  Candidate à construire depuis ce commit sans activation de `current` ;
+  PR empilée sur #24, aucune fusion automatique.
+
 ## Cohérence de santé privée — candidate du 11 septembre 2026
 
 - La CLI et le dashboard installés interrogent le même gateway 0.3.0, identifié

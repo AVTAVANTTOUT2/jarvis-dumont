@@ -64,6 +64,15 @@ test('known qualification limitations do not imply a failed command', () => {
   assert.equal(errorLabel({code:'KNOWN_PLAYBACK_LIMITATIONS'}), 'Des irrégularités de lecture connues subsistent.');
 });
 
+test('DeepSeek timeouts are located on the Mac HTTP client, without judging the Echo link', () => {
+  for (const code of ['connect_timeout','first_content_timeout','idle_timeout','total_timeout','transport_timeout']) {
+    assert.match(errorLabel({code}), /^Délai du client HTTP DeepSeek du Mac/);
+    assert.doesNotMatch(errorLabel({code}), /Echo/);
+  }
+  assert.match(errorLabel({code:'transport_timeout'}), /lecture, écriture ou pool/);
+  assert.equal(errorLabel({code:'other_error'}, 'Repli explicite.'), 'Repli explicite.');
+});
+
 test('every statically referenced control exists and no browser capture or HTML injection is used', () => {
   const html = readFileSync(root+'index.html','utf8');
   const js = readFileSync(root+'dashboard.js','utf8');
