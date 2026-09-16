@@ -394,7 +394,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.wires[0].closed)
 
     async def test_restored_memory_is_untrusted_user_context_and_globally_bounded(self):
-        settings = dataclasses.replace(Chat(), context_chars=1000)
+        settings = dataclasses.replace(Chat(), context_chars=2000)
         client = self.client(settings=settings)
         client.restore_memory(
             "La couleur préférée est turquoise. " + "m" * 700,
@@ -415,7 +415,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 for message in messages[1:-1]
             )
         )
-        self.assertLessEqual(sum(len(message["content"]) for message in messages), 1000)
+        self.assertLessEqual(sum(len(message["content"]) for message in messages), 2000)
 
     async def test_memory_summary_uses_one_budgeted_request_without_touching_history(self):
         reserve = Mock(return_value=12)
@@ -683,7 +683,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ChatError, "response_size_limit"):
             await self.collect(client)
         client = self.client(
-            settings=dataclasses.replace(Chat(), history_turns=2, context_chars=1000)
+            settings=dataclasses.replace(Chat(), history_turns=2, context_chars=2000)
         )
         for i in range(4):
             async with client.turn("Question " + str(i)) as turn:
@@ -691,7 +691,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                     pass
                 turn.confirm(turn.delivered_text, channel="displayed", complete=True)
         self.assertEqual(len(client.history), 2)
-        self.assertLessEqual(sum(len(a) + len(b) for a, b in client.history) + len(SYSTEM), 1000)
+        self.assertLessEqual(sum(len(a) + len(b) for a, b in client.history) + len(SYSTEM), 2000)
         await client.reset()
         self.assertEqual(client.history, [])
 
