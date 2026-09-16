@@ -1,5 +1,15 @@
 # État du projet
 
+## Mise en service — Prompt vocal, 16 septembre 2026
+
+- Release `0.3.0-72b08a88cbc6` vérifiée puis activée atomiquement ; la
+  précédente `0.3.0-bae9d90c432f` reste disponible. Le service privé a
+  redémarré prêt et en pause, micro fermé, sans écoute ni erreur runtime.
+- Le prompt système le présente comme assistant vocal Echo ; les étiquettes
+  mémoire/contexte ne sont plus « donnée non fiable ». Le résumé persisté a
+  été effacé (révision 4, texte vide) sans supprimer les tours archivés.
+  Aucune requête DeepSeek n'a été déclenchée pour cette bascule.
+
 ## Mise en service — Mode Echo persistant, 16 septembre 2026
 
 - Release `0.3.0-bae9d90c432f` vérifiée puis activée atomiquement ; la release
