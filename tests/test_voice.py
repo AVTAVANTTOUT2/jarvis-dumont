@@ -39,7 +39,7 @@ class SSEStream(httpx.AsyncByteStream):
                 "data: "
                 + json.dumps(
                     {
-                        "model": "deepseek-v4-flash",
+                        "model": "deepseek-flash",
                         "choices": [{"delta": {"content": text}, "finish_reason": None}],
                     }
                 )

@@ -63,7 +63,7 @@ class Speech:
 
 @dataclass(frozen=True)
 class Chat:
-    model: str = "deepseek-v4-flash"
+    model: str = "deepseek-flash"
     max_tokens: int = 256
     connect_timeout: float = 10.0
     first_content_timeout: float = 20.0
@@ -216,7 +216,7 @@ def load_config(path: Path | None = None) -> Config:
         if not isinstance(chat_values, dict) or set(chat_values) - set(Chat.__dataclass_fields__):
             raise ConfigError("invalid_chat_configuration")
         chat = Chat(**chat_values)
-        if chat.model != "deepseek-v4-flash":
+        if chat.model != "deepseek-flash":
             raise ConfigError("chat_requires_single_flash_model")
         for value, low, high in (
             (chat.max_tokens, 1, 256),

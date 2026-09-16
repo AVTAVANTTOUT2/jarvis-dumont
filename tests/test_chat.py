@@ -23,7 +23,7 @@ from jarvis_office.pronounce import Pronounce, TextError
 FAKE_KEY = "test-only-not-a-real-key"
 
 
-def event(text=None, *, finish=None, delta=None, model="deepseek-v4-flash", **extra):
+def event(text=None, *, finish=None, delta=None, model="deepseek-flash", **extra):
     value = {
         "model": model,
         "choices": [
@@ -221,6 +221,7 @@ class CredentialTests(unittest.TestCase):
     def test_chat_config_and_missing_key_cli_without_network(self):
         config = self.root / "config.toml"
         for raw in (
+            'model="deepseek-v4-flash"',
             'model="deepseek-v4-pro"',
             'base_url="https://private.invalid/key"',
             "max_tokens=257",
@@ -364,7 +365,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(turn.metrics["status"], "PASS")
         self.assertEqual(turn.metrics["returned_model"], "deepseek-flash")
         self.assertTrue(any(e.kind == "segment" for e in events))
-        self.assertEqual(json.loads(self.requests[0].content)["model"], "deepseek-v4-flash")
+        self.assertEqual(json.loads(self.requests[0].content)["model"], "deepseek-flash")
         self.assertEqual(len(self.requests), 1)
 
     async def test_exact_contract_model_metrics_history_requires_confirmation(self):
@@ -376,7 +377,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         body = json.loads(self.requests[0].content)
         self.assertEqual(str(self.requests[0].url), ENDPOINT)
         self.assertEqual(body["thinking"], {"type": "disabled"})
-        self.assertEqual(body["model"], "deepseek-v4-flash")
+        self.assertEqual(body["model"], "deepseek-flash")
         self.assertEqual(body["max_tokens"], 256)
         self.assertTrue(body["stream"])
         self.assertNotIn("reasoning_effort", body)
@@ -385,7 +386,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(client.http.follow_redirects)
         self.assertFalse(client.http.trust_env)
         self.assertEqual(turn.metrics["status"], "PASS")
-        self.assertEqual(turn.metrics["returned_model"], "deepseek-v4-flash")
+        self.assertEqual(turn.metrics["returned_model"], "deepseek-flash")
         self.assertLessEqual(turn.metrics["first_content_s"], turn.metrics["first_segment_s"])
         self.assertLessEqual(turn.metrics["first_segment_s"], turn.metrics["text_end_s"])
         self.assertTrue(all(e.turn_id == "turn-1" for e in events))

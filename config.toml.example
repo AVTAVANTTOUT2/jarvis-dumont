@@ -44,7 +44,7 @@ reconnect_attempts = 2
 # DeepSeek HTTP JSON contract; endpoint is fixed in code, no provider/model fallback.
 # The secret is NOT in this TOML: private config/deepseek.env, mode 0600.
 [chat]
-model = "deepseek-v4-flash"
+model = "deepseek-flash"
 max_tokens = 256
 connect_timeout = 10.0
 first_content_timeout = 20.0

@@ -262,11 +262,12 @@ insuffisante calme/bruit/holdout : validation `BLOCKED_USER`, même avec une bel
 Contrat vérifié le 7 septembre 2026 dans la [documentation officielle](https://api-docs.deepseek.com/),
 le [contrat Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion)
 et le [mode de réflexion](https://api-docs.deepseek.com/guides/thinking_mode/) :
-`POST https://api.deepseek.com/chat/completions`, `model=deepseek-v4-flash`, `stream=true`,
+`POST https://api.deepseek.com/chat/completions`, `model=deepseek-flash`, `stream=true`,
 `thinking={"type":"disabled"}`, `max_tokens=256`. HTTPX transmet ces champs directement
 dans le JSON, sans `extra_body` (spécifique aux SDK) ni `reasoning_effort`. Aucun SDK,
-clé OpenAI ou autre fournisseur. L'alias officiel annonce Flash-0731 à cette date ; seuls
-le nom demandé/retourné et la date sont observables, pas des poids distants figés.
+clé OpenAI ou autre fournisseur. Le nom officiel est DeepSeek-V4.1-Flash ; l’ancien
+`deepseek-v4-flash` n’est plus demandé. Seuls le nom demandé/retourné et la date sont
+observables, pas des poids distants figés.
 
 ```sh
 uv sync --locked --extra chat --no-python-downloads

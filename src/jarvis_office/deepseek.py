@@ -274,7 +274,7 @@ class Turn:
             raise ChatError("invalid_stream_event")
         model = chunk.get("model")
         if model is not None:
-            # The provider now returns this canonical name for the configured legacy Flash alias.
+            # V4.1 Flash returns deepseek-flash; retired aliases may still appear on a stream.
             if not isinstance(model, str) or not re.fullmatch(
                 r"(?:deepseek-flash|deepseek-v4-flash(?:[-.][A-Za-z0-9]+)*)", model
             ):
@@ -647,7 +647,7 @@ class DeepSeek:
         reserve_request: Callable[[], int | Awaitable[int]] | None = None,
     ) -> None:
         settings = settings or Chat()
-        if settings.model != "deepseek-v4-flash":
+        if settings.model != "deepseek-flash":
             raise ChatError("chat_requires_single_flash_model")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{8,512}", key):
             raise ChatError("invalid_key")
