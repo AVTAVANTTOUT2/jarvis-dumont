@@ -1,6 +1,6 @@
 # État du projet
 
-## Travail local — Conversation continue et phrases longues, 16 septembre 2026
+## Mise en service — Conversation continue et phrases longues, 16 septembre 2026
 
 - Les modes Echo ACTIVE/PASSIVE ne s'arrêtent plus après le compteur technique
   de tours : chaque fenêtre de capture reste bornée et se renouvelle tant que
@@ -12,6 +12,10 @@
 - Régressions rouge/vert ajoutées. Suite complète : 235 tests réussis ; Ruff,
   format sur 76 fichiers, mypy strict sur 35 modules et build wheel/sdist réussis.
   Aucune capture matérielle ni requête DeepSeek n'a été déclenchée par ces contrôles.
+- Release `0.3.0-de24890214de` vérifiée puis activée atomiquement ; la release
+  précédente reste disponible. Le service privé a redémarré prêt et en pause,
+  avec le microphone fermé, aucun tour ni transcription sur le nouveau processus
+  et aucune erreur runtime.
 
 ## Travail local — Conversation sans préfixe Jarvis, 16 septembre 2026
 
