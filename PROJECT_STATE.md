@@ -1,5 +1,17 @@
 # État du projet
 
+## Mise en service — Mode Echo persistant, 16 septembre 2026
+
+- Release `0.3.0-bae9d90c432f` vérifiée puis activée atomiquement ; la release
+  précédente `0.3.0-90e679016c44` reste disponible. Le service privé a
+  redémarré prêt et en pause, micro fermé, sans écoute ni erreur runtime.
+- L'inactivité et l'absence de ping ne coupent plus la capture. Le dernier
+  mode choisi (Conversation, écoute contextuelle ou micro coupé) est mémorisé
+  par appareil et repris à la reconnexion. OFF explicite, clear/interrupt et
+  perte du chemin réseau restent des arrêts. Aucun bump de schéma SQLite.
+- 254 tests réussis. Aucune requête DeepSeek ni capture matérielle déclenchée
+  par ces contrôles.
+
 ## Mise en service — DeepSeek V4.1 Flash, 16 septembre 2026
 
 - Release `0.3.0-90e679016c44` vérifiée puis activée atomiquement ; la release
