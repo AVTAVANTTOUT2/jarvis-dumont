@@ -1,6 +1,8 @@
 import {OfficeAPI, acceptsSnapshot, errorLabel, typedValue} from './api.js';
+import {mountOrbs} from './orbs.js';
 
 const api = new OfficeAPI();
+const orbs = mountOrbs(style => api.post('/api/settings', {orb_style:style}), fail);
 const $ = (id) => document.getElementById(id);
 const labels = {
   OFF: 'Micro coupé', ACTIVE: 'Conversation', PASSIVE: 'Écoute contextuelle',
@@ -124,6 +126,7 @@ function renderBudget() {
 }
 function renderControls() {
   const current = device(); const available = Boolean(current && state.online);
+  orbs.update(state.snapshot,current,state.online);
   $('quick-off').disabled = !current;
   for (const button of document.querySelectorAll('[data-mode]')) {
     button.disabled = !available || Boolean(state.pending);

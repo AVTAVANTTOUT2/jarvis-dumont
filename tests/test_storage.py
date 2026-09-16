@@ -32,6 +32,27 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             **kwargs,
         )
 
+    async def test_orb_preference_survives_restart_and_rejects_unknown_values(self):
+        from jarvis_office.storage import ORB_STYLES
+
+        self.assertEqual(self.store.orb_style, "auto")
+        before = await self.store.settings()
+        for style in ORB_STYLES:
+            await self.store.update_settings({"orb_style": style})
+            self.assertEqual(self.store.orb_style, style)
+        for value in ("unknown", "<script>", None, 1, [], {}):
+            with self.assertRaises(StorageError):
+                await self.store.update_settings({"orb_style": value})
+        self.assertEqual(self.store.orb_style, "shaping")
+        await self.store.close()
+        self.store = OfficeStore(self.path)
+        await self.store.start()
+        after = await self.store.settings()
+        self.assertEqual(after["orb_style"], "shaping")
+        self.assertEqual(self.store.orb_style, "shaping")
+        self.assertEqual(after["generation"], before["generation"])
+        self.assertEqual(after["budget"], before["budget"])
+
     @staticmethod
     def create_v1_database(path):
         with sqlite3.connect(path) as db:

@@ -36,6 +36,20 @@
           <article class="card state-card"><p class="label">ACTIVITÉ</p><strong id="state-activity">Non mesuré</strong><small id="state-turn">Aucun tour actif</small></article>
           <article class="card state-card"><p class="label">MICRO PHYSIQUE</p><strong id="state-microphone">Non mesuré</strong><small id="state-playback">Lecture : non mesuré</small></article>
         </div>
+        <article class="card orb-panel" id="orb-panel" aria-labelledby="orb-heading">
+          <button type="button" id="orb-open" class="orb-open" aria-label="Choisir l’orbe de Jarvis">
+            <canvas id="jarvis-orb" width="300" height="300" aria-hidden="true"></canvas>
+          </button>
+          <div class="orb-description"><p class="eyebrow">JARVIS</p><h2 id="orb-heading">L’orbe de votre assistant</h2>
+            <p id="orb-activity" aria-live="polite">Déconnecté</p>
+            <details id="orb-chooser"><summary>Apparence · <span id="orb-name">Automatique</span></summary>
+              <p class="small">Choisissez une orbe ou laissez Automatique suivre l’écoute, la réflexion et la réponse. Le choix est partagé avec l’Echo.</p>
+              <div id="orb-choices" class="orb-choices" role="group" aria-label="Orbes de Jarvis"></div>
+              <p id="orb-save-status" class="helper" role="status"></p>
+              <a class="small" href="https://libraries.dev/orbs" target="_blank" rel="noreferrer">Thinking Orbs · Libraries.dev</a>
+            </details>
+          </div>
+        </article>
         <div class="overview-grid">
           <article class="card modes-panel"><div class="card-heading"><h2>Mode du terminal</h2><span class="subtle">Un seul mode à la fois</span></div><div class="mode-options" id="mode-options">
             <button class="mode-button" data-mode="OFF" disabled><span class="mode-symbol" aria-hidden="true">○</span><span><strong>Micro coupé</strong><small>Capture fermée. Vos données restent consultables.</small></span><span class="mode-check" aria-hidden="true"></span></button>

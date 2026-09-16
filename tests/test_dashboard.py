@@ -107,12 +107,33 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await response.json())["status"], "applied")
         self.assertEqual(len(self.commands), 2)
         self.assertEqual((await self.store.settings())["budget"]["used"], 0)
+
         response = await self.post(
             "/api/command",
             {"device_id": "echo", "action": "preview_voice", "command_id": "local-preview"},
         )
         self.assertEqual((await response.json())["status"], "applied")
         self.assertEqual((await self.store.settings())["budget"]["used"], 0)
+
+    async def test_orb_settings_and_local_assets_need_no_audio_command(self):
+        response = await self.post("/api/settings", {"orb_style": "weaving"})
+        self.assertEqual(response.status, 200)
+        self.assertEqual((await response.json())["orb_style"], "weaving")
+        self.assertEqual(self.store.orb_style, "weaving")
+        response = await self.post("/api/settings", {"orb_style": "external-script"})
+        self.assertEqual(response.status, 400)
+        await response.release()
+        response = await self.post(
+            "/api/settings", {"orb_style": "working"}, **{"X-CSRF-Token": "bad"}
+        )
+        self.assertEqual(response.status, 403)
+        await response.release()
+        self.assertEqual(self.store.orb_style, "weaving")
+        for name in ("orbs.js", "thinking-orbs.js", "THINKING_ORBS_LICENSE.txt"):
+            async with self.client.get(self.server.url + "/dashboard/" + name) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
+        self.assertEqual(self.commands, [])
 
     async def test_logout_requires_owner_cookie_csrf_and_only_ends_that_session(self):
         before = set(self.server.sessions)

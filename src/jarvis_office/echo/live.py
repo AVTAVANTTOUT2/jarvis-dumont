@@ -258,6 +258,7 @@ class LiveGateway(EchoGateway):
             "requested_mode": s.requested_mode,
             "confirmed_mode": s.mode,
             "activity": activity,
+            "orb_style": getattr(self.store, "orb_style", "auto"),
             "physical": {
                 "microphone": s.microphone if fresh else None,
                 "playing": s.playing if fresh else None,
@@ -497,6 +498,32 @@ class LiveGateway(EchoGateway):
         self, s: Session, message: dict[str, Any], received_ns: int, *, surface: str = "echo"
     ) -> None:
         kind, payload = message["type"], message["payload"]
+        if kind == "set_orb_style":
+            command_id = payload.get("command_id")
+            if (
+                not isinstance(command_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", command_id)
+                or payload.keys() != {"command_id", "orb_style"}
+            ):
+                raise ValueError("INVALID_APPEARANCE_COMMAND")
+            async with self.command_lock:
+                error = None
+                try:
+                    if self.store is None:
+                        raise StorageError("STORAGE_UNAVAILABLE")
+                    await self.store.update_settings({"orb_style": payload["orb_style"]})
+                except StorageError:
+                    error = "APPEARANCE_NOT_SAVED"
+                await s.send(
+                    "orb_style_ack",
+                    {
+                        "command_id": command_id,
+                        "status": "rejected" if error else "applied",
+                        "error": error,
+                    },
+                )
+                await self.publish_state(s, force=True)
+            return
         if kind == "client_state":
             microphone, playing = payload.get("microphone"), payload.get("playing")
             frames, stream = payload.get("playback_frames"), payload.get("stream_id", 0)

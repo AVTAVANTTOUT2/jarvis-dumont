@@ -22,6 +22,46 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
     async def command(self, kind, **payload):
         await self.gateway.command(self.s, {"type": kind, "payload": payload}, time.monotonic_ns())
 
+    async def test_orb_sync_preserves_active_turn_and_rejects_invalid_style(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = OfficeStore(fixtures.Path(root) / "office.sqlite3")
+            await store.start()
+            self.gateway.store = store
+            self.s.capabilities.add("private_state_v1")
+            self.s.mode = self.s.requested_mode = "ACTIVE"
+            self.s.current_turn, self.s.down_stream = "existing-turn", 42
+            before = (self.s.generation, self.s.context_epoch, self.s.mode, self.s.down_stream)
+            try:
+                await self.command("set_orb_style", command_id="orb-one", orb_style="weaving")
+                self.assertEqual(store.orb_style, "weaving")
+                self.assertEqual(self.gateway.product_state(self.s)["orb_style"], "weaving")
+                self.assertEqual(
+                    (await self.gateway.dashboard_state())["settings"]["orb_style"], "weaving"
+                )
+                self.assertEqual(self.endpoint.control[-1]["type"], "product_state")
+                # The dashboard writes the same existing preferences store.
+                await store.update_settings({"orb_style": "shaping"})
+                await self.gateway.publish_state(self.s)
+                self.assertEqual(self.endpoint.control[-1]["payload"]["orb_style"], "shaping")
+                await self.command("set_orb_style", command_id="orb-bad", orb_style="unknown")
+                acks = [m["payload"] for m in self.endpoint.control if m["type"] == "orb_style_ack"]
+                self.assertEqual([a["status"] for a in acks], ["applied", "rejected"])
+                self.assertEqual(store.orb_style, "shaping")
+                self.assertEqual(
+                    before,
+                    (self.s.generation, self.s.context_epoch, self.s.mode, self.s.down_stream),
+                )
+                self.assertEqual(self.s.current_turn, "existing-turn")
+                self.assertEqual(self.requests, [])
+                self.assertEqual(self.tts.texts, [])
+                self.assertNotIn("stop_audio", [m["type"] for m in self.endpoint.control])
+                with self.assertRaises(ValueError):
+                    await self.command("set_orb_style", command_id="bad id", orb_style="auto")
+            finally:
+                self.s.mode, self.s.down_stream = "OFF", 0
+                self.gateway.store = None
+                await store.close()
+
     async def test_worker_opened_metadata_is_filtered_before_retention_and_callback(self):
         await self.command("set_mode", mode="PASSIVE", command_id="numeric-open")
         await fixtures.LiveTests.wait_for(self, lambda: bool(self.remote.token))

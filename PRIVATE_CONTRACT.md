@@ -101,3 +101,28 @@ Intégrateur : gateway/live/audio/voice, dépendances, releases, sécurité, mat
 Lot données/API : nouveaux storage.py/dashboard.py + tests dédiés, aucun autre
 fichier partagé sans coordination. Lot web : static/dashboard/* et ses tests.
 Lot Android : worktree Android privé uniquement ; aucun ADB ni processus Mac.
+# Apparence synchronisée — extension optionnelle
+
+`preferences.orb_style` vaut `auto` (défaut), `working`, `searching`, `solving`,
+`listening`, `connecting`, `weaving`, `composing`, `breathing` ou `shaping`.
+Le dashboard utilise le POST `/api/settings` existant, avec contrôle propriétaire
+et CSRF. Ce choix global d’apparence est commun au dashboard et aux terminaux.
+`product_state.orb_style` transporte le dernier choix persisté ; les anciens
+clients peuvent ignorer ce champ. Aucun changement de schéma SQLite ou PCM.
+
+Sur le canal Echo déjà authentifié, `set_orb_style` reçoit exactement
+`{command_id, orb_style}`. `orb_style_ack` renvoie `{command_id, status, error}`,
+puis `product_state` confirme le choix. Le client ne propose la modification
+que si le serveur annonce un style reconnu. Pas de retry automatique ; un délai
+de cinq secondes donne une erreur d’apparence sans modifier le propriétaire
+audio, le mode, le tour, le contexte ou le budget. Le Mac reste autoritaire
+après reconnexion, et le dernier choix confirmé est mis en cache sur l’Echo.
+
+Automatique associe connexion à Connecting, repos à Breathing, micro physique
+ouvert à Listening, transcription à Searching, génération à Solving, lecture
+physique à Composing. Un style choisi reste animé selon l’activité. Seul l’Echo
+dispose du niveau de capture et de l’enveloppe au playback head : il module la
+taille avec ces mesures, jamais avec des syllabes synthétiques. Le dashboard
+ne représente que l’activité. Les animations respectent le mouvement réduit
+et s’arrêtent hors visibilité. Aucun moteur, flux audio ou appel LLM créé par
+le rendu ou par le choix d’apparence.

@@ -32,7 +32,20 @@ MEMORY_CONTEXT_TURNS = 4
 MEMORY_ROLLUP_TURNS = 4
 MEMORY_ROLLUP_CHARS = 6000
 MEMORY_TURN_CHARS = 4096
+ORB_STYLES = (
+    "auto",
+    "working",
+    "searching",
+    "solving",
+    "listening",
+    "connecting",
+    "weaving",
+    "composing",
+    "breathing",
+    "shaping",
+)
 DEFAULTS: dict[str, Any] = {
+    "orb_style": "auto",
     "history_enabled": False,
     "retention_days": 30,
     "history_started_at": None,
@@ -152,6 +165,7 @@ def redact(value: Any) -> Any:
 class OfficeStore:
     def __init__(self, path: Path, *, queue_size: int = 128) -> None:
         self.path = Path(path)
+        self.orb_style = "auto"
         self.queue: asyncio.Queue[
             tuple[Callable[..., Any], tuple[Any, ...], asyncio.Future[Any] | None, bool]
         ] = asyncio.Queue(queue_size)
@@ -203,6 +217,7 @@ class OfficeStore:
                         "INSERT OR IGNORE INTO preferences VALUES (?,?)", (key, _json(value))
                     )
             self._retain(db)
+            self.orb_style = self._settings(db)["orb_style"]
             return int(self._settings(db)["generation"])
         finally:
             db.close()
@@ -321,6 +336,7 @@ class OfficeStore:
 
     def _update_settings(self, db: sqlite3.Connection, changes: dict[str, Any]) -> dict[str, Any]:
         allowed = {
+            "orb_style",
             "history_enabled",
             "memory_enabled",
             "retention_days",
@@ -333,7 +349,10 @@ class OfficeStore:
             raise StorageError("INVALID_SETTINGS")
         settings = self._current_settings(db)
         for key, value in changes.items():
-            if key in ("history_enabled", "memory_enabled", "archive_passive"):
+            if key == "orb_style":
+                if not isinstance(value, str) or value not in ORB_STYLES:
+                    raise StorageError("INVALID_SETTINGS")
+            elif key in ("history_enabled", "memory_enabled", "archive_passive"):
                 if type(value) is not bool:
                     raise StorageError("INVALID_SETTINGS")
             elif key.endswith("days"):
@@ -385,6 +404,7 @@ class OfficeStore:
                     (settings["generation"], utc_now()),
                 )
         self._retain(db)
+        self.orb_style = settings["orb_style"]
         return settings
 
     async def consume_budget(self) -> dict[str, Any]:

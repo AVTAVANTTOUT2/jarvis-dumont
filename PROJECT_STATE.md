@@ -1,5 +1,19 @@
 # État du projet
 
+## Orbes interactives — développement, 16 septembre 2026
+
+- Neuf Thinking Orbs `0.3.1` de Libraries.dev, moteur MIT local sans React,
+  et choix automatique selon l’activité. Galerie dans le dashboard ; aperçu
+  et choix natifs dans l’APK Kotlin, dans le worktree Echo dédié aux orbes.
+- Préférence `orb_style` validée et persistée dans SQLite, partagée avec
+  `product_state`. Commande Echo `set_orb_style` distincte des commandes audio ;
+  une erreur ne coupe ni le micro ni la réponse. Aucun changement de schéma.
+- Validation logicielle et aperçu web sur stockage temporaire uniquement.
+  257 tests Python, 8 JavaScript et 20 JVM Android réussis ; Ruff, Mypy,
+  lint Android debug/release, wheel et APK debug/release construits.
+  Cette version n’est pas activée en production ni installée sur l’Echo ;
+  validation visuelle et performance matérielle restent à effectuer.
+
 ## Mise en service — Prompt vocal, 16 septembre 2026
 
 - Release `0.3.0-72b08a88cbc6` vérifiée puis activée atomiquement ; la
