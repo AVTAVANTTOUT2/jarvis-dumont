@@ -94,7 +94,8 @@ class VoiceLoop:
             "armed": self.armed,
             "notice": (
                 ("Écoute armée. " if self.armed else "Écoute non armée. ")
-                + "Pendant l'armement : STT local de toute parole. Adresse textuelle Jarvis, "
+                + "Pendant l'armement : STT local de toute parole. En Conversation Echo, "
+                "chaque énoncé est une demande. En local, adresse textuelle Jarvis ; "
                 "ni wake word acoustique ni identification du locuteur."
             ),
         }
@@ -191,7 +192,11 @@ class VoiceLoop:
     ) -> None:
         question = addressed(text)
         if question is None:
-            return  # No display, log, history or network of unaddressed office speech.
+            if (context_metadata or {}).get("conversation_session") is None:
+                return  # Local CLI and PASSIVE still require a Jarvis address.
+            question = text.strip()
+            if not question:
+                return
         self.accepted = text
         if not question:
             self.answer = "Présent. Adressez votre demande à Jarvis."
@@ -465,7 +470,10 @@ class VoiceLoop:
                     if self.transcript_context is not None
                     else ""
                 )
-                if addressed(result.get("text", "")) is None:
+                meta = self.request_context_metadata
+                if addressed(result.get("text", "")) is None and (
+                    meta is None or meta.get("conversation_session") is None
+                ):
                     continue
                 self.remaining -= 1
                 timing = result.get("timing", {})

@@ -338,7 +338,7 @@ class LiveGateway(EchoGateway):
             self.remote.context_observed("INACTIVE_OR_PLAYING", len(text))
             return ""
         self.transcriptions += 1
-        if addressed(text) is None:
+        if addressed(text) is None and (s.mode != "ACTIVE" or not text.strip()):
             self.non_addressed += 1
             if s.mode == "PASSIVE" and s.context_epoch == self.remote.listen_context_epoch:
                 entry_id = s.context.add(text)
