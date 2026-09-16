@@ -64,9 +64,11 @@ de santé. Une restriction macOS reste une erreur explicite, jamais un contourne
 Arrêter par l'UI, Ctrl+C ou `service stop` ; verrou noyau unique avant moteurs/capture.
 Logs JSON sans paroles ni réponses, rotation 1 Mo × 4 fichiers sous Logs/JarvisOffice.
 
-Limites : semi-duplex, aucun barge-in, adresse « Jarvis » vérifiée **après STT local**,
-pas de wake word acoustique ni identification du locuteur. Le texte adressé et quelques
-tours RAM vont à DeepSeek ; aucun audio/profil, aucune mémoire persistante ou outil d'action.
+Limites : semi-duplex, aucun barge-in. En Conversation Echo, toute parole acceptée
+est une demande. En CLI locale et en écoute contextuelle, adresse « Jarvis » vérifiée
+**après STT local**, pas de wake word acoustique ni identification du locuteur. Le
+texte de la demande et quelques tours RAM vont à DeepSeek ; aucun audio/profil,
+aucune mémoire persistante ou outil d'action.
 
 ## Installation et vérification
 
@@ -391,11 +393,13 @@ code des workers vérifie le checkout réellement exécuté ; aucun `sys.path` v
 Workers sans clé ni réseau (sandbox macOS plus garde Python), caches Office seulement.
 
 Le départ est en pause. Reprendre arme un essai limité par `arm_seconds` et `arm_turns`.
-Le STT traite **localement toute parole** pendant cet armement ; seule une adresse en
-début de transcription, « Jarvis », peut déclencher DeepSeek. Ce n'est ni un wake word
-acoustique ni une identification du locuteur : une voix diffusée peut prononcer l'adresse.
-Les propos sans adresse sont abandonnés sans affichage ni journalisation. Un simple
-« Jarvis » donne un état local, sans LLM, son ou mesure de vraie réponse.
+Le STT traite **localement toute parole** pendant cet armement. En Conversation Echo
+(ACTIVE), chaque énoncé accepté est une demande, sans préfixe Jarvis. En CLI locale
+et en écoute contextuelle, seule une adresse en début de transcription, « Jarvis »,
+peut déclencher DeepSeek. Ce n'est ni un wake word acoustique ni une identification
+du locuteur. Les propos sans adresse hors Conversation sont abandonnés sans affichage
+ni journalisation. Un simple « Jarvis » donne un état local, sans LLM, son ou mesure
+de vraie réponse.
 
 La capture est fermée avant STT/réponse : aucun backlog ou barge-in. Un énoncé Silero
 déjà finalisé ne repasse pas par un second VAD. Après la lecture, délai acoustique de

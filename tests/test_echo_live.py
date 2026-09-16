@@ -150,9 +150,6 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
     async def test_same_voiceloop_two_remote_turns_and_one_stream_per_turn(self):
         self.assertIs(type(self.voice), VoiceLoop)
         await self.mode("ACTIVE")
-        await self.say("Phrase non adressée.")
-        await self.wait_for(lambda: self.gateway.non_addressed == 1)
-        self.assertEqual((len(self.requests), self.s.context.count, len(self.tts.texts)), (0, 0, 0))
         for count in (1, 2):
             previous_packets = len(self.endpoint.packets)
             await self.say("Jarvis, réponds présent.")
@@ -181,6 +178,17 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(all(p.rate == 48000 and len(p.pcm) == 1920 for p in packets))
         self.assertTrue(all("first_remote_send" in r for r in self.voice.results))
         self.assertTrue(all(r.get("first_driver") is None for r in self.voice.results))
+
+    async def test_active_unaddressed_speech_is_a_turn(self):
+        await self.mode("ACTIVE")
+        await self.say("Quelle heure est-il ?")
+        await self.wait_for(lambda: len(self.voice.results) == 1)
+        self.assertEqual(self.voice.results[-1]["status"], "PASS", self.voice.results[-1])
+        self.assertEqual(self.gateway.non_addressed, 0)
+        self.assertEqual(self.s.context.count, 0)
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.requests[0]["messages"][-1]["content"], "Quelle heure est-il ?")
+        self.assertGreaterEqual(len(self.tts.texts), 1)
 
     async def test_passive_zero_cloud_then_ephemeral_context_clear_and_speaking_suppression(self):
         await self.mode("PASSIVE")

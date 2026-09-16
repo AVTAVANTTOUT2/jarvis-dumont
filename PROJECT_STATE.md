@@ -1,5 +1,13 @@
 # État du projet
 
+## Travail local — Conversation sans préfixe Jarvis, 16 septembre 2026
+
+- Sur `conversation-all-speech` : en mode Conversation (ACTIVE), chaque
+  transcription acceptée est une demande DeepSeek/TTS. PASSIVE, OFF, CLI
+  locale et le plafond de tours par armement restent inchangés.
+- Aucune release, activation, capture matérielle ou tentative cloud
+  supplémentaire n'est effectuée par ce travail source.
+
 ## État courant — candidate intégrée en service, 15 septembre 2026
 
 - Release active : `0.3.0-83cf03dfa735`, source revue

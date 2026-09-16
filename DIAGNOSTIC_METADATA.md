@@ -123,7 +123,8 @@ présent à ce niveau devient `null` ; aucune valeur brute ne gagne les métriqu
 le rapport par cette voie. Sans début STT disponible, `stt_wait_s` n'est pas calculé.
 
 `context_outcome` vaut `APPENDED`, `ADDRESSED`, `INACTIVE_OR_PLAYING` ou
-`MODE_OR_GENERATION_EXCLUDED`. `context_chars` compte le texte livré au point de
+`MODE_OR_GENERATION_EXCLUDED`. En Conversation, `ADDRESSED` couvre aussi un énoncé
+sans préfixe Jarvis. `context_chars` compte le texte livré au point de
 décision, avant la normalisation/rétention du buffer ; ce n'est pas le nombre de
 caractères finalement retenus. `produced_chars` compte la sortie STT sans la copier.
 
