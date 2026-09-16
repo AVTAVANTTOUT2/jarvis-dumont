@@ -125,6 +125,23 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(catalog["tables"]), 8)
         self.assertEqual(self.store.status()["journal_mode"], "delete")
 
+    async def test_echo_mode_survives_store_restart(self):
+        self.assertEqual(await self.store.echo_mode("echo"), "OFF")
+        await self.store.remember_echo_mode("echo", "ACTIVE")
+        await self.store.remember_echo_mode("other", "PASSIVE")
+        await self.store.flush()
+        self.assertEqual(await self.store.echo_mode("echo"), "ACTIVE")
+        await self.store.close()
+        self.store = OfficeStore(self.path)
+        await self.store.start()
+        self.assertEqual(await self.store.echo_mode("echo"), "ACTIVE")
+        self.assertEqual(await self.store.echo_mode("other"), "PASSIVE")
+        self.assertEqual(await self.store.echo_mode("unknown"), "OFF")
+        await self.store.remember_echo_mode("echo", "OFF")
+        self.assertEqual(await self.store.echo_mode("echo"), "OFF")
+        with self.assertRaises(StorageError):
+            await self.store.remember_echo_mode("echo", "LISTENING")
+
     async def test_memory_activation_enables_history_without_backfill(self):
         self.turn("before", delivered_text="Ancienne réponse.", status="complete")
         await self.store.flush()

@@ -405,6 +405,52 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed_ack["ack_send_status"], "FAILED")
         self.assertNotIn("private detail", json.dumps(failed_ack))
 
+    async def test_owner_mode_survives_reconnect_and_capture_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = OfficeStore(fixtures.Path(root) / "office.sqlite3")
+            await store.start()
+            self.gateway.store = store
+            try:
+                await store.update_settings({"budget": {"limit": 5}})
+                await self.command("set_mode", mode="ACTIVE", command_id="keep-alive")
+                await fixtures.LiveTests.wait_for(self, lambda: self.voice.state == "listening")
+                await store.flush()
+                self.assertEqual(await store.echo_mode("test"), "ACTIVE")
+                await self.remote.worker.results.put({"silence": True})
+                await fixtures.LiveTests.wait_for(self, lambda: self.voice.task.done())
+                self.voice.error = "capture_disconnected"
+                self.voice.state = "error"
+                self.s.welcomed = True
+                with patch("jarvis_office.echo.live.atomic_json"):
+                    publisher = asyncio.create_task(self.gateway.publish(fixtures.Path("unused")))
+                    try:
+                        await fixtures.LiveTests.wait_for(
+                            self, lambda: self.remote.worker.listens >= 2
+                        )
+                    finally:
+                        publisher.cancel()
+                        await asyncio.gather(publisher, return_exceptions=True)
+                self.assertEqual(self.s.mode, "ACTIVE")
+                self.assertIsNone(self.voice.error)
+                await self.gateway.drop(self.s)
+                self.s = fixtures.Session(
+                    "test",
+                    self.endpoint,
+                    fixtures.PassiveContextBuffer(),
+                    audio=self.endpoint,
+                    rate=16000,
+                )
+                self.endpoint.session = self.s
+                self.gateway.sessions["test"] = self.s
+                self.s.welcomed = True
+                await self.gateway.on_audio_ready(self.s)
+                await fixtures.LiveTests.wait_for(self, lambda: self.s.mode == "ACTIVE")
+                self.assertEqual(self.s.mode, "ACTIVE")
+                self.assertTrue(self.voice.armed)
+            finally:
+                self.gateway.store = None
+                await store.close()
+
     async def test_internal_window_renewal_has_no_invented_command_or_turn(self):
         self.gateway.store = SimpleNamespace(
             error=None,

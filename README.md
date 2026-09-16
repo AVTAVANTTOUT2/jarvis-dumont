@@ -395,8 +395,9 @@ Workers sans clé ni réseau (sandbox macOS plus garde Python), caches Office se
 
 Le départ est en pause. Le CLI local garde ses essais limités par `arm_seconds` et
 `arm_turns`. Sur Echo, les fenêtres de capture restent bornées mais se renouvellent
-tant que le mode autorisé reste actif ; seul OFF, une déconnexion ou une erreur
-l'arrête. Le STT traite **localement toute parole** pendant cet armement. En
+tant que le mode autorisé reste actif ; l'inactivité ne le coupe pas. OFF explicite
+ou une perte réseau l'arrêtent, et une reconnexion reprend le dernier mode choisi.
+Le STT traite **localement toute parole** pendant cet armement. En
 Conversation Echo (ACTIVE), chaque énoncé accepté est une demande, sans préfixe
 Jarvis. En CLI locale et en écoute contextuelle, seule une adresse en début de
 transcription, « Jarvis », peut déclencher DeepSeek. Ce n'est ni un wake word

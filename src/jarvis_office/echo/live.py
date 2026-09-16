@@ -611,6 +611,16 @@ class LiveGateway(EchoGateway):
                 error = "COMMAND_FAILED"
                 s.requested_mode = "OFF"
                 await self.stop_audio(s)
+        if error is None and self.store is not None and hasattr(self.store, "remember_echo_mode"):
+            persisted = (
+                mode
+                if kind == "set_mode" and not diagnostic
+                else "OFF"
+                if kind in {"clear_context", "clear_memory", "interrupt"}
+                else None
+            )
+            if persisted is not None:
+                await self.store.remember_echo_mode(s.device, persisted)
         ack = {
             "command_id": command_id,
             "status": "rejected" if error else "applied",
@@ -622,6 +632,27 @@ class LiveGateway(EchoGateway):
             del s.command_acks[next(iter(s.command_acks))]
         await self.command_ack(s, ack, audit, deduplicated=False)
         await self.publish_state(s, force=True)
+
+    async def on_audio_ready(self, s: Session) -> None:
+        if (
+            not self.boot_complete
+            or s.mode != "OFF"
+            or self.store is None
+            or not hasattr(self.store, "echo_mode")
+        ):
+            return
+        mode = await self.store.echo_mode(s.device)
+        if mode not in {"ACTIVE", "PASSIVE"}:
+            return
+        await self.command(
+            s,
+            {
+                "type": "set_mode",
+                "payload": {"mode": mode, "command_id": uuid.uuid4().hex},
+            },
+            time.monotonic_ns(),
+            surface="internal",
+        )
 
     async def command_ack(
         self, s: Session, ack: dict[str, Any], audit: dict[str, Any], *, deduplicated: bool
@@ -768,14 +799,14 @@ class LiveGateway(EchoGateway):
                     self.observed_sessions = {s.id}  # one live device, bounded metadata
                 if self.remote.bound is s and s.mode != "OFF":
                     if (
-                        not self.voice.error
-                        and self.voice.task
+                        self.voice.task
                         and self.voice.task.done()
                         and self.diagnostic_session != s.id
                     ):
                         # Keep each capture bounded, but renew while the authorized mode stays on.
                         remaining = self.voice.remaining
                         epoch = (s.id, s.up_stream, s.mode)
+                        self.voice.error = None
                         try:
                             await self.voice.control("resume")
                         except LoopError:

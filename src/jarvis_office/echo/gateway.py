@@ -410,8 +410,7 @@ class EchoGateway:
             await session.send("state", session.snapshot())
             session.welcomed = True
             while session.alive:
-                async with asyncio.timeout(10):
-                    incoming = await socket.recv()
+                incoming = await socket.recv()
                 received_ns = time.monotonic_ns()
                 message = control(incoming, session.id, session.rx)
                 await self.command(session, message, received_ns)
@@ -430,8 +429,7 @@ class EchoGateway:
 
     async def command(self, s: Session, message: dict[str, Any], received_ns: int) -> None:
         kind, p = message["type"], message["payload"]
-        if time.monotonic() - s.last_seen > 10:
-            raise ValueError("HEARTBEAT_TIMEOUT")
+        s.last_seen = time.monotonic()
         if kind == "ping":
             sent = p.get("client_send_ns")
             if type(sent) is not int or sent < 0:
@@ -536,6 +534,7 @@ class EchoGateway:
         s.audio = socket
         try:
             await s.send("audio_ready", {})
+            await self.on_audio_ready(s)
             async for message in socket:
                 m1 = time.monotonic_ns()
                 if not s.alive or s.audio is not socket:
@@ -619,6 +618,9 @@ class EchoGateway:
             pass
         finally:
             await self.drop(s)
+
+    async def on_audio_ready(self, s: Session) -> None:
+        return
 
     async def stop_audio(self, s: Session, *, notify: bool = True) -> None:
         s.diagnostic_uplink = False

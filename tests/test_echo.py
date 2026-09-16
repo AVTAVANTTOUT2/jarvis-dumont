@@ -173,6 +173,16 @@ class EchoTransportTests(unittest.IsolatedAsyncioTestCase):
             await connect(self.url + "/audio", additional_headers=self.headers, proxy=None)
         self.assertEqual(self.gateway.sessions, {})
 
+    async def test_idle_control_ping_does_not_timeout_the_session(self):
+        await self.handshake()
+        session = self.gateway.sessions["synthetic"]
+        session.last_seen = time.monotonic() - 100
+        await self.send("ping", {"client_send_ns": 7})
+        pong = await self.receive("pong")
+        self.assertEqual(pong["payload"]["client_send_ns"], 7)
+        self.assertTrue(session.alive)
+        self.assertEqual(session.mode, "OFF")
+
     async def test_synthetic_duplex_heartbeat_clear_reconnect_and_no_replay(self):
         self.gateway.settings = replace(self.gateway.settings, playback_prefill_ms=120)
         await self.handshake()

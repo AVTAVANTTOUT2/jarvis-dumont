@@ -14,7 +14,9 @@ dans hello et négociées dans welcome.capabilities. Aucun moteur dans les UI.
 `activity` (IDLE/LISTENING/TRANSCRIBING/GENERATING/PLAYING/ERROR),
 `physical: {microphone: bool|null, playing: bool|null, playback_frames: int|null}`,
 `error: code|null`, `capabilities`. Inconnu = null. La capture physique vient
-d'Android, jamais de `up_stream`. Session neuve/reconnexion = OFF, flux invalidés.
+d'Android, jamais de `up_stream`. Une session neuve reprend le dernier mode
+choisi pour cet appareil (Conversation, écoute contextuelle ou micro coupé).
+Les flux audio de l'ancienne connexion restent invalidés.
 
 Commandes existantes `set_mode {mode}`, `clear_context {}`, `clear_memory {}`
 et `interrupt {}` acceptent `command_id` dans payload (UUID/identifiant <=64 chars).
@@ -23,10 +25,12 @@ réinjecté après redémarrage, sans supprimer les conversations consultables.
 `command_ack {command_id, status: applied|rejected, error: code|null}` termine
 la demande sous 5 secondes, sinon UI affiche délai dépassé et coupe localement.
 Un accusé confirme la transition serveur ; les faits physiques restent séparés.
-OFF ferme AudioRecord localement avant tout envoi. Clear/interrupt laissent OFF.
-ACTIVE/PASSIVE restent actifs jusqu'à OFF, déconnexion ou erreur. Il n'existe
-aucun quota de tours par activation ; les fenêtres de capture restent bornées
-et sont renouvelées sans recréer les moteurs.
+OFF ferme AudioRecord localement avant tout envoi. Clear/interrupt laissent OFF
+et mémorisent cet arrêt. ACTIVE/PASSIVE restent actifs jusqu'à OFF explicite
+ou une erreur de chemin réseau ; une coupure de socket reprend le mode mémorisé
+à la reconnexion. L'inactivité ou l'absence de ping ne coupent plus la capture.
+Il n'existe aucun quota de tours par activation ; les fenêtres de capture
+restent bornées et sont renouvelées sans recréer les moteurs.
 `client_state {microphone, playing, playback_frames, stream_id}` rapporte les
 faits physiques au contrôle, hors callbacks audio. Ancien stream rejeté/ignoré.
 

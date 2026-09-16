@@ -739,6 +739,36 @@ class OfficeStore:
         ).fetchone()
         return {"device_id": device, "revision": row["revision"], "cleared_at": stamp}
 
+    async def remember_echo_mode(self, device_id: str, mode: str) -> None:
+        """Persist the last owner-selected Echo mode until an explicit change."""
+        await self._call(self._remember_echo_mode, _identifier(device_id), mode)
+
+    def _remember_echo_mode(self, db: sqlite3.Connection, device: str, mode: str) -> None:
+        if mode not in {"OFF", "ACTIVE", "PASSIVE"}:
+            raise StorageError("INVALID_MODE")
+        row = db.execute("SELECT value_json FROM preferences WHERE key='echo_modes'").fetchone()
+        modes = json.loads(row["value_json"]) if row else {}
+        if not isinstance(modes, dict):
+            modes = {}
+        modes[device] = mode
+        with db:
+            db.execute(
+                "INSERT INTO preferences VALUES ('echo_modes', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                (_json(modes),),
+            )
+
+    async def echo_mode(self, device_id: str) -> str:
+        return str(await self._call(self._echo_mode, _identifier(device_id)))
+
+    def _echo_mode(self, db: sqlite3.Connection, device: str) -> str:
+        row = db.execute("SELECT value_json FROM preferences WHERE key='echo_modes'").fetchone()
+        if row is None:
+            return "OFF"
+        modes = json.loads(row["value_json"])
+        mode = modes.get(device, "OFF") if isinstance(modes, dict) else "OFF"
+        return mode if mode in {"OFF", "ACTIVE", "PASSIVE"} else "OFF"
+
     def record_passive(
         self,
         device_id: str,
