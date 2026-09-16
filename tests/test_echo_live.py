@@ -398,6 +398,24 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
                 publishing.cancel()
                 await asyncio.gather(publishing, return_exceptions=True)
 
+    async def test_exhausted_turn_window_renews_until_explicit_off(self):
+        await self.mode("ACTIVE")
+        await self.wait_for(lambda: self.voice.state == "listening")
+        await self.remote.worker.results.put({"silence": True})
+        await self.wait_for(lambda: self.voice.task.done())
+        self.voice.remaining = 0
+        self.s.welcomed = True
+        with tempfile.TemporaryDirectory() as root:
+            publishing = asyncio.create_task(self.gateway.publish(Path(root) / "report.json"))
+            try:
+                await self.wait_for(lambda: self.s.mode == "OFF" or self.remote.worker.listens == 2)
+                self.assertEqual(self.s.mode, "ACTIVE")
+                self.assertEqual(self.remote.worker.listens, 2)
+                await self.mode("OFF")
+            finally:
+                publishing.cancel()
+                await asyncio.gather(publishing, return_exceptions=True)
+
 
 class BoundaryTests(unittest.TestCase):
     def test_remote_frames_use_existing_audioengine_vad_and_stt(self):

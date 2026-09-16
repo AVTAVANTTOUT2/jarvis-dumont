@@ -405,7 +405,7 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed_ack["ack_send_status"], "FAILED")
         self.assertNotIn("private detail", json.dumps(failed_ack))
 
-    async def test_internal_arm_end_has_no_invented_command_or_turn(self):
+    async def test_internal_window_renewal_has_no_invented_command_or_turn(self):
         self.gateway.store = SimpleNamespace(
             error=None,
             close_session=Mock(),
@@ -416,19 +416,16 @@ class PrivateLiveTests(unittest.IsolatedAsyncioTestCase):
         await self.command("set_mode", mode="PASSIVE", command_id="internal-test")
         await self.remote.worker.results.put({"silence": True})
         await fixtures.LiveTests.wait_for(self, lambda: self.voice.task.done())
+        recorded = self.gateway.store.record_event.call_count
         with patch("jarvis_office.echo.live.atomic_json"):
             publisher = asyncio.create_task(self.gateway.publish(fixtures.Path("unused")))
             try:
-                await fixtures.LiveTests.wait_for(self, lambda: self.s.mode == "OFF")
+                await fixtures.LiveTests.wait_for(self, lambda: self.remote.worker.listens == 2)
             finally:
                 publisher.cancel()
                 await asyncio.gather(publisher, return_exceptions=True)
-        event = self.gateway.store.record_event.call_args.kwargs["details"]
-        self.assertEqual(event["surface"], "internal")
-        self.assertIsNone(event["command_id"])
-        self.assertIsNone(event["turn_id"])
-        self.assertEqual(event["related_command_id"], "internal-test")
-        self.assertEqual(event["confirmed_mode"], "OFF")
+        self.assertEqual(self.s.mode, "PASSIVE")
+        self.assertEqual(self.gateway.store.record_event.call_count, recorded)
         self.assertEqual((self.requests, self.tts.texts), ([], []))
 
     async def test_missing_budget_rejects_without_microphone_or_paid_request(self):

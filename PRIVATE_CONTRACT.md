@@ -22,6 +22,9 @@ Commandes existantes `set_mode {mode}`, `clear_context {}` et nouvelle
 la demande sous 5 secondes, sinon UI affiche délai dépassé et coupe localement.
 Un accusé confirme la transition serveur ; les faits physiques restent séparés.
 OFF ferme AudioRecord localement avant tout envoi. Clear/interrupt laissent OFF.
+ACTIVE/PASSIVE restent actifs jusqu'à OFF, déconnexion ou erreur. Il n'existe
+aucun quota de tours par activation ; les fenêtres de capture restent bornées
+et sont renouvelées sans recréer les moteurs.
 `client_state {microphone, playing, playback_frames, stream_id}` rapporte les
 faits physiques au contrôle, hors callbacks audio. Ancien stream rejeté/ignoré.
 

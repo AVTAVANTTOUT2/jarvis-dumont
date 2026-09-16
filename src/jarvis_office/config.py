@@ -53,7 +53,7 @@ class Speech:
     input_rate: int = 48000
     vad_threshold: float = 0.5
     pre_roll_ms: int = 300
-    terminal_silence_ms: int = 500
+    terminal_silence_ms: int = 1500
     min_speech_ms: int = 96
     max_utterance_s: int = 30
     max_input_s: int = 60

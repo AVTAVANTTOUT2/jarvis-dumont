@@ -34,7 +34,7 @@ input_device = "" # Exact unique input name, checked again at every startup.
 input_rate = 48000 # Must be accepted by the selected device.
 vad_threshold = 0.5
 pre_roll_ms = 300 # Quantized upwards to 320 ms (512 samples = 32 ms).
-terminal_silence_ms = 500 # Quantized upwards to 512 ms.
+terminal_silence_ms = 1500 # Quantized upwards to 1504 ms for natural phrase pauses.
 min_speech_ms = 96
 max_utterance_s = 30
 max_input_s = 60

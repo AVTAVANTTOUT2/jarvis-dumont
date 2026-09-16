@@ -638,10 +638,9 @@ class LiveGateway(EchoGateway):
                         not self.voice.error
                         and self.voice.task
                         and self.voice.task.done()
-                        and self.voice.remaining > 0
-                        and time.perf_counter() >= self.voice.deadline
+                        and self.diagnostic_session != s.id
                     ):
-                        # Renew only an already authorized connection; keep the remaining turn cap.
+                        # Keep each capture bounded, but renew while the authorized mode stays on.
                         remaining = self.voice.remaining
                         epoch = (s.id, s.up_stream, s.mode)
                         try:
@@ -649,9 +648,13 @@ class LiveGateway(EchoGateway):
                         except LoopError:
                             if s.alive and s.mode != "OFF":
                                 raise
-                        if epoch == (s.id, s.up_stream, s.mode):
+                        if remaining > 0 and epoch == (s.id, s.up_stream, s.mode):
                             self.voice.remaining = remaining
-                    if self.voice.error or (self.voice.task and self.voice.task.done()):
+                    if self.voice.error or (
+                        self.diagnostic_session == s.id
+                        and self.voice.task
+                        and self.voice.task.done()
+                    ):
                         internal = {
                             "surface": "internal",
                             "action": "set_mode",
@@ -666,9 +669,7 @@ class LiveGateway(EchoGateway):
                             "clock": "server_monotonic_ns",
                             "received_ns": time.monotonic_ns(),
                         }
-                        s.last_error = self.voice.error or (
-                            "" if self.diagnostic_session == s.id else "ARM_WINDOW_ENDED"
-                        )
+                        s.last_error = self.voice.error or ""
                         s.requested_mode = "OFF"
                         await self.stop_audio(s)
                         if self.store is not None:

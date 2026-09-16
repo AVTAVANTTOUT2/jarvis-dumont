@@ -392,14 +392,16 @@ Moteurs chargés et préchauffés une fois par session, pas par phrase. Une sign
 code des workers vérifie le checkout réellement exécuté ; aucun `sys.path` vers V1.
 Workers sans clé ni réseau (sandbox macOS plus garde Python), caches Office seulement.
 
-Le départ est en pause. Reprendre arme un essai limité par `arm_seconds` et `arm_turns`.
-Le STT traite **localement toute parole** pendant cet armement. En Conversation Echo
-(ACTIVE), chaque énoncé accepté est une demande, sans préfixe Jarvis. En CLI locale
-et en écoute contextuelle, seule une adresse en début de transcription, « Jarvis »,
-peut déclencher DeepSeek. Ce n'est ni un wake word acoustique ni une identification
-du locuteur. Les propos sans adresse hors Conversation sont abandonnés sans affichage
-ni journalisation. Un simple « Jarvis » donne un état local, sans LLM, son ou mesure
-de vraie réponse.
+Le départ est en pause. Le CLI local garde ses essais limités par `arm_seconds` et
+`arm_turns`. Sur Echo, les fenêtres de capture restent bornées mais se renouvellent
+tant que le mode autorisé reste actif ; seul OFF, une déconnexion ou une erreur
+l'arrête. Le STT traite **localement toute parole** pendant cet armement. En
+Conversation Echo (ACTIVE), chaque énoncé accepté est une demande, sans préfixe
+Jarvis. En CLI locale et en écoute contextuelle, seule une adresse en début de
+transcription, « Jarvis », peut déclencher DeepSeek. Ce n'est ni un wake word
+acoustique ni une identification du locuteur. Les propos sans adresse hors
+Conversation sont abandonnés sans affichage ni journalisation. Un simple « Jarvis »
+donne un état local, sans LLM, son ou mesure de vraie réponse.
 
 La capture est fermée avant STT/réponse : aucun backlog ou barge-in. Un énoncé Silero
 déjà finalisé ne repasse pas par un second VAD. Après la lecture, délai acoustique de

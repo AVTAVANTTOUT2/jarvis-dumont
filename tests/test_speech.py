@@ -52,7 +52,7 @@ class SignalTests(unittest.TestCase):
     def test_frame_reassembly_preroll_internal_pause_and_real_end(self):
         frames = [0] * 20 + [1] * 10 + [0] * 8 + [1] * 8 + [0] * 16
         audio = np.repeat(np.array(frames, np.float32), 512)
-        stream = Segmenter(Speech())
+        stream = Segmenter(Speech(terminal_silence_ms=500))
         calls = []
 
         def score(frame):
@@ -73,6 +73,16 @@ class SignalTests(unittest.TestCase):
         self.assertEqual(item.timing()["endpoint_delay_s"], 0.512)
         self.assertEqual(item.timing()["hardware_latency"], "NOT_RUN")
         self.assertIsNone(item.finalized_wall)
+
+    def test_default_endpoint_waits_through_a_long_phrase_pause(self):
+        frames = [1] * 10 + [0] * 32 + [1] * 10 + [0] * 47
+        results = Segmenter(Speech()).feed(
+            np.repeat(np.array(frames, np.float32), 512),
+            lambda frame: float(frame[0]),
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].speech_end, 52 * 512)
 
     def test_eof_remainder_maximum_duration_and_explicit_session_reset(self):
         stream = Segmenter(Speech())
