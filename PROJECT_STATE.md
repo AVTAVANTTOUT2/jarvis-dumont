@@ -1,15 +1,16 @@
 # État du projet
 
-## Travail local — Mémoire persistante, 16 septembre 2026
+## Mise en service — Mémoire persistante, 16 septembre 2026
 
-- Sur `feature/persistent-conversation-memory` : résumé SQLite v2, rollups
-  nominaux préemptibles, restauration après redémarrage, bouton distinct
-  « Effacer la mémoire ». Aucun backfill. Le service privé actif n'embarque
-  pas encore ce code.
-- Suite : 251 tests réussis ; 7 tests Node ; Ruff et format sur 76 fichiers ;
-  mypy strict sur 35 modules ; wheel/sdist 0.3.0 construits. Aucune capture
-  matérielle ni requête DeepSeek déclenchée par ces contrôles. Aucune release
-  ni activation.
+- Release `0.3.0-8b72c208029f` vérifiée puis activée atomiquement ; la release
+  précédente `0.3.0-de24890214de` reste disponible. SQLite a migré en schéma 2
+  après sauvegarde isolée. Le service privé a redémarré prêt et en pause, avec
+  le microphone fermé, aucune écoute et aucune erreur runtime.
+- La mémoire persistante et l'historique adressé sont activés depuis le
+  dashboard loopback. Aucun résumé antérieur n'a été reconstruit. Le résumé
+  n'est chargé qu'à une prochaine activation Conversation/Écoute contextuelle.
+- Le manifeste de cette candidate porte `sqlite_schema_max: 2`. Un retour vers
+  une ancienne release au schéma 1 reste refusé tant que la base active est en v2.
 
 ## Mise en service — Conversation continue et phrases longues, 16 septembre 2026
 
