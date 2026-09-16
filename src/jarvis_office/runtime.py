@@ -141,6 +141,10 @@ def status() -> dict[str, Any]:
         port = record.get("port")
         if type(port) is not int or not 1024 <= port <= 65535:
             return result
+        private = record.get("dashboard") == "private-v1"
+        epoch = record.get("server_epoch")
+        if private and (not isinstance(epoch, str) or not re.fullmatch(r"[0-9a-f]{32}", epoch)):
+            return {**result, "status": "FAIL", "error": "instance_epoch_missing"}
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
         headers = {
             "Host": f"127.0.0.1:{port}",
@@ -149,8 +153,8 @@ def status() -> dict[str, Any]:
             "X-Jarvis-Local": "1",
             "Content-Type": "application/json",
         }
+        csrf = ""
         try:
-            private = record.get("dashboard") == "private-v1"
             connection.request(
                 "GET" if private else "POST",
                 "/api/bootstrap" if private else "/bootstrap",
@@ -159,10 +163,18 @@ def status() -> dict[str, Any]:
             )
             response = connection.getresponse()
             cookie = response.getheader("Set-Cookie", "").split(";", 1)[0]
+            if private and response.status != 200:
+                return {**result, "status": "FAIL", "error": "health_bootstrap_rejected"}
             if response.status != 200 or len(cookie) > 256:
                 return result
-            response.read(1024)
+            bootstrap = response.read(1024)
             headers["Cookie"] = cookie
+            if private:
+                decoded = json.loads(bootstrap)
+                token = decoded.get("csrf_token") if isinstance(decoded, dict) else None
+                if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+                    return {**result, "status": "FAIL", "error": "health_bootstrap_invalid"}
+                csrf = token
             connection.request(
                 "GET" if private else "POST",
                 "/api/state" if private else "/snapshot",
@@ -174,12 +186,23 @@ def status() -> dict[str, Any]:
             if response.status != 200 or len(data) > 65536:
                 return result
             snapshot = json.loads(data)
-            if snapshot.get("session") != record.get("session"):
+            if private:
+                if snapshot.get("server_epoch") != epoch:
+                    return {**result, "status": "FAIL", "error": "instance_epoch_mismatch"}
+            elif snapshot.get("session") != record.get("session"):
                 return {**result, "status": "FAIL", "error": "instance_session_mismatch"}
             return {**result, **health(snapshot), "http_loopback": True, "status": "PASS"}
         except (OSError, ValueError, http.client.HTTPException):
             return result
         finally:
+            if csrf:
+                try:
+                    connection.request(
+                        "POST", "/api/logout", "{}", {**headers, "X-CSRF-Token": csrf}
+                    )
+                    connection.getresponse().read(1024)
+                except (OSError, http.client.HTTPException):
+                    pass
             connection.close()
     except (ValueError, KeyError, TypeError):
         return {"status": "PENDING", "alive": True, "error": "instance_starting_or_invalid"}

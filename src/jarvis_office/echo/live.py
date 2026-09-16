@@ -699,6 +699,7 @@ async def run_live(settings: Settings) -> None:
             ]
             if dashboard:
                 instance.record["dashboard"] = "private-v1"
+                instance.record["server_epoch"] = gateway.server_epoch
             instance.publish(voice.session, settings.dashboard_port if dashboard else None)
             boot = asyncio.create_task(voice.start())
             await asyncio.wait([boot, *tasks], return_when=asyncio.FIRST_COMPLETED)

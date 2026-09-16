@@ -114,6 +114,33 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await response.json())["status"], "applied")
         self.assertEqual((await self.store.settings())["budget"]["used"], 0)
 
+    async def test_logout_requires_owner_cookie_csrf_and_only_ends_that_session(self):
+        before = set(self.server.sessions)
+        for headers in ({"X-CSRF-Token": "bad"}, {"Authorization": "Bearer echo-token"}):
+            response = await self.post("/api/logout", {}, **headers)
+            self.assertEqual(response.status, 403)
+            await response.release()
+            self.assertEqual(set(self.server.sessions), before)
+        async with aiohttp.ClientSession() as other:
+            async with other.post(
+                self.server.url + "/api/logout",
+                json={},
+                headers={"Sec-Fetch-Site": "same-origin", "Origin": self.server.url},
+            ) as response:
+                self.assertEqual(response.status, 401)
+            async with other.get(
+                self.server.url + "/api/bootstrap", headers={"Sec-Fetch-Site": "same-origin"}
+            ) as response:
+                self.assertEqual(response.status, 200)
+        other_sessions = set(self.server.sessions) - before
+        response = await self.post("/api/logout", {})
+        self.assertEqual(response.status, 204)
+        await response.release()
+        self.assertEqual(set(self.server.sessions), other_sessions)
+        async with self.client.get(self.server.url + "/api/state") as response:
+            self.assertEqual(response.status, 401)
+        self.assertEqual(self.commands, [])
+
     async def test_events_snapshot_epoch_and_bounded_reconnection(self):
         async with self.client.get(self.server.url + "/api/events?after=0&epoch=old") as response:
             result = await response.json()

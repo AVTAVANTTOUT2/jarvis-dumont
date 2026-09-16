@@ -187,6 +187,7 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         await self.say("La couleur de test est turquoise.")
         await self.wait_for(lambda: self.s.context.count == 1)
         self.assertEqual(len(self.requests), 0)
+        self.assertEqual(self.tts.texts, [])
         self.s.down_stream = 123
         self.gateway.transcript_context("Voix de Jarvis pendant sa réponse.")
         self.assertEqual(self.s.context.count, 1)
@@ -196,8 +197,12 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.voice.results[-1]["status"], "PASS", self.voice.results[-1])
         self.assertEqual(len(self.requests), 1)
         messages = self.requests[0]["messages"]
+        self.assertEqual(messages[-2]["role"], "user")
         self.assertIn("passivement entendu", messages[-2]["content"])
         self.assertIn("turquoise", messages[-2]["content"])
+        self.assertTrue(
+            all("turquoise" not in m["content"] for m in messages if m["role"] == "system")
+        )
         self.assertNotIn("passivement entendu", self.chat.history[0][0])
         self.assertEqual(self.s.context.count, 1)
         await self.gateway.command(
@@ -205,6 +210,22 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.s.context.count, 0)
         self.assertEqual(len(self.requests), 1)
+
+    async def test_passive_late_text_rejected_after_off_disconnect_or_generation_change(self):
+        self.remote.bound = self.s
+        for mode, alive, generation in (
+            ("OFF", True, 0),
+            ("PASSIVE", False, 0),
+            ("PASSIVE", True, 1),
+        ):
+            with self.subTest(mode=mode, alive=alive, generation=generation):
+                self.s.mode, self.s.alive, self.s.context_epoch = mode, alive, generation
+                self.remote.listen_context_epoch = 0
+                self.assertEqual(self.gateway.transcript_context("Texte tardif non adressé."), "")
+                self.assertEqual(self.s.context.count, 0)
+        self.s.alive, self.s.mode = True, "OFF"
+        self.assertEqual(self.requests, [])
+        self.assertEqual(self.tts.texts, [])
 
     async def test_producer_pause_never_flushes_pcm_as_a_catchup_burst(self):
         import numpy as np

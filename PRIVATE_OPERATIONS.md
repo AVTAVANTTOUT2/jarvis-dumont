@@ -11,6 +11,22 @@ Office, jamais le checkout. Le LaunchAgent `com.jarvisoffice.private` démarre O
 à l'ouverture de session, avec trois tentatives maximum en cas d'échec.
 Le dashboard donne la readiness réelle ; aucun heartbeat n'appelle DeepSeek.
 
+La CLI de santé vérifie d'abord le verrou détenu, son propriétaire et l'identité
+PID/démarrage/exécutable. Pour le gateway privé, elle compare ensuite le
+`server_epoch` publié dans ce verrou avec celui du dashboard. Cet identifiant
+reste stable pendant la vie du gateway ; la session conversationnelle change
+après Effacer, et la session Echo change à la reconnexion. Aucune des deux ne
+remplace l'identité du processus. Une époque différente est refusée.
+Une ancienne release sans époque dans le verrou est refusée explicitement par
+la nouvelle CLI (`instance_epoch_missing`). Ne pas réécrire le verrou ni copier
+l'identifiant reçu : seule l'activation autorisée de la candidate, avec démarrage
+normal de son propriétaire, peut publier les nouvelles métadonnées.
+Chaque appel de santé libère sa propre session HTTP par un POST authentifié et
+protégé CSRF, sans fermer les sessions du navigateur. Les versions antérieures
+conservent ces sessions jusqu'à leur expiration (12 heures) et peuvent atteindre
+la limite de 16 : réutiliser l'onglet propriétaire déjà authentifié. Ne pas
+redémarrer une instance ou purger ses sessions pour masquer un résultat de santé.
+
 Avant Conversation/Écoute contextuelle, choisir le plafond nominal dans Réglages.
 Le compteur de diagnostic ECHO-02C reste indépendant et n'est jamais réinitialisé.
 L'historique adressé commence seulement après activation explicite (30 jours
