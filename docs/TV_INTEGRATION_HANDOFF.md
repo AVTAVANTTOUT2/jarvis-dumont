@@ -7,7 +7,7 @@ Base : release active `d816fb01e394`, incluant les orbes interactives.
 Validation finale : 278 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
 Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**, non homologué acoustiquement.
 
-Release privée active : `0.3.0-9db746293cdc` (wheel vérifiée, activation atomique).
+Release privée active : `0.3.0-9e800395f83e` (wheel vérifiée, activation atomique).
 La branche privée `codex/tv-integration-private` est poussée. Echo reste OFF,
 microphone fermé.
 Récepteur TV et AVT debug installés sur la Philips ; AVT habituel conservé.

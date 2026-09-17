@@ -27,7 +27,7 @@
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-9db746293cdc` construite depuis le commit `9db746293cdcf5c6678ef4fa061847e162e127c3`
+- Release TV `0.3.0-9e800395f83e` construite depuis le commit `9e800395f83efe2ffc2636f1a9176aa264f6f9d3`
   et activée atomiquement. Mode Echo OFF et micro fermé vérifiés ; branche privée poussée.
 - Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
   l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
