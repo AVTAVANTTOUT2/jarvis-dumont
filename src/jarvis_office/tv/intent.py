@@ -16,6 +16,7 @@ from jarvis_office.tv.protocol import (
     action_supported,
     playback_fresh,
 )
+from jarvis_office.tv.youtube import SmartTubeSearchError, search_smarttube
 
 EXTRACT_SYSTEM = (
     "Tu extrais une commande média TV. Réponds uniquement par un JSON compact, "
@@ -30,7 +31,7 @@ EXTRACT_SYSTEM = (
 MEDIA_HINT = re.compile(
     r"\b(pause|reprends?|reprendre|arr[eê]te|stop|avance|recule|lance|joue|"
     r"smarttube|youtube|avt|tv|t[eé]l[eé]|film|s[eé]rie|vid[eé]o|musique|"
-    r"cherche|recherche)\b",
+    r"cherche|recherche|mette|mettez)\b",
     re.IGNORECASE,
 )
 YOUTUBE_IN_TEXT = re.compile(
@@ -149,7 +150,8 @@ def parse_local(question: str, hub: Any) -> dict[str, Any] | None:
             "args": {"content": {"kind": "youtube_video", "id": youtube}},
         }
     search = re.search(
-        r"\b(lance|joue|cherche|recherche|mets?)\b(?:\s+(?:moi|donc))?\s+(?:le|la|l'|les)?\s*(.+)$",
+        r"\b(lance|joue|cherche|recherche|mets?|mette|mettez|mettre)\b"
+        r"(?:\s+(?:moi|donc))?\s+(?:le|la|l'|les)?\s*(.+)$",
         text,
     )
     if search:
@@ -387,13 +389,45 @@ async def run_command(
         playing = playback.get("app")
         if playing in {"smarttube", "avt"}:
             app = playing
+    if action == "search" and app == "smarttube":
+        play_missing = action_supported(device.apps, app, "play_content")
+        if play_missing:
+            return speak_error(play_missing)
+        hub.invalidate_candidates()
+        raw_limit = args.get("limit", 5)
+        limit = raw_limit if type(raw_limit) is int else 5
+        try:
+            results = await search_smarttube(str(args.get("query") or ""), limit)
+        except SmartTubeSearchError as exc:
+            return exc.speech
+        safe = [
+            item
+            for item in results[:10]
+            if isinstance(item, dict)
+            and isinstance(item.get("content"), dict)
+            and item["content"].get("kind") == "youtube_video"
+            and isinstance(item["content"].get("id"), str)
+            and YOUTUBE_RE.fullmatch(item["content"]["id"]) is not None
+        ]
+        if not safe:
+            return "Aucun titre correspondant n'a été trouvé sur YouTube."
+        hub.remember_candidates(safe, None)
+        chosen = safe[0]
+        content = chosen["content"]
+        return await run_command(
+            hub,
+            {
+                "kind": "command",
+                "app": "smarttube",
+                "action": "play_content",
+                "args": {"content": content},
+            },
+            question,
+            turn_id,
+            title=chosen.get("title") if isinstance(chosen.get("title"), str) else None,
+        )
     missing = action_supported(device.apps, app, action)
     if missing:
-        if action == "search" and app == "smarttube":
-            return (
-                "SmartTube ne fournit pas de recherche structurée. "
-                "Donnez un identifiant YouTube, sans prendre un premier résultat au hasard."
-            )
         if app == "avt" and missing in {"UNSUPPORTED", "APP_NOT_INSTALLED"}:
             return "AVT n'est pas lié. Je ne peux pas inventer le catalogue."
         return speak_error(missing)

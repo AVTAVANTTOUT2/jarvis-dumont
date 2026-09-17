@@ -8,6 +8,7 @@ import unittest
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -111,6 +112,8 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(parse_local("mets la table", FakeHub()))
         self.assertEqual(parse_local("pause", FakeHub())["action"], "pause")
         self.assertEqual(parse_local("lance interstellar", FakeHub())["action"], "search")
+        parsed = parse_local("je mette Petunia de Werenoi sur la télé", FakeHub())
+        self.assertEqual(parsed["args"]["query"], "petunia de werenoi")
 
     async def test_disabled_or_disconnected_or_unsupported(self) -> None:
         hub = FakeHub(_device())
@@ -120,8 +123,9 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         hub._device = None
         self.assertIn("pas connectée", await dispatch(hub, "pause", "turn1") or "")
         hub._device = _device()
-        speech = await dispatch(hub, "cherche interstellar sur youtube", "turn1")
-        self.assertIn("recherche structurée", speech or "")
+        with patch("jarvis_office.tv.intent.search_smarttube", new=AsyncMock(return_value=[])):
+            speech = await dispatch(hub, "cherche interstellar sur youtube", "turn1")
+        self.assertIn("Aucun titre", speech or "")
         self.assertEqual(hub.issued, [])
         speech = await dispatch(hub, "cherche Dune sur avt", "turn1")
         self.assertIn("AVT n'est pas lié", speech or "")
@@ -141,46 +145,41 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         )
         hub._device.apps["smarttube"]["actions"] = ["pause", "play_content", "get_state"]
         self.assertIn("Pause demandée", await dispatch(hub, "pause", "t") or "")
-        hub._device.apps["smarttube"]["actions"] = ["search", "play_content"]
+        hub._device.apps["smarttube"]["actions"] = ["play_content"]
         hub.outcomes = [
-            {
-                "status": "completed",
-                "error_code": None,
-                "result": {
-                    "items": [
-                        {
-                            "title": "Un",
-                            "content": {"kind": "youtube_video", "id": "aaaaaaaaaaa"},
-                        },
-                        {
-                            "title": "Deux",
-                            "content": {"kind": "youtube_video", "id": "bbbbbbbbbbb"},
-                        },
-                    ]
-                },
-            }
-        ]
-        speech = await dispatch(hub, "cherche un film sur youtube", "t")
-        self.assertIn("Plusieurs titres", speech or "")
-        self.assertEqual(len(hub.candidates), 2)
-        hub.outcomes = [
-            {
-                "status": "completed",
-                "error_code": None,
-                "result": {
-                    "items": [
-                        {
-                            "title": "Seul",
-                            "content": {"kind": "youtube_video", "id": "ccccccccccc"},
-                        }
-                    ]
-                },
-            },
+            {"status": "dispatched", "error_code": None, "result": None, "playback": None},
             {"status": "dispatched", "error_code": None, "result": None, "playback": None},
         ]
-        speech = await dispatch(hub, "cherche Seul sur youtube", "t")
+        search = AsyncMock(
+            side_effect=[
+                [
+                    {
+                        "title": "Un",
+                        "content": {"kind": "youtube_video", "id": "aaaaaaaaaaa"},
+                    },
+                    {
+                        "title": "Deux",
+                        "content": {"kind": "youtube_video", "id": "bbbbbbbbbbb"},
+                    },
+                ],
+                [
+                    {
+                        "title": "Seul",
+                        "content": {"kind": "youtube_video", "id": "ccccccccccc"},
+                    }
+                ],
+            ]
+        )
+        with patch("jarvis_office.tv.intent.search_smarttube", new=search):
+            speech = await dispatch(hub, "cherche un film sur youtube", "t")
+        self.assertIn("sans confirmation", speech or "")
+        self.assertEqual(len(hub.candidates), 2)
+        self.assertEqual(hub.issued[-1]["args"]["content"]["id"], "aaaaaaaaaaa")
+        with patch("jarvis_office.tv.intent.search_smarttube", new=search):
+            speech = await dispatch(hub, "cherche Seul sur youtube", "t")
         self.assertIn("sans confirmation", speech or "")
         self.assertEqual(hub.issued[-1]["action"], "play_content")
+        self.assertEqual(hub.issued[-1]["args"]["content"]["id"], "ccccccccccc")
         speech = await dispatch(hub, "joue la video aqz-KE-bpKQ", "t")
         self.assertEqual(hub.issued[-1]["args"]["content"]["id"], "aqz-KE-bpKQ")
         self.assertIn("sans confirmation", speech or "")

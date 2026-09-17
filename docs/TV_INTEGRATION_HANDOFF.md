@@ -72,12 +72,22 @@ Activer. Réutiliser un certificat Echo n'élève pas le jeton TV.
 
 Registre : préférence SQLite `tv_registry` (schéma 2, **pas de migration**).
 
+### Recherche SmartTube
+
+Le serveur Office résout une demande textuelle avec `yt-dlp` installé localement
+(`/opt/homebrew/bin/yt-dlp` sur ce Mac, ou un binaire trouvé dans `PATH`). Il
+demande au maximum dix entrées `ytsearch`, ne télécharge aucun média, applique un
+délai de 15 secondes et ne conserve que les identifiants YouTube de onze caractères.
+Le premier résultat retourné est choisi de façon déterministe puis envoyé à
+SmartTube par l'intent HTTPS déjà qualifié. Si le binaire manque, expire ou renvoie
+une réponse invalide, aucune commande de lecture n'est émise et Jarvis l'annonce.
+
 ## Actions et capacités
 
 | App | Action | Côté Jarvis | Récepteur actuel |
 |---|---|---|---|
 | smarttube | `play_content` youtube_video | émet, dit `dispatched` sans inventer l'image | intent officiel, `dispatched` |
-| smarttube | `search` | refuse, n'envoie pas un premier résultat | `UNSUPPORTED` |
+| smarttube | `search` | résout localement via `yt-dlp`, conserve les résultats et lance explicitement le premier identifiant réel | `play_content` officiel |
 | smarttube | pause/resume/stop/seek | exige playback frais | session média / notifications |
 | avt | search / play / transport | refuse si non installé / non lié | Binder absent |
 | * | `get_state` | autorisé si déclaré | selon l'app |
@@ -94,8 +104,10 @@ Annuler/Pause invalide le tour TV ; Effacer oublie les candidats.
 
 1. Testhost corrigé : il produit désormais un UUID canonique. Le serveur
    conserve sa validation stricte ; l'ancien identifiant `tv-test` reste refusé.
-2. SmartTube : pas de recherche structurée ; transport ciblé seulement avec
-   session média + notifications. Jarvis l'explique, il ne simule pas le catalogue.
+2. SmartTube : l'APK stable ne fournit toujours pas de recherche structurée.
+   Jarvis utilise donc le binaire local `yt-dlp` (`ytsearchN`, sans téléchargement),
+   valide les identifiants YouTube, conserve les candidats et lance le premier
+   résultat dans SmartTube. La recherche UI de SmartTube n'est jamais pilotée.
 3. AVT : service Binder réel implémenté, candidats compilés. Le récepteur choisit
    explicitement le package habituel ou debug et vérifie sa signature. L'état
    lié/non lié doit provenir des capacités observées, jamais de cette documentation.
