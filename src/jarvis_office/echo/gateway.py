@@ -57,6 +57,7 @@ class Settings:
     acoustic_tail_ms: int = 600
     private_product: bool = False
     dashboard_port: int = 8768
+    config_path: str = ""
 
     def validate(self) -> None:
         address = ipaddress.ip_address(self.bind)
@@ -115,7 +116,7 @@ class Settings:
         if path.stat().st_mode & 0o077:
             raise ValueError("PRIVATE_CONFIG_PERMISSIONS_REQUIRED")
         data = tomllib.loads(path.read_text())
-        result = cls(**data["echo"], devices=data["devices"])
+        result = cls(**data["echo"], devices=data["devices"], config_path=str(path))
         result.validate()
         return result
 

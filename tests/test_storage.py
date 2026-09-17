@@ -483,6 +483,32 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         with sqlite3.connect(backup) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM turns").fetchone()[0], 1)
 
+    async def test_tv_registry_uses_preferences_without_schema_bump(self):
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
+        empty = await self.store.tv_registry()
+        self.assertEqual(empty["enabled"], False)
+        self.assertEqual(empty["devices"], {})
+        await self.store.save_tv_registry(
+            {
+                "enabled": True,
+                "default_video_app": "avt",
+                "default_film_app": "smarttube",
+                "devices": {"11111111-1111-4111-8111-111111111111": {"revoked": True}},
+            }
+        )
+        saved = await self.store.tv_registry()
+        self.assertEqual(saved["enabled"], True)
+        self.assertEqual(saved["default_video_app"], "avt")
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
+            row = db.execute(
+                "SELECT value_json FROM preferences WHERE key='tv_registry'"
+            ).fetchone()
+            self.assertIsNotNone(row)
+        with self.assertRaises(StorageError):
+            await self.store.save_tv_registry({"enabled": True, "secret": "nope"})
+
     async def test_queue_overflow_is_visible_and_never_blocks_audio(self):
         store = OfficeStore(Path(self.temp.name) / "small.sqlite3", queue_size=1)
         await store.start()

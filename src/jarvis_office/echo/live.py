@@ -95,6 +95,7 @@ class LiveGateway(EchoGateway):
         self.record_owner: tuple[str, str, str, int] | None = None
         self.diagnostic_session: str | None = None
         self.memory_task: asyncio.Task[None] | None = None
+        self.tv: Any = None
         self.memory_status: dict[str, Any] = {
             "state": "disabled",
             "pending_turns": 0,
@@ -329,6 +330,9 @@ class LiveGateway(EchoGateway):
             "engines_ready": self.voice.ready,
             "metrics": self.voice.metrics,
             "last_turn": self.voice.results[-1] if self.voice.results else None,
+            "tv": self.tv.snapshot()
+            if self.tv is not None
+            else {"configured": False, "enabled": False, "devices": []},
         }
 
     async def dashboard_context(self, device: str) -> dict[str, Any]:
@@ -951,6 +955,7 @@ async def run_live(settings: Settings) -> None:
     gateway = LiveGateway(settings, voice, remote)
     store: Any = None
     dashboard: Any = None
+    tv_hub: Any = None
     if settings.private_product:
         from jarvis_office.dashboard import DashboardServer
         from jarvis_office.storage import OfficeStore, StorageError
@@ -973,9 +978,34 @@ async def run_live(settings: Settings) -> None:
             snapshot=gateway.dashboard_state,
             command=gateway.dashboard_command,
             context=gateway.dashboard_context,
+            tv_command=None,
             port=settings.dashboard_port,
             reports=historical_reports(),
         )
+        if settings.config_path:
+            from jarvis_office.tv import TvHub, TvSettings
+
+            tv_settings = TvSettings.load(
+                Path(settings.config_path),
+                echo_bind=settings.bind,
+                echo_port=settings.port,
+                echo_cert=settings.cert,
+                echo_key=settings.key,
+            )
+            if tv_settings is not None:
+
+                def bump_tv() -> None:
+                    gateway.event_id += 1
+
+                tv_hub = TvHub(
+                    tv_settings,
+                    store,
+                    chat=chat,
+                    on_change=bump_tv,
+                )
+                gateway.tv = tv_hub
+                voice.tv = tv_hub
+                dashboard.tv_command = tv_hub.owner_command
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -987,6 +1017,8 @@ async def run_live(settings: Settings) -> None:
             await store.start()
             for device in settings.devices:
                 store.register_device(device)
+        if tv_hub is not None:
+            await tv_hub.start()
         if dashboard is not None:
             await dashboard.start()
         async with await gateway.start():
@@ -1029,6 +1061,8 @@ async def run_live(settings: Settings) -> None:
                 {**gateway.report(), "stopped": True, "shutdown_verified": voice.shutdown_verified},
             )
         finally:
+            if tv_hub is not None:
+                await tv_hub.close()
             if dashboard is not None:
                 await dashboard.close()
             if store is not None:

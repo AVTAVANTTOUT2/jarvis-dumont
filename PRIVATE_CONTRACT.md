@@ -64,6 +64,21 @@ sans choisir ni consommer le budget nominal. Aucune capture avant le clic.
 `GET /api/context?device_id=...` => `{entries:[{text,source,age_s,expires_in_s}],
 limits:{seconds,chars,utterances},archive_enabled,next_turn_max_chars:3500}`.
 `GET /api/settings` / `POST /api/settings` => préférences non secrètes et budget.
+`POST /api/tv` (propriétaire, CSRF, loopback) =>
+`{action: enable|disable|defaults|pair|revoke, confirm?, device_id?, video?, film?}`.
+Aucun jeton TV/Echo. `pair` et `revoke` exigent `confirm: true`. Le document
+d'appairage n'est renvoyé qu'à ce POST, jamais dans `GET /api/state`.
+
+## TV v1 (contrat commun 17 septembre 2026)
+
+Listener TLS LAN distinct (`[tv]` bind/port/cert/key), même processus Office,
+jamais le dashboard. Routes appareil : `POST /tv/v1/pair`, `POST /tv/v1/session`,
+`GET /tv/v1/commands?connection_id=`, `POST /tv/v1/events`. Auth Bearer uniquement,
+jamais dans l'URL. `device_id` UUID (le testhost `tv-test` n'est pas compatible).
+File bornée, reconnexion sans replay, `completed` jamais déduit d'un intent.
+Commandes vocales après le filtre d'adresse Jarvis, JSON texte validé, jamais
+`tool_calls`. SQLite schéma 2 inchangé : registre TV dans `preferences`.
+Statut : candidat logiciel, non déployé, non homologué matériel.
 
 `GET /api/data/catalog` => `{tables:[{name,columns:[{name,type,nullable}],
 count,counted_at}],restricted, reports}`.

@@ -129,11 +129,13 @@ class Turn:
         context_metadata: dict[str, Any] | None = None,
         *,
         prepared_messages: list[dict[str, str]] | None = None,
+        speech_required: bool = True,
     ) -> None:
         self.owner, self.input, self.id = owner, text, turn_id
         self.context = context
         self.context_metadata = context_metadata or {}
         self.prepared_messages = prepared_messages
+        self.speech_required = speech_required
         self.queue: asyncio.Queue[TextEvent] = asyncio.Queue(owner.settings.queue_events)
         self.generated = self.delivered_text = ""
         self.spoken_segments: list[str] = []  # Issued to consumer, not yet confirmed as spoken.
@@ -272,7 +274,7 @@ class Turn:
                 raise ChatError("missing_returned_model")
             for segment in segmenter.finish():
                 self._emit("segment", segment)
-            if self.metrics["first_segment_s"] is None:
+            if self.speech_required and self.metrics["first_segment_s"] is None:
                 raise ChatError("empty_pronounceable_response")
             self.metrics["text_end_s"] = time.perf_counter() - self.started
             return True
@@ -315,6 +317,8 @@ class Turn:
         if delta.get("reasoning_content") or delta.get("reasoning"):
             raise ChatError("unexpected_reasoning")
         if delta.get("tool_calls") or delta.get("function_call"):
+            # Conversation and TV extraction both fail closed: TV uses a validated
+            # JSON schema over ordinary text, never executable tool_calls.
             raise ChatError("unexpected_tool_call")
         if delta.get("role") not in (None, "assistant"):
             raise ChatError("unexpected_role")
@@ -828,6 +832,26 @@ class DeepSeek:
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
+    async def collect_text(
+        self,
+        text: str,
+        *,
+        turn_id: str,
+        prepared_messages: list[dict[str, str]],
+    ) -> str:
+        """Collect a non-spoken model reply. Never confirms history or executes tools."""
+        async with self.turn(
+            text,
+            turn_id=turn_id,
+            prepared_messages=prepared_messages,
+            speech_required=False,
+        ) as turn:
+            async for _ in turn:
+                pass
+            if turn.metrics["status"] != "PASS" or not turn.generated.strip():
+                raise ChatError(turn.error or "empty_response")
+            return turn.generated
+
     @contextlib.asynccontextmanager
     async def turn(
         self,
@@ -836,6 +860,8 @@ class DeepSeek:
         turn_id: str | None = None,
         context: str = "",
         context_metadata: dict[str, Any] | None = None,
+        prepared_messages: list[dict[str, str]] | None = None,
+        speech_required: bool = True,
     ) -> AsyncIterator[Turn]:
         await self._cancel_memory_summary()
         if self._pending_memory is not None:
@@ -851,7 +877,15 @@ class DeepSeek:
         identifier = str(uuid.uuid4()) if turn_id is None else turn_id
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier):
             raise ChatError("invalid_turn_id")
-        turn = self.active = Turn(self, text, identifier, context, context_metadata)
+        turn = self.active = Turn(
+            self,
+            text,
+            identifier,
+            context,
+            context_metadata,
+            prepared_messages=prepared_messages,
+            speech_required=speech_required,
+        )
         try:
             yield turn
         finally:

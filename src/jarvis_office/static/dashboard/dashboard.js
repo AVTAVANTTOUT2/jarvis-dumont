@@ -178,6 +178,7 @@ function renderState(snapshot) {
   $('memory-overview').textContent = memory.last_error ? errorLabel({code: memory.last_error}, memoryState) : memoryState;
   if (state.online && state.page === 'overview' && oldTurnState !== `${current?.turn_id}/${current?.activity}`) loadLatest();
   if (state.page === 'settings') renderServiceState();
+  renderTv();
 }
 async function refreshState() { const snapshot = await api.get('/api/state'); renderState(snapshot); setConnected(true); return snapshot; }
 async function sendCommand(action, mode) {
@@ -406,6 +407,75 @@ async function exportData() {
   for(const format of ['csv','json']) { const button=el('button',`Confirmer l’export ${format.toUpperCase()}`,'button secondary'); button.onclick=async()=>{ button.disabled=true; try{await download('/api/data/export',{...scope,format,confirm:true},`office-${scope.table}.${format}`); $('detail-dialog').close(); notify('Export du périmètre téléchargé.','success');}catch(error){fail(error);}finally{button.disabled=false;} }; actions.append(button); }
   box.append(actions); if(!$('detail-dialog').open)$('detail-dialog').showModal();
 }
+function renderTv() {
+  const tv = state.snapshot?.tv || {};
+  const configured = tv.configured === true;
+  const enabled = tv.enabled === true;
+  const pin = typeof tv.cert_sha256 === 'string' ? tv.cert_sha256.slice(-8) : '';
+  const status = !configured
+    ? 'Listener TV non configuré. Ajoutez une section [tv] au TOML privé, hors Git.'
+    : `${enabled ? 'TV active' : 'TV désactivée'} · port ${tv.port ?? 'non mesuré'}${pin ? ` · empreinte …${pin}` : ''}.`;
+  set('tv-overview-status', status);
+  set('tv-settings-status', `${status}${tv.pairing_pending ? ' Un document d’appairage est encore valable.' : ''}`);
+  $('tv-enabled-badge').textContent = !configured ? 'ABSENT' : enabled ? 'ACTIVÉE' : 'DÉSACTIVÉE';
+  $('tv-enable').disabled = !configured || enabled || Boolean(state.pending);
+  $('tv-disable').disabled = !configured || !enabled || Boolean(state.pending);
+  $('tv-pair').disabled = !configured || !enabled || Boolean(state.pending);
+  $('tv-save-defaults').disabled = !configured || Boolean(state.pending);
+  $('tv-video-app').value = tv.defaults?.video === 'avt' ? 'avt' : 'smarttube';
+  $('tv-film-app').value = tv.defaults?.film === 'smarttube' ? 'smarttube' : 'avt';
+  const devices = Array.isArray(tv.devices) ? tv.devices : [];
+  for (const box of [$('tv-overview-devices'), $('tv-devices')]) {
+    box.replaceChildren();
+    if (!devices.length) {
+      empty(box, configured ? 'Aucun appareil TV appairé.' : 'Fonction TV absente.');
+      continue;
+    }
+    for (const item of devices) {
+      const row = el('div', undefined, 'device-row');
+      const name = el('div', item.device_id || 'appareil');
+      const result = item.last_result;
+      name.append(el('small', `${label(item.connection)} · file ${item.queue_depth ?? 0}${result?.status ? ` · dernier ${result.status}` : ''}`));
+      const apps = item.capabilities?.apps || {};
+      row.append(
+        name,
+        badge(item.connection),
+        el('span', `SmartTube ${apps.smarttube?.installed ? 'installé' : 'absent'} · AVT ${apps.avt?.installed ? 'installé' : 'absent'}`),
+      );
+      if (box.id === 'tv-devices') {
+        const revoke = el('button', 'Révoquer…', 'button danger-soft');
+        revoke.type = 'button';
+        revoke.onclick = () => revokeTv(item.device_id);
+        row.append(revoke);
+      }
+      box.append(row);
+    }
+  }
+}
+async function sendTv(body, success) {
+  try {
+    const result = await api.post('/api/tv', body, {timeout:8500});
+    if (result.status === 'rejected' || result.error) throw {code: result.error || 'INVALID_REQUEST'};
+    await refreshState();
+    if (success) notify(success, 'success');
+    return result;
+  } catch (error) { fail(error); return null; }
+}
+async function pairTv() {
+  if (!await confirmAction('Appairer une télévision ?', 'Un document d’appairage à usage unique sera téléchargé. Importez-le uniquement sur l’appareil TV prévu. Le code n’est pas affiché dans cette page.', 'Télécharger le document')) return;
+  const result = await sendTv({action:'pair', confirm:true});
+  if (!result?.document) return;
+  const blob = new Blob([JSON.stringify(result.document)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const link = el('a'); link.href = url; link.download = 'jarvis-tv-pairing.json';
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  notify('Document d’appairage téléchargé. Il expire rapidement.', 'success');
+}
+async function revokeTv(deviceId) {
+  if (!deviceId || !await confirmAction('Révoquer cet appareil TV ?', 'Le jeton actuel sera invalidé. L’appareil devra être réappairé. Aucune commande en file ne sera rejouée.', 'Révoquer')) return;
+  await sendTv({action:'revoke', device_id:deviceId, confirm:true}, 'Appareil TV révoqué.');
+}
 function renderServiceState() {
   const box=$('settings-devices'); box.replaceChildren();
   for(const item of state.snapshot?.devices || []) { const row=el('div',undefined,'device-row'); const name=el('div',item.name || item.device_id); name.append(el('small',item.device_id)); row.append(name,badge(item.connection),el('span',`${label(item.confirmed_mode)} · micro ${item.physical?.microphone === true ? 'ouvert' : item.physical?.microphone === false ? 'fermé' : 'non mesuré'}`)); box.append(row); }
@@ -432,6 +502,7 @@ async function showSettings() {
     set('memory-status', memory.last_error ? errorLabel({code:memory.last_error}) : `État : ${memory.state || 'disabled'} · ${pending}.`);
     $('clear-memory').disabled = !device() || Boolean(state.pending);
     renderServiceState();
+    renderTv();
   } catch(error) { $('settings-form').inert=true; fail(error); }
 }
 async function saveSettings(event) {
@@ -501,6 +572,10 @@ $('data-prev').onclick=()=>{state.dataOffset=Math.max(0,state.dataOffset-Number(
 $('data-next').onclick=()=>{state.dataOffset+=Number($('data-limit').value);loadRows();};
 $('export-data').onclick=exportData;
 $('settings-refresh').onclick=showSettings; $('settings-form').onsubmit=saveSettings;
+$('tv-enable').onclick=()=>sendTv({action:'enable'}, 'Fonction TV activée.');
+$('tv-disable').onclick=()=>sendTv({action:'disable'}, 'Fonction TV désactivée. Les sessions ouvertes sont coupées.');
+$('tv-save-defaults').onclick=()=>sendTv({action:'defaults', video:$('tv-video-app').value, film:$('tv-film-app').value}, 'Applications TV par défaut enregistrées.');
+$('tv-pair').onclick=pairTv;
 $('purge-conversations').onclick=()=>purge('conversations'); $('purge-passive').onclick=()=>purge('passive_archives');
 $('download-backup').onclick=async()=>{if(await confirmAction('Télécharger une sauvegarde privée ?','Le fichier contiendra la base Office autorisée avec ses conversations et archives. Conservez cette copie dans un emplacement privé. Une purge future ne supprimera pas cette copie.','Télécharger')){try{await download('/api/data/backup',{confirm:true},'office-backup.sqlite3');notify('Sauvegarde cohérente téléchargée.','success');}catch(error){fail(error);}}};
 $('close-detail').onclick=()=>$('detail-dialog').close();

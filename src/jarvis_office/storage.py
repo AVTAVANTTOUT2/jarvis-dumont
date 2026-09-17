@@ -781,6 +781,45 @@ class OfficeStore:
     async def echo_mode(self, device_id: str) -> str:
         return str(await self._call(self._echo_mode, _identifier(device_id)))
 
+    async def tv_registry(self) -> dict[str, Any]:
+        raw = await self._call(self._tv_registry)
+        data = json.loads(raw) if raw else {}
+        if not isinstance(data, dict):
+            data = {}
+        devices = data.get("devices")
+        return {
+            "enabled": data.get("enabled") is True,
+            "default_video_app": data["default_video_app"]
+            if data.get("default_video_app") in {"smarttube", "avt"}
+            else "smarttube",
+            "default_film_app": data["default_film_app"]
+            if data.get("default_film_app") in {"smarttube", "avt"}
+            else "avt",
+            "devices": devices if isinstance(devices, dict) else {},
+        }
+
+    def _tv_registry(self, db: sqlite3.Connection) -> str:
+        row = db.execute("SELECT value_json FROM preferences WHERE key='tv_registry'").fetchone()
+        return str(row["value_json"]) if row else ""
+
+    async def save_tv_registry(self, registry: dict[str, Any]) -> None:
+        if not isinstance(registry, dict) or not registry.keys() <= {
+            "enabled",
+            "default_video_app",
+            "default_film_app",
+            "devices",
+        }:
+            raise StorageError("INVALID_TV_REGISTRY")
+        await self._call(self._save_tv_registry, _json(registry))
+
+    def _save_tv_registry(self, db: sqlite3.Connection, payload: str) -> None:
+        with db:
+            db.execute(
+                "INSERT INTO preferences VALUES ('tv_registry', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                (payload,),
+            )
+
     def _echo_mode(self, db: sqlite3.Connection, device: str) -> str:
         row = db.execute("SELECT value_json FROM preferences WHERE key='echo_modes'").fetchone()
         if row is None:

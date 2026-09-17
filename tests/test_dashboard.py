@@ -246,6 +246,37 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 413)
         await response.release()
 
+    async def test_tv_route_owner_only_and_rejects_device_bearer(self):
+        response = await self.post(
+            "/api/tv", {"action": "enable"}, **{"Authorization": "Bearer tv"}
+        )
+        self.assertEqual(response.status, 403)
+        await response.release()
+        response = await self.post("/api/tv", {"action": "enable"}, **{"X-CSRF-Token": "bad"})
+        self.assertEqual(response.status, 403)
+        await response.release()
+        response = await self.post("/api/tv", {"action": "enable"})
+        self.assertEqual(response.status, 404)
+        self.assertEqual((await response.json())["error"], "TV_NOT_CONFIGURED")
+        captured: list[dict] = []
+
+        async def tv_command(body: dict) -> dict:
+            captured.append(body)
+            return {"status": "applied", "error": None}
+
+        self.server.tv_command = tv_command
+        response = await self.post("/api/tv", {"action": "enable", "extra": True})
+        self.assertEqual(response.status, 400)
+        await response.release()
+        response = await self.post("/api/tv", {"action": "pair", "confirm": True})
+        self.assertEqual(response.status, 200)
+        self.assertEqual((await response.json())["status"], "applied")
+        self.assertEqual(captured, [{"action": "pair", "confirm": True}])
+        async with self.client.get(self.server.url + "/api/tv") as get:
+            self.assertIn(get.status, {404, 405})
+            await get.release()
+        self.assertEqual(len(captured), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

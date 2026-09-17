@@ -37,6 +37,7 @@ class DashboardServer:
         snapshot: Callable[[], Awaitable[dict[str, Any]]],
         command: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
         context: Callable[[str], Awaitable[dict[str, Any]]],
+        tv_command: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         host: str = "127.0.0.1",
         port: int = 8768,
         reports: list[dict[str, Any]] | None = None,
@@ -45,6 +46,7 @@ class DashboardServer:
             raise ValueError("DASHBOARD_LOOPBACK_ONLY")
         self.store, self.snapshot_callback = store, snapshot
         self.command_callback, self.context_callback = command, context
+        self.tv_command = tv_command
         self.host, self.port = host, port
         self.reports = reports or []
         self.runner: web.AppRunner | None = None
@@ -75,6 +77,7 @@ class DashboardServer:
                 web.get("/api/state", self._state),
                 web.get("/api/events", self._events),
                 web.post("/api/command", self._command),
+                web.post("/api/tv", self._tv),
                 web.get("/api/context", self._context),
                 web.get("/api/settings", self._settings),
                 web.post("/api/settings", self._settings),
@@ -328,6 +331,24 @@ class DashboardServer:
                 "error": "COMMAND_TIMEOUT",
             }
         return web.json_response(result)
+
+    async def _tv(self, request: web.Request) -> web.Response:
+        if self.tv_command is None:
+            return self._error("TV_NOT_CONFIGURED", 404)
+        body = await self._body(request)
+        if not isinstance(body.get("action"), str) or not body.keys() <= {
+            "action",
+            "confirm",
+            "device_id",
+            "video",
+            "film",
+        }:
+            raise ValueError()
+        try:
+            async with asyncio.timeout(8):
+                return web.json_response(await self.tv_command(body))
+        except TimeoutError:
+            return web.json_response({"status": "rejected", "error": "COMMAND_TIMEOUT"})
 
     async def _context(self, request: web.Request) -> web.Response:
         device = request.query.get("device_id", "")

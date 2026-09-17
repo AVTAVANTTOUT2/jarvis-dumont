@@ -5,6 +5,14 @@ existant. Le Mac écoute le gateway uniquement sur l'adresse Ethernet configuré
 en WSS et avec une identité par appareil. Le dashboard reste sur
 `http://127.0.0.1:8768/` ; aucune exposition LAN administrateur n'est implémentée.
 
+La TV, si `[tv]` est présent dans le TOML privé (0600), ouvre un listener TLS
+LAN distinct du dashboard et du WSS Echo : bind/port/cert/key explicites, port
+≠ Echo et ≠ 8768. Clé 0600. `avt_allowed_cert_sha256` est une liste d'empreintes
+publiques, jamais une clé privée. Activer la fonction et télécharger le document
+d'appairage se fait depuis Réglages (POST `/api/tv`). Importer le JSON seulement
+sur l'APK TV prévu. Révoquer invalide le jeton ; aucune commande n'est rejouée.
+Cette candidate n'est pas une activation de release.
+
 Le lancement utilise `current/main/bin/python -I -B -m
 jarvis_office.private_service install|start|stop|status` depuis le dossier privé
 Office, jamais le checkout. Le LaunchAgent `com.jarvisoffice.private` démarre OFF

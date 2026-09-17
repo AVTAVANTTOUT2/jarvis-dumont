@@ -14,6 +14,17 @@
   Cette version n’est pas activée en production ni installée sur l’Echo ;
   validation visuelle et performance matérielle restent à effectuer.
 
+## Travail local — lot Jarvis TV v1, 17 septembre 2026
+
+- Worktree `feature/tv-v1-office` : serveur `/tv/v1`, file bornée, dispatcher
+  vocal après adresse Jarvis, UI dashboard loopback. Schéma SQLite 2 inchangé
+  (`preferences.tv_registry`). Aucune release, activation `current`, LaunchAgent
+  ou runtime de production depuis le checkout.
+- Candidat intégré sur la base de la release active `d816fb01e394`, orbes
+  conservées. Le service AVT Binder et le récepteur TV existent dans leurs lots.
+  Testhost corrigé avec UUID. Qualification Philips et livraison en cours ;
+  aucun résultat matériel n'est déduit des tests unitaires.
+
 ## Mise en service — Prompt vocal, 16 septembre 2026
 
 - Release `0.3.0-72b08a88cbc6` vérifiée puis activée atomiquement ; la

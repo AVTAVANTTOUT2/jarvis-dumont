@@ -68,6 +68,7 @@ class VoiceLoop:
         self.request_context_metadata: dict[str, Any] | None = None
         self.abort_turn: str | None = None
         self.abort_task: asyncio.Task[dict[str, Any]] | None = None
+        self.tv: Any = None
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -230,13 +231,46 @@ class VoiceLoop:
             self.output_device = result["device"]
         if self.turn != identifier:
             raise asyncio.CancelledError
-        async with self.chat.turn(
-            question, turn_id=identifier, context=context, context_metadata=context_metadata
-        ) as turn:
+        tv_speech: str | None = None
+        if self.tv is not None:
+            tv_speech = await self.tv.handle_addressed(question, identifier)
+            if self.turn != identifier:
+                raise asyncio.CancelledError
+        turn_context: Any = (
+            contextlib.nullcontext(None)
+            if tv_speech is not None
+            else self.chat.turn(
+                question, turn_id=identifier, context=context, context_metadata=context_metadata
+            )
+        )
+        async with turn_context as chat_turn:
+            if tv_speech is not None:
+
+                class _TvTurn:
+                    def __init__(self) -> None:
+                        self.started = time.perf_counter()
+                        self.metrics: dict[str, Any] = {"path": "tv_dispatcher"}
+                        self.invalidated = True
+
+                    async def cancel(self) -> None:
+                        return None
+
+                turn: Any = _TvTurn()
+                self.answer = tv_speech
+            else:
+                turn = chat_turn
             self.metrics["request_started"] = turn.started
 
             async def receive() -> None:
                 nonlocal queued_chars
+                if tv_speech is not None:
+                    if queued_chars + len(tv_speech) > self.config.voice.text_queue_chars:
+                        raise LoopError("text_queue_full")
+                    queued_chars += len(tv_speech)
+                    self.metrics["text_queue_peak_chars"] = queued_chars
+                    queue.put_nowait(tv_speech)
+                    queue.put_nowait(None)
+                    return
                 async for event in turn:
                     if self.turn != identifier or event.turn_id != identifier:
                         raise LoopError("stale_text_turn")
@@ -541,6 +575,10 @@ class VoiceLoop:
                 raise LoopError("unknown_control")
             self.armed = False  # A finally can never re-arm an intentional pause.
             old_turn, self.turn = self.turn, ""
+            if self.tv is not None and old_turn:
+                self.tv.cancel_turn(old_turn)
+            if action == "clear" and self.tv is not None:
+                self.tv.clear_dialogue()
             self.state = "stopping" if action == "stop" else "paused"
             task = self.task
             if task is not None and not task.done() and not task.cancelling():
