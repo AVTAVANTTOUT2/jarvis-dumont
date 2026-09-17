@@ -112,8 +112,16 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(parse_local("mets la table", FakeHub()))
         self.assertEqual(parse_local("pause", FakeHub())["action"], "pause")
         self.assertEqual(parse_local("lance interstellar", FakeHub())["action"], "search")
-        parsed = parse_local("je mette Petunia de Werenoi sur la télé", FakeHub())
-        self.assertEqual(parsed["args"]["query"], "petunia de werenoi")
+        for phrase in (
+            "je mette Petunia de Werenoi sur la télé",
+            "mets-moi Petunia de Werenoi sur SmartTube",
+            "trouve Petunia de Werenoi sur YouTube",
+            "je veux regarder Petunia de Werenoi sur SmartTube",
+            "peux-tu lancer Petunia de Werenoi sur ma TV",
+        ):
+            parsed = parse_local(phrase, FakeHub())
+            self.assertIsNotNone(parsed)
+            self.assertEqual(parsed["args"]["query"], "petunia de werenoi")
 
     async def test_disabled_or_disconnected_or_unsupported(self) -> None:
         hub = FakeHub(_device())

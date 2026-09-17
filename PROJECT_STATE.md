@@ -20,8 +20,8 @@
   vocal après adresse Jarvis, UI dashboard loopback. Schéma SQLite 2 inchangé
   (`preferences.tv_registry`). La release privée active est construite et activée
   depuis un commit ; aucun runtime de production ne démarre depuis le checkout.
-- Candidat intégré sur la base de la release active `d816fb01e394`, orbes
-  conservées. Le service AVT Binder et le récepteur TV existent dans leurs lots.
+- Candidat intégré dans la release active `0.3.0-9e800395f83e`. Le service AVT
+  Binder et le récepteur TV existent dans leurs lots.
   Testhost corrigé avec UUID. Qualification Philips et livraison privée terminées ;
   aucun résultat matériel n'est déduit des tests unitaires.
 
@@ -50,6 +50,9 @@
 - SmartTube : `yt-dlp` local résout les titres sans télécharger de média, valide
   les identifiants YouTube et choisit le premier résultat. Le test réel
   « Petunia de Werenoi » a ouvert SmartTube sur la Philips et affiché le clip.
+- Compréhension : le parseur local accepte les formulations polies et le prompt
+  d'extraction demande une étape vérifiable au lieu d'un refus global ; six
+  extractions DeepSeek réelles ont renvoyé `smarttube/search` sans action TV.
 
 ## Mise en service — Prompt vocal, 16 septembre 2026
 

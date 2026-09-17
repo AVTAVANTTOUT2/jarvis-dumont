@@ -3,7 +3,7 @@
 Date : 17 septembre 2026
 Contrat : `00_CONTRAT_COMMUN_TV_V1` (17 septembre 2026)
 Intégration finale : worktree `jarvis-office-tv-final`, branche `codex/tv-integration-private`.
-Base : release active `d816fb01e394`, incluant les orbes interactives.
+Base : release active `0.3.0-9e800395f83e`.
 Validation finale : 278 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
 Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**, non homologué acoustiquement.
 
@@ -97,8 +97,10 @@ une réponse invalide, aucune commande de lecture n'est émise et Jarvis l'annon
 `completed` pour `play_content` sans playback frais concordant est ramené à
 `dispatched`. Reconnexion : commandes non lues → `unknown`, pas de replay.
 
-Voix : parseur local fermé, sinon extraction JSON via `collect_text` (budget
-nominal, `unexpected_tool_call` inchangé). Le JSON n'est pas lu au TTS.
+Voix : parseur local fermé (variantes `mets-moi`, `trouve`, `regarde`, `lance`,
+formules polies), sinon extraction JSON via `collect_text` (budget nominal,
+`unexpected_tool_call` inchangé). Le JSON n'est pas lu au TTS ; le modèle reçoit
+une consigne d'étape vérifiable plutôt qu'un refus global.
 Annuler/Pause invalide le tour TV ; Effacer oublie les candidats.
 
 ## État des autres lots après raccordement
