@@ -681,7 +681,8 @@ class DeepSeek:
                 # Turn._read enforces first-content and idle deadlines itself, always earlier.
                 read=max(settings.first_content_timeout, settings.idle_timeout),
             ),
-            limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
+            # Keep a slot for a foreground voice turn while a cancellable memory rollup drains.
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=2),
             transport=transport,
         )
         self.history: list[tuple[str, str]] = []
