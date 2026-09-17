@@ -3,14 +3,18 @@
 Date : 17 septembre 2026
 Contrat : `00_CONTRAT_COMMUN_TV_V1` (17 septembre 2026)
 Intégration finale : worktree `jarvis-office-tv-final`, branche `codex/tv-integration-private`.
-Base : release active `0.3.0-251edef1cb4d`.
+Base : release active `0.3.0-d72cdac3545d`.
 Validation finale : 278 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
 Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**, non homologué acoustiquement.
 
-Release privée active : `0.3.0-251edef1cb4d` (wheel vérifiée, activation atomique).
+Release privée active : `0.3.0-d72cdac3545d` (wheel vérifiée, activation atomique).
 La branche privée `codex/tv-integration-private` est poussée. Echo reste OFF,
 microphone fermé.
 Récepteur TV et AVT debug installés sur la Philips ; AVT habituel conservé.
+
+Le client DeepSeek garde deux connexions HTTP bornées : une requête vocale au
+premier plan reste possible pendant l'annulation d'un rollup mémoire. Cela évite
+le `PoolTimeout` qui pouvait interrompre un tour Echo avant sa réponse.
 Appairage TLS réel et Binder réel validés. La campagne HTTPS sans ADB a validé
 AVT search/play/pause/resume/seek/stop ; la qualification physique complète est
 suivie dans `jarvis-tv/docs/QUALIFICATION_2026-09-17.md`.
