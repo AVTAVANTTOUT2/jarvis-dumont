@@ -53,6 +53,12 @@
 - SmartTube : `yt-dlp` local résout les titres sans télécharger de média, valide
   les identifiants YouTube et choisit le premier résultat. Le test réel
   « Petunia de Werenoi » a ouvert SmartTube sur la Philips et affiché le clip.
+- Playlists SmartTube (worktree `jarvis-office-tv-final`, non activées dans la
+  release courante) : page dashboard, persistance locale, « playlist numéro N »
+  et « suivante ». L'auto-avancement lie l'identité observée (SmartTube ne
+  renvoie pas `playback_id` dans `play_content`) et la position réelle, durée
+  yt-dlp si `duration_ms` manque. Preuve unitaire seulement, pas un enchaînement
+  matériel Philips.
 - Compréhension : le parseur local accepte les formulations polies et le prompt
   d'extraction demande une étape vérifiable au lieu d'un refus global ; six
   extractions DeepSeek réelles ont renvoyé `smarttube/search` sans action TV.

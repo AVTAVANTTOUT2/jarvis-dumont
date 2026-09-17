@@ -15,7 +15,10 @@ from jarvis_office.tv.protocol import QUERY_MAX, SEARCH_LIMIT_MAX, YOUTUBE_RE
 
 SEARCH_TIMEOUT_S = 15.0
 SEARCH_OUTPUT_MAX = 2 * 1024 * 1024
-METADATA_OUTPUT_MAX = 512 * 1024
+# Only title and duration are requested, so the payload stays a few hundred bytes; the
+# full extraction dump (formats/storyboards) routinely exceeds 512 KiB and was rejected.
+METADATA_OUTPUT_MAX = 64 * 1024
+METADATA_PRINT_TEMPLATE = "%(.{title,duration})j"
 
 
 class SmartTubeSearchError(Exception):
@@ -184,7 +187,8 @@ async def metadata_smarttube(video_id: str) -> dict[str, Any]:
     try:
         process = await asyncio.create_subprocess_exec(
             binary,
-            "--dump-single-json",
+            "--print",
+            METADATA_PRINT_TEMPLATE,
             "--no-warnings",
             "--no-call-home",
             "--no-playlist",

@@ -65,9 +65,12 @@ sans choisir ni consommer le budget nominal. Aucune capture avant le clic.
 limits:{seconds,chars,utterances},archive_enabled,next_turn_max_chars:3500}`.
 `GET /api/settings` / `POST /api/settings` => préférences non secrètes et budget.
 `POST /api/tv` (propriétaire, CSRF, loopback) =>
-`{action: enable|disable|defaults|pair|revoke, confirm?, device_id?, video?, film?}`.
+`{action: enable|disable|defaults|pair|revoke|playlist_create|playlist_add|playlist_remove|playlist_delete|playlist_play, confirm?, device_id?, video?, film?, name?, playlist_id?, track_id?, url?}`.
 Aucun jeton TV/Echo. `pair` et `revoke` exigent `confirm: true`. Le document
 d'appairage n'est renvoyé qu'à ce POST, jamais dans `GET /api/state`.
+Playlists SmartTube numérotées, URLs YouTube persistées dans le registre TV.
+L'enchaînement utilise l'état de lecture frais (identité, position, durée
+observée ou métadonnée yt-dlp), jamais un minuteur. « suivante » oral saute.
 
 ## TV v1 (contrat commun 17 septembre 2026)
 

@@ -236,6 +236,20 @@ class VoiceLoop:
             tv_speech = await self.tv.handle_addressed(question, identifier)
             if self.turn != identifier:
                 raise asyncio.CancelledError
+        if tv_speech == "":
+            # Short transport command handled with nothing to say: no TTS, no LLM.
+            await self._abort_audio(identifier)
+            self.answer = ""
+            self.metrics.update(
+                status="PASS",
+                playback="NOT_RUN",
+                llm={"path": "tv_dispatcher", "spoken": False},
+            )
+            self.results.append(dict(self.metrics))
+            del self.results[:-20]
+            if self.on_turn_finished is not None:
+                self.on_turn_finished(identifier, text, "", "", dict(self.metrics))
+            return
         turn_context: Any = (
             contextlib.nullcontext(None)
             if tv_speech is not None

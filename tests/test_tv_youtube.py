@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import tempfile
 import unittest
+from pathlib import Path
+
+from unittest.mock import patch
 
 from jarvis_office.tv.hub import _playlist_reached_end
 from jarvis_office.tv.youtube import (
     SmartTubeSearchError,
+    metadata_smarttube,
     parse_entries,
     parse_metadata,
     youtube_id_from_url,
@@ -61,6 +67,24 @@ class SmartTubeSearchTests(unittest.TestCase):
         self.assertTrue(_playlist_reached_end(base))
         self.assertFalse(_playlist_reached_end({**base, "state": "paused"}))
         self.assertFalse(_playlist_reached_end({**base, "position_ms": 8000}))
+
+    def test_metadata_asks_yt_dlp_for_a_compact_payload(self) -> None:
+        video_id = "abcdefghijk"
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / "yt-dlp"
+            binary.write_text(
+                "#!/bin/sh\n"
+                'for arg in "$@"; do\n'
+                '  if [ "$arg" = "--dump-single-json" ]; then exit 3; fi\n'
+                "done\n"
+                "printf '%s\\n' '{\"title\": \"Track\", \"duration\": 163}'\n"
+            )
+            binary.chmod(0o755)
+            with patch("jarvis_office.tv.youtube._binary", return_value=str(binary)):
+                metadata = asyncio.run(metadata_smarttube(video_id))
+        self.assertEqual(metadata["title"], "Track")
+        self.assertEqual(metadata["duration_ms"], 163000)
+        self.assertEqual(metadata["content"], {"kind": "youtube_video", "id": video_id})
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ const ERROR_LABELS = {
   PLAYLIST_LIMIT: 'La playlist a atteint sa limite de morceaux.',
   TRACK_NOT_FOUND: 'Ce morceau n’existe plus dans la playlist.',
   PLAYLIST_NOT_RUNNING: 'Aucune playlist n’est en cours.',
+  PLAYLIST_CHANGED: 'La playlist en cours a été modifiée. Relancez-la pour reprendre.',
   QUERY_RESULT_TOO_LARGE_REDUCE_PAGE: 'Ce résultat dépasse la limite de 4 Mio. Réduisez la taille de page ou ajoutez un filtre.',
   connect_timeout: 'Délai du client HTTP DeepSeek du Mac : connexion au service non établie à temps.',
   first_content_timeout: 'Délai du client HTTP DeepSeek du Mac : aucun texte utile reçu avant l’échéance de premier contenu.',

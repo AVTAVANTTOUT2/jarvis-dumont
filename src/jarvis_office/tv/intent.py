@@ -93,6 +93,7 @@ ERROR_SPEECH = {
     "METADATA_UNAVAILABLE": "Je n'ai pas pu lire les métadonnées de cette vidéo.",
     "TRACK_NOT_FOUND": "Ce morceau n'existe plus dans la playlist.",
     "PLAYBACK_CHANGED": "La playlist a été interrompue par une autre lecture.",
+    "PLAYLIST_CHANGED": "La playlist a été modifiée. Relancez-la pour reprendre l'ordre prévu.",
 }
 
 
@@ -129,11 +130,17 @@ def default_app(hub: Any, question: str) -> str:
 
 def parse_local(question: str, hub: Any) -> dict[str, Any] | None:
     text = re.sub(r"[-‐‑‒–—]+", " ", fold(question)).strip()
-    if re.search(r"\b(suivante?|morceau suivant|chanson suivante|passe au suivant)\b", text):
+    if re.fullmatch(
+        r"(?:(?:mets?|passe(?:r)?)\s+(?:(?:a|au|la)\s+)*)?(?:(?:le|la)\s+)?"
+        r"(?:(?:morceau|titre|chanson|piste)\s+)?suivant[e]?",
+        text,
+    ):
         return {"kind": "command", "app": "smarttube", "action": "playlist_next", "args": {}}
     playlist = re.search(
         r"\b(?:playlists?|playliste|listes?\s+de\s+lecture)\b"
-        r"(?:\s+(?:numero|n|#)\s*)?(\d+|premier|premiere|deuxieme|second|seconde|troisieme)?\b",
+        r"(?:\s+(?:numero|n(?:umero|°|o)?|#)\s*)?\s*"
+        r"(\d+|premier|premiere|un|une|deuxieme|deux|second|seconde|troisieme|trois|"
+        r"quatre|cinq|six|sept|huit|neuf|dix)?\b",
         text,
     )
     if playlist:
@@ -146,7 +153,14 @@ def parse_local(question: str, hub: Any) -> dict[str, Any] | None:
             "seconde": 1,
             "troisieme": 2,
         }
-        index = int(raw_index) - 1 if raw_index and raw_index.isdigit() else words.get(raw_index)
+        if raw_index and raw_index.isdigit():
+            index = int(raw_index) - 1
+        elif raw_index in words:
+            index = words[raw_index]
+        elif raw_index in WORDS:
+            index = WORDS[raw_index] - 1
+        else:
+            index = None
         return {
             "kind": "command",
             "app": "smarttube",
@@ -226,6 +240,9 @@ def speak_error(code: str | None) -> str:
     return ERROR_SPEECH.get(code or "INTERNAL_ERROR", ERROR_SPEECH["INTERNAL_ERROR"])
 
 
+SILENT_ACTIONS = frozenset({"pause", "resume", "stop", "seek"})
+
+
 def speak_result(action: str, outcome: dict[str, Any], title: str | None) -> str:
     status = outcome.get("status")
     error = outcome.get("error_code")
@@ -235,6 +252,8 @@ def speak_result(action: str, outcome: dict[str, Any], title: str | None) -> str
         return speak_error(str(error))
     if status in {"rejected", "failed", "expired"}:
         return speak_error(error)
+    if action in SILENT_ACTIONS and status in {"dispatched", "completed"}:
+        return ""  # Short transport commands act without talking back.
     playback = outcome.get("playback")
     if action == "play_content" and isinstance(playback, dict):
         shown = title or "le contenu demandé"
@@ -246,14 +265,6 @@ def speak_result(action: str, outcome: dict[str, Any], title: str | None) -> str
         return "Voici ce que la télé a trouvé."
     if action == "get_state":
         return "Voici l'état observé."
-    if action in {"pause", "resume", "stop", "seek"} and status in {"dispatched", "completed"}:
-        labels = {
-            "pause": "Pause demandée.",
-            "resume": "Reprise demandée.",
-            "stop": "Arrêt demandé.",
-            "seek": "Position demandée.",
-        }
-        return labels[action]
     return "La télé n'a pas confirmé le résultat."
 
 
@@ -419,7 +430,7 @@ async def run_command(
                 await hub.prepare(app="smarttube", turn_id=turn_id)
             except TvProtocolError as exc:
                 return speak_error(exc.error_code)
-        result = await hub.start_playlist(index, prepared=True)
+        result = await hub.start_playlist(index)
         if result.get("status") == "rejected":
             return speak_error(result.get("error"))
         command_id = result.get("command_id")
@@ -445,10 +456,7 @@ async def run_command(
             return "La playlist est déjà terminée."
         outcome = await hub.wait_result(command_id, turn_id, 32.0)
         if outcome.get("status") in {"completed", "dispatched"}:
-            title = result.get("title") or "le morceau suivant"
-            if isinstance(outcome.get("playback"), dict):
-                return f"Suivant : {title}."
-            return f"Morceau suivant envoyé à SmartTube : {title}."
+            return ""  # A short skip acts without talking back.
         return speak_error(outcome.get("error_code"))
     device = hub.connected()
     chosen = parsed.get("app") or (

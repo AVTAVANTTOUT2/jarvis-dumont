@@ -82,5 +82,5 @@ test('every statically referenced control exists and no browser capture or HTML 
   for (const match of js.matchAll(/\$\('([^']+)'\)/g)) assert.ok(ids.has(match[1]),`missing control ${match[1]}`);
   assert.equal(ids.size,[...html.matchAll(/\bid="([^"]+)"/g)].length,'duplicate HTML ID');
   assert.doesNotMatch(js+source,/innerHTML|outerHTML|insertAdjacentHTML|getUserMedia|localStorage|sessionStorage/);
-  assert.equal([...html.matchAll(/class="page"/g)].length,5);
+  assert.equal([...html.matchAll(/class="page"/g)].length,6);
 });

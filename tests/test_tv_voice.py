@@ -132,6 +132,10 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(parse_local("suivante", FakeHub())["action"], "playlist_next")
+        self.assertEqual(parse_local("mets la playlist une", FakeHub())["args"]["index"], 0)
+        self.assertNotEqual(
+            (parse_local("semaine suivante", FakeHub()) or {}).get("action"), "playlist_next"
+        )
         for phrase in (
             "je mette Petunia de Werenoi sur la télé",
             "mets-moi Petunia de Werenoi sur SmartTube",
@@ -172,7 +176,7 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         hub._device.apps["smarttube"]["actions"] = ["pause", "play_content", "get_state"]
-        self.assertIn("Pause demandée", await dispatch(hub, "pause", "t") or "")
+        self.assertEqual(await dispatch(hub, "pause", "t"), "")
         hub._device.apps["smarttube"]["actions"] = ["play_content"]
         hub.outcomes = [
             {"status": "dispatched", "error_code": None, "result": None, "playback": None},
@@ -256,6 +260,63 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.02)
         slow._turns.discard("live")
         self.assertIn("pas de confirmation", await task or "")
+
+    async def test_short_transport_commands_are_silent(self) -> None:
+        hub = FakeHub(
+            _device(
+                playback={
+                    "app": "smarttube",
+                    "playback_id": "p1",
+                    "position_ms": 5000,
+                    "observed_at_ms": 1_700_000_000_000,
+                    "valid_for_ms": 5000,
+                    "state": "playing",
+                }
+            )
+        )
+        for phrase in ("pause", "reprends", "arrete", "avance de 30 secondes"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(await dispatch(hub, phrase, "turn1"), "")
+        stale = FakeHub(_device())
+        self.assertIn("lecture fraîche", await dispatch(stale, "pause", "turn1") or "")
+
+    async def test_voice_loop_silent_tv_command_skips_llm_and_tts(self) -> None:
+        streams: list[SSEStream] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            del request
+            stream = SSEStream(["Réponse conversation. "])
+            streams.append(stream)
+            return httpx.Response(200, stream=stream, headers={"content-type": "text/event-stream"})
+
+        audio, tts = FakeAudio(), FakeTTS()
+        chat = DeepSeek("test_key_only", Chat(), transport=httpx.MockTransport(handler))
+        voice = VoiceLoop(Config(), Path("unused.toml"), chat, audio=audio, tts=tts)
+        await voice.start()
+
+        class SilentTv:
+            async def handle_addressed(self, question: str, turn_id: str) -> str | None:
+                del turn_id
+                return "" if "pause" in question.lower() else None
+
+            def cancel_turn(self, turn_id: str) -> None:
+                del turn_id
+
+            def clear_dialogue(self) -> None:
+                return None
+
+        voice.tv = SilentTv()
+        try:
+            await voice.test_text("Jarvis, mets pause", no_play=True)
+            self.assertEqual(tts.texts, [])
+            self.assertEqual(streams, [])
+            self.assertEqual(voice.answer, "")
+            self.assertEqual(voice.metrics["status"], "PASS")
+            self.assertEqual(voice.metrics["llm"], {"path": "tv_dispatcher", "spoken": False})
+            self.assertIsNone(voice.error)
+            self.assertEqual(chat.history, [])
+        finally:
+            await voice.control("stop")
 
     async def test_voice_loop_tv_intercept_skips_llm_and_unaddressed_never_hits_tv(self) -> None:
         streams: list[SSEStream] = []

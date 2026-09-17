@@ -117,19 +117,44 @@ def _normalize_playlists(raw: object) -> list[dict[str, Any]]:
     return playlists
 
 
-def _playlist_reached_end(playback: object) -> bool:
+def _playback_id_of(playback: object) -> str | None:
+    if not isinstance(playback, dict):
+        return None
+    playback_id = playback.get("playback_id")
+    return playback_id if isinstance(playback_id, str) and playback_id else None
+
+
+def _playlist_reached_end(
+    playback: object,
+    *,
+    duration_ms: object = None,
+    high_position_ms: object = None,
+) -> bool:
     if not isinstance(playback, dict):
         return False
-    if playback.get("state") == "ended":
+    state = playback.get("state")
+    if state == "paused":
+        return False
+    if state == "ended":
         return True
-    duration, position = playback.get("duration_ms"), playback.get("position_ms")
-    if type(duration) is not int or type(position) is not int or duration <= 0:
+    duration = playback.get("duration_ms")
+    if type(duration) is not int or duration <= 0:
+        if state == "playing":
+            return False
+        duration = duration_ms if type(duration_ms) is int and duration_ms > 0 else None
+    if type(duration) is not int or duration <= 0:
         return False
-    if playback.get("state") == "paused":
+    position = playback.get("position_ms")
+    if type(position) is not int:
+        position = None
+    if type(high_position_ms) is int:
+        position = high_position_ms if position is None else max(position, high_position_ms)
+    if type(position) is not int:
         return False
-    if playback.get("state") == "stopped":
+    if state == "stopped":
         return position >= max(0, duration - PLAYLIST_END_TOLERANCE_MS)
-    return playback.get("state") == "playing" and position >= duration
+    live_position = playback.get("position_ms")
+    return state == "playing" and type(live_position) is int and live_position >= duration
 
 
 @dataclass(frozen=True)
@@ -426,6 +451,8 @@ class TvHub:
             if not name:
                 return {"status": "rejected", "error": "INVALID_REQUEST"}
             registry = await self._registry()
+            if len(registry["playlists"]) >= PLAYLIST_MAX:
+                return {"status": "rejected", "error": "PLAYLIST_LIMIT"}
             created = {"id": str(uuid.uuid4()), "name": name, "tracks": []}
             registry["playlists"].append(created)
             await self._save_registry(registry)
@@ -448,19 +475,23 @@ class TvHub:
                 metadata = await metadata_smarttube(video_id)
             except SmartTubeSearchError:
                 return {"status": "rejected", "error": "METADATA_UNAVAILABLE"}
-            playlist["tracks"].append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "title": metadata["title"],
-                    "content": metadata["content"],
-                    "duration_ms": metadata["duration_ms"],
-                }
-            )
             registry = await self._registry()
-            target = next(item for item in registry["playlists"] if item["id"] == playlist_id)
-            target["tracks"] = playlist["tracks"]
+            target = next(
+                (item for item in registry["playlists"] if item["id"] == playlist_id), None
+            )
+            if target is None:
+                return {"status": "rejected", "error": "PLAYLIST_NOT_FOUND"}
+            if len(target["tracks"]) >= PLAYLIST_TRACK_MAX:
+                return {"status": "rejected", "error": "PLAYLIST_LIMIT"}
+            track = {
+                "id": str(uuid.uuid4()),
+                "title": metadata["title"],
+                "content": metadata["content"],
+                "duration_ms": metadata["duration_ms"],
+            }
+            target["tracks"].append(track)
             await self._save_registry(registry)
-            return {"status": "applied", "error": None, "track": playlist["tracks"][-1]}
+            return {"status": "applied", "error": None, "track": track}
         if action == "playlist_remove":
             track_id = body.get("track_id")
             if not isinstance(track_id, str):
@@ -470,9 +501,16 @@ class TvHub:
                 return {"status": "rejected", "error": "TRACK_NOT_FOUND"}
             playlist["tracks"] = remaining
             registry = await self._registry()
-            target = next(item for item in registry["playlists"] if item["id"] == playlist_id)
+            target = next(
+                (item for item in registry["playlists"] if item["id"] == playlist_id), None
+            )
+            if target is None:
+                return {"status": "rejected", "error": "PLAYLIST_NOT_FOUND"}
             target["tracks"] = remaining
             await self._save_registry(registry)
+            if self._playlist_state and self._playlist_state["playlist_id"] == playlist_id:
+                self._playlist_state.update(status="interrupted", error="PLAYLIST_CHANGED")
+                self._bump()
             return {"status": "applied", "error": None}
         if action == "playlist_delete":
             if body.get("confirm") is not True:
@@ -490,11 +528,9 @@ class TvHub:
             return await self._start_playlist(playlist_id)
         return {"status": "rejected", "error": "INVALID_COMMAND"}
 
-    async def start_playlist(self, index: int, *, prepared: bool = False) -> dict[str, Any]:
+    async def start_playlist(self, index: int) -> dict[str, Any]:
         if type(index) is not int or index < 0 or index >= len(self.playlists):
             return {"status": "rejected", "error": "PLAYLIST_NOT_FOUND"}
-        if not prepared:
-            return {"status": "rejected", "error": "TV_NOT_READY"}
         return await self._start_playlist(self.playlists[index]["id"])
 
     async def next_playlist(self) -> dict[str, Any]:
@@ -538,6 +574,8 @@ class TvHub:
             "started": False,
             "command_id": None,
             "expected_playback_id": None,
+            "ignored_playback_id": _playback_id_of(device.playback),
+            "high_position_ms": 0,
         }
         self._playlist_state = state
         try:
@@ -625,6 +663,20 @@ class TvHub:
             "error_code": None,
         }
 
+    def _bind_playlist_identity(self, state: dict[str, Any], playback: dict[str, Any]) -> None:
+        if isinstance(state.get("expected_playback_id"), str) and state["expected_playback_id"]:
+            return
+        track = self._current_playlist_track()
+        playback_id = _playback_id_of(playback)
+        if (
+            track
+            and playback_id
+            and playback.get("app") == "smarttube"
+            and playback.get("content") == track["content"]
+            and playback_id != state.get("ignored_playback_id")
+        ):
+            state["expected_playback_id"] = playback_id
+
     def _playlist_playback_matches(
         self, device: _Device, state: dict[str, Any], playback: dict[str, Any]
     ) -> bool:
@@ -640,13 +692,25 @@ class TvHub:
             and state.get("device_id") == device.device_id
         )
 
+    def _playlist_track_ended(self, playback: object) -> bool:
+        track = self._current_playlist_track()
+        state = self._playlist_state or {}
+        return _playlist_reached_end(
+            playback,
+            duration_ms=track.get("duration_ms") if track else None,
+            high_position_ms=state.get("high_position_ms"),
+        )
+
     async def _observe_playlist(self, device: _Device) -> None:
+        # ponytail: needs a fresh playback_id plus ended/position; silent MediaSession
+        # only moves forward via oral « suivante ». Wall-clock timer if that stays true.
         state = self._playlist_state
         if state is None or state.get("status") != "playing":
             return
         playback = playback_fresh(device.playback, self.now())
         if playback is None or state.get("device_id") != device.device_id:
             return
+        self._bind_playlist_identity(state, playback)
         matches = self._playlist_playback_matches(device, state, playback)
         if not matches:
             if (
@@ -660,12 +724,11 @@ class TvHub:
         if not state.get("started"):
             state["started"] = True
             self._bump()
-        if not _playlist_reached_end(playback):
+        position = playback.get("position_ms")
+        if type(position) is int and position > (state.get("high_position_ms") or 0):
+            state["high_position_ms"] = position
+        if not self._playlist_track_ended(playback):
             return
-        playback_id = playback.get("playback_id")
-        if not isinstance(playback_id, str) or state.get("ended_playback_id") == playback_id:
-            return
-        state["ended_playback_id"] = playback_id
         await self._advance_playlist(device)
 
     async def _advance_playlist(
@@ -678,7 +741,7 @@ class TvHub:
         try:
             if state.get("device_id") != device.device_id:
                 return None
-            if not manual and not _playlist_reached_end(device.playback):
+            if not manual and not self._playlist_track_ended(device.playback):
                 return None
             if manual:
                 self._retire_playlist_command(device, state, "SKIPPED")
@@ -706,6 +769,8 @@ class TvHub:
                 command_id=None,
                 expected_playback_id=None,
                 ended_playback_id=None,
+                ignored_playback_id=_playback_id_of(device.playback),
+                high_position_ms=0,
             )
             self._bump()
             try:
