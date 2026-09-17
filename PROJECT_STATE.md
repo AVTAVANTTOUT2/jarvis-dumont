@@ -20,14 +20,14 @@
   vocal après adresse Jarvis, UI dashboard loopback. Schéma SQLite 2 inchangé
   (`preferences.tv_registry`). La release privée active est construite et activée
   depuis un commit ; aucun runtime de production ne démarre depuis le checkout.
-- Candidat intégré dans la release active `0.3.0-d72cdac3545d`. Le service AVT
+- Candidat intégré dans la release active `0.3.0-1bcd877e8f29`. Le service AVT
   Binder et le récepteur TV existent dans leurs lots.
   Testhost corrigé avec UUID. Qualification Philips et livraison privée terminées ;
   aucun résultat matériel n'est déduit des tests unitaires.
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-d72cdac3545d` construite depuis le commit `d72cdac3545da491f90bd56e623e29da48a0c86f`
+- Release TV `0.3.0-1bcd877e8f29` construite depuis le commit `1bcd877e8f290a3fac46474f17f2f837e8167b01`
   et activée atomiquement. Mode Echo OFF et micro fermé vérifiés ; branche privée poussée.
 - Le pool DeepSeek est borné à deux connexions afin qu'un tour vocal garde une
   connexion pendant l'annulation d'un rollup mémoire ; le `PoolTimeout` du tour
