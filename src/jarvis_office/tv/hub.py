@@ -325,6 +325,14 @@ class TvHub:
         missing = action_supported(device.apps, app, action)
         if missing:
             raise TvProtocolError("rejected", missing)
+        if app == "avt" and action == "play_content" and "profile_id" not in args:
+            candidates = self.active_candidates()
+            if (
+                self.candidate_scope
+                and self.candidate_scope[2]
+                and any(item.get("content") == args.get("content") for item in candidates)
+            ):
+                args = dict(args, profile_id=self.candidate_scope[2])
         stamp = self.now()
         for record in device.pending.values():
             if record["status"] == "accepted" and record["command"]["expires_at_ms"] < stamp:
@@ -380,12 +388,15 @@ class TvHub:
                 return {"status": "unknown", "error_code": "DISCONNECTED", "result": None}
             record = device.pending.get(command_id)
             playback = playback_fresh(device.playback, self.now())
+            if record is not None and record["command"]["action"] == "play_content":
+                if not self._playback_matches(device, record["command"]):
+                    playback = None
             if record is not None and record["status"] != "accepted":
                 status = record["status"]
                 play_waiting = (
                     status == "dispatched"
                     and record["command"]["action"] == "play_content"
-                    and not self._playback_matches(device, record["command"])
+                    and playback is None
                     and asyncio.get_running_loop().time() < deadline
                 )
                 if not play_waiting:
@@ -609,7 +620,7 @@ class TvHub:
             if record is not None and record["status"] in {"accepted", "dispatched"}:
                 if result["status"] == "completed" and record["command"]["action"] in MUTATING:
                     # A dispatched intent is not proof of playback.
-                    if not self._playback_matches(device, record["command"]):
+                    if not self._playback_matches(device, record["command"], result.get("result")):
                         result = dict(result, status="dispatched")
                 record.update(result)
                 device.last_result = {
@@ -695,19 +706,28 @@ class TvHub:
             record.update(status=status, error_code=error)
         device.changed.set()
 
-    def _playback_matches(self, device: _Device, command: dict[str, Any]) -> bool:
+    def _playback_matches(
+        self, device: _Device, command: dict[str, Any], result: object = None
+    ) -> bool:
         playback = playback_fresh(device.playback, self.now())
         if playback is None or command["action"] != "play_content":
             return False
         wanted = command["args"].get("content")
         observed = playback.get("content")
+        if result is None:
+            result = device.pending.get(command["command_id"], {}).get("result")
+        expected_id = result.get("playback_id") if isinstance(result, dict) else None
+        expected_profile = command["args"].get("profile_id")
         return (
             playback.get("app") == command["app"]
             and isinstance(wanted, dict)
             and isinstance(observed, dict)
-            and wanted.get("kind") == observed.get("kind")
-            and wanted.get("id") == observed.get("id")
-            and playback.get("state") in {"loading", "playing", "paused"}
+            and wanted == observed
+            and isinstance(expected_id, str)
+            and bool(expected_id)
+            and playback.get("playback_id") == expected_id
+            and (expected_profile is None or playback.get("profile_id") == expected_profile)
+            and playback.get("state") == "playing"
         )
 
     def _create_pairing(self) -> dict[str, Any]:

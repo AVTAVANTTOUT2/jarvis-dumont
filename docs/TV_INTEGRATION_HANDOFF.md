@@ -4,10 +4,22 @@ Date : 17 septembre 2026
 Contrat : `00_CONTRAT_COMMUN_TV_V1` (17 septembre 2026)
 Intégration finale : worktree `jarvis-office-tv-final`, branche `codex/tv-integration-private`.
 Base : release active `d816fb01e394`, incluant les orbes interactives.
-Validation finale : 269 tests Python, dashboard JavaScript, Ruff et Mypy réussis.
-Statut : **candidat logiciel reviewable, non déployé, non homologué**
+Validation finale : 275 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
+Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**, non homologué acoustiquement.
 
-Aucun commit, push, APK, pointeur `current` ou LaunchAgent dans cette tâche.
+Release privée active : `0.3.0-86a69108117d` (wheel vérifiée, activation atomique).
+Deux commits locaux d'intégration ; aucun push. Echo reste OFF, microphone fermé.
+Récepteur TV et AVT debug installés sur la Philips ; AVT habituel conservé.
+Appairage TLS réel et Binder réel validés. La campagne HTTPS sans ADB a validé
+AVT search/play/pause/resume/seek/stop ; la qualification physique complète est
+suivie dans `jarvis-tv/docs/QUALIFICATION_2026-09-17.md`.
+
+Dernière correction logicielle préparée : un résultat de recherche AVT conserve
+son profil lors de la sélection. La confirmation d'un lancement exige le même
+playback_id renvoyé par la commande, le contenu complet (saison/épisode inclus),
+le profil attendu et l'état playing frais. Une observation différente reste
+absente du résultat vocal, même après expiration de l'attente. Ses tests ont
+échoué avant la correction puis réussi ; activation après l'endurance TV.
 
 ## Ce qui est livré ici
 

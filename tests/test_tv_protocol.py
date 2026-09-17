@@ -202,6 +202,53 @@ class TvProtocolTests(unittest.IsolatedAsyncioTestCase):
         second = await self.hub.issue(app="smarttube", action="play_content", args=args)
         self.assertNotEqual(first["command_id"], second["command_id"])
 
+    async def test_avt_selection_keeps_the_profile_that_produced_the_search(self) -> None:
+        await self.pair_session(avt={"installed": True, "actions": ["play_content"]})
+        content = {"kind": "movie", "id": "157336"}
+        self.hub.remember_candidates([{"content": content, "title": "Interstellar"}], "3")
+        args = {"content": content}
+        command = await self.hub.issue(app="avt", action="play_content", args=args)
+        self.assertEqual(command["args"].get("profile_id"), "3")
+        self.assertNotIn("profile_id", args)
+
+    async def test_voice_confirmation_requires_new_playback_profile_episode_and_playing(
+        self,
+    ) -> None:
+        _, session = await self.pair_session(avt={"installed": True, "actions": ["play_content"]})
+        content = {"kind": "episode", "id": "1399", "season": 1, "episode": 1}
+        command = await self.hub.issue(
+            app="avt", action="play_content", args={"content": content, "profile_id": "3"}
+        )
+        device = self.hub.devices[session["device_id"]]
+        playback_id = str(uuid.uuid4())
+        device.pending[command["command_id"]].update(
+            status="dispatched", result={"playback_id": playback_id}
+        )
+        playback = {
+            "app": "avt",
+            "profile_id": "3",
+            "playback_id": playback_id,
+            "content": content,
+            "state": "playing",
+            "observed_at_ms": self.hub.now(),
+            "valid_for_ms": 5000,
+        }
+        self.hub._turns.add("voice-turn")
+        for change in [
+            {"playback_id": str(uuid.uuid4())},
+            {"profile_id": "4"},
+            {"content": dict(content, episode=2)},
+            {"state": "loading"},
+            {"state": "paused"},
+        ]:
+            with self.subTest(change=change):
+                device.playback = dict(playback, **change)
+                outcome = await self.hub.wait_result(command["command_id"], "voice-turn", 0)
+                self.assertIsNone(outcome["playback"])
+        device.playback = playback
+        outcome = await self.hub.wait_result(command["command_id"], "voice-turn", 0)
+        self.assertEqual(outcome["playback"], playback)
+
     async def test_rejected_queued_command_is_never_dispatched(self) -> None:
         _, session = await self.pair_session()
         device = self.hub.devices[session["device_id"]]

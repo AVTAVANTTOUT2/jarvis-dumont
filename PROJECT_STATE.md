@@ -27,7 +27,7 @@
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-c0998b566c65` construite depuis un commit local et activée
+- Release TV `0.3.0-86a69108117d` construite depuis un commit local et activée
   par le pipeline de release. Mode Echo OFF et micro fermé vérifiés ; aucun push.
 - Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
   l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
@@ -39,6 +39,15 @@
 - Validation du correctif : 273 tests Python, tests dashboard, Ruff et Mypy
   réussis. Ces vérifications ne constituent pas une confirmation humaine
   d'image/son ni une campagne d'endurance TV.
+- Correctif de confirmation vocale : profil de recherche transmis à AVT ;
+  ancienne lecture, autre profil/épisode, chargement et pause ne confirment
+  jamais le nouveau lancement. Échecs reproduits puis 275 tests Python,
+  dashboard, Ruff/format et Mypy réussis. Activation de cette dernière correction
+  prévue après l'endurance en cours de la chaîne TV déjà installée.
+- Philips : Binder réel et transports AVT/SmartTube validés, y compris via HTTPS
+  sans ADB. Redémarrage TV avec retour automatique du récepteur sans lecture.
+  Corrections TV : observations indépendantes du long-poll, conversion d'horloge,
+  timeout client supérieur à l'attente serveur. Aucun micro armé pour ces essais.
 
 ## Mise en service — Prompt vocal, 16 septembre 2026
 
