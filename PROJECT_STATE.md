@@ -27,8 +27,8 @@
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-03b8a13a9d1c` construite depuis un commit local et activée
-  par le pipeline de release. Mode Echo OFF et micro fermé vérifiés ; aucun push.
+- Release TV `0.3.0-9db746293cdc` construite depuis le commit `9db746293cdcf5c6678ef4fa061847e162e127c3`
+  et activée atomiquement. Mode Echo OFF et micro fermé vérifiés ; branche privée poussée.
 - Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
   l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
   de catalogue ; appairage TLS réel par le formulaire du récepteur réussi.
@@ -36,7 +36,7 @@
   provoque plus de KeyError ; une commande déjà rejetée ne quitte plus la file.
   Huit commandes en attente maximum, historique RAM borné à 128 résultats,
   expiration et résultat tardif sans réactivation d'une commande abandonnée.
-- Validation du correctif : 275 tests Python, tests dashboard, Ruff, format et
+- Validation du correctif : 278 tests Python, tests dashboard, Ruff, format et
   Mypy réussis. L'endurance TV réelle de 30 minutes est passée sans écart.
   Ces vérifications ne constituent pas une confirmation humaine d'image/son.
 - Correctif de confirmation vocale activé : profil de recherche transmis à AVT ;
@@ -47,6 +47,9 @@
   sans ADB. Redémarrage TV avec retour automatique du récepteur sans lecture.
   Corrections TV : observations indépendantes du long-poll, conversion d'horloge,
   timeout client supérieur à l'attente serveur. Aucun micro armé pour ces essais.
+- SmartTube : `yt-dlp` local résout les titres sans télécharger de média, valide
+  les identifiants YouTube et choisit le premier résultat. Le test réel
+  « Petunia de Werenoi » a ouvert SmartTube sur la Philips et affiché le clip.
 
 ## Mise en service — Prompt vocal, 16 septembre 2026
 

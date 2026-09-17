@@ -4,11 +4,12 @@ Date : 17 septembre 2026
 Contrat : `00_CONTRAT_COMMUN_TV_V1` (17 septembre 2026)
 Intégration finale : worktree `jarvis-office-tv-final`, branche `codex/tv-integration-private`.
 Base : release active `d816fb01e394`, incluant les orbes interactives.
-Validation finale : 275 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
+Validation finale : 278 tests Python, dashboard JavaScript, Ruff/format et Mypy réussis.
 Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**, non homologué acoustiquement.
 
-Release privée active : `0.3.0-03b8a13a9d1c` (wheel vérifiée, activation atomique).
-Quatre commits locaux d'intégration ; aucun push. Echo reste OFF, microphone fermé.
+Release privée active : `0.3.0-9db746293cdc` (wheel vérifiée, activation atomique).
+La branche privée `codex/tv-integration-private` est poussée. Echo reste OFF,
+microphone fermé.
 Récepteur TV et AVT debug installés sur la Philips ; AVT habituel conservé.
 Appairage TLS réel et Binder réel validés. La campagne HTTPS sans ADB a validé
 AVT search/play/pause/resume/seek/stop ; la qualification physique complète est
