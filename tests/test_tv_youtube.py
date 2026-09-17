@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 import unittest
 
-from jarvis_office.tv.youtube import SmartTubeSearchError, parse_entries
+from jarvis_office.tv.hub import _playlist_reached_end
+from jarvis_office.tv.youtube import (
+    SmartTubeSearchError,
+    parse_entries,
+    parse_metadata,
+    youtube_id_from_url,
+)
 
 
 class SmartTubeSearchTests(unittest.TestCase):
@@ -36,6 +42,25 @@ class SmartTubeSearchTests(unittest.TestCase):
             }
         ).encode()
         self.assertEqual(len(parse_entries(raw, limit=1)), 1)
+
+    def test_smarttube_url_and_duration_are_canonicalized(self) -> None:
+        video_id = "abcdefghijk"
+        self.assertEqual(
+            youtube_id_from_url(f"https://www.youtube.com/watch?v={video_id}&t=4"), video_id
+        )
+        self.assertEqual(youtube_id_from_url(f"https://youtu.be/{video_id}"), video_id)
+        self.assertIsNone(youtube_id_from_url("http://www.youtube.com/watch?v=abcdefghijk"))
+        metadata = parse_metadata(
+            json.dumps({"title": "  Track  ", "duration": 123.4}).encode(), video_id
+        )
+        self.assertEqual(metadata["title"], "Track")
+        self.assertEqual(metadata["duration_ms"], 123400)
+
+    def test_playlist_end_uses_fresh_player_position_shape(self) -> None:
+        base = {"duration_ms": 10000, "position_ms": 9500, "state": "stopped"}
+        self.assertTrue(_playlist_reached_end(base))
+        self.assertFalse(_playlist_reached_end({**base, "state": "paused"}))
+        self.assertFalse(_playlist_reached_end({**base, "position_ms": 8000}))
 
 
 if __name__ == "__main__":

@@ -68,12 +68,21 @@ port = 8769                   # ≠ port Echo, ≠ 8768
 cert = "chemin/cert.pem"
 key = "chemin/key.pem"        # 0600
 avt_allowed_cert_sha256 = []  # empreintes publiques SHA-256, optionnel
+wake_mac = "AA:BB:CC:DD:EE:FF" # MAC Wi-Fi/LAN de la Philips, hors secret
+wake_broadcast = "255.255.255.255"
+wake_timeout_s = 20
 ```
 
 `bind`/`cert`/`key` peuvent omettre et réutiliser ceux d'Echo s'ils conviennent.
 Le listener ne démarre que si `[tv]` est présent **et** le produit privé est
 actif. La fonction reste inactive tant que le propriétaire n'a pas cliqué
 Activer. Réutiliser un certificat Echo n'élève pas le jeton TV.
+
+Quand la TV est en veille, l'APK ne peut plus recevoir le long-poll. Jarvis
+envoie un paquet Wake-on-LAN à `wake_mac`, attend une reconnexion authentifiée,
+vérifie `get_state`, puis envoie `home` avant la commande média. Activez « Wake
+on Network/LAN » dans la Philips et réservez son adresse DHCP. Sans MAC
+configurée, la commande répond `WAKE_UNCONFIGURED` et ne joue pas à l'aveugle.
 
 Registre : préférence SQLite `tv_registry` (schéma 2, **pas de migration**).
 
@@ -96,6 +105,7 @@ une réponse invalide, aucune commande de lecture n'est émise et Jarvis l'annon
 | smarttube | pause/resume/stop/seek | exige playback frais | session média / notifications |
 | avt | search / play / transport | refuse si non installé / non lié | Binder absent |
 | * | `get_state` | autorisé si déclaré | selon l'app |
+| * | `home` | revient à l'accueil après un état vérifié | intent Android HOME |
 
 `completed` n'est **jamais** déduit d'un intent envoyé. Un `command_result`
 `completed` pour `play_content` sans playback frais concordant est ramené à

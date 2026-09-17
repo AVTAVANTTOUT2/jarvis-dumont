@@ -79,8 +79,20 @@ ERROR_SPEECH = {
     "BUSY": "Une autre commande télé est déjà en cours.",
     "UNAUTHORIZED": "La télé n'est plus authentifiée.",
     "DISCONNECTED": "La télé n'est pas connectée.",
+    "WAKE_UNCONFIGURED": "Le réveil de la télé n'est pas configuré.",
+    "WAKE_UNAVAILABLE": "La télé ne s'est pas réveillée sur le réseau.",
+    "TV_NOT_READY": "La télé s'est réveillée mais ne répond pas encore.",
+    "TV_HOME_UNAVAILABLE": "Je n'ai pas pu revenir à l'accueil de la télé.",
     "INTERNAL_ERROR": "La télé a signalé une erreur interne.",
     "NOMINAL_BUDGET_EXHAUSTED": "Le plafond d'usage est atteint.",
+    "PLAYLIST_NOT_FOUND": "Cette playlist n'existe pas.",
+    "PLAYLIST_EMPTY": "Cette playlist ne contient encore aucun morceau.",
+    "PLAYLIST_NOT_RUNNING": "Aucune playlist n'est en cours.",
+    "PLAYLIST_LIMIT": "La playlist a atteint sa limite de morceaux.",
+    "INVALID_URL": "Utilisez une URL HTTPS valide de SmartTube ou YouTube.",
+    "METADATA_UNAVAILABLE": "Je n'ai pas pu lire les métadonnées de cette vidéo.",
+    "TRACK_NOT_FOUND": "Ce morceau n'existe plus dans la playlist.",
+    "PLAYBACK_CHANGED": "La playlist a été interrompue par une autre lecture.",
 }
 
 
@@ -117,6 +129,30 @@ def default_app(hub: Any, question: str) -> str:
 
 def parse_local(question: str, hub: Any) -> dict[str, Any] | None:
     text = re.sub(r"[-‐‑‒–—]+", " ", fold(question)).strip()
+    if re.search(r"\b(suivante?|morceau suivant|chanson suivante|passe au suivant)\b", text):
+        return {"kind": "command", "app": "smarttube", "action": "playlist_next", "args": {}}
+    playlist = re.search(
+        r"\b(?:playlists?|playliste|listes?\s+de\s+lecture)\b"
+        r"(?:\s+(?:numero|n|#)\s*)?(\d+|premier|premiere|deuxieme|second|seconde|troisieme)?\b",
+        text,
+    )
+    if playlist:
+        raw_index = playlist.group(1)
+        words = {
+            "premier": 0,
+            "premiere": 0,
+            "deuxieme": 1,
+            "second": 1,
+            "seconde": 1,
+            "troisieme": 2,
+        }
+        index = int(raw_index) - 1 if raw_index and raw_index.isdigit() else words.get(raw_index)
+        return {
+            "kind": "command",
+            "app": "smarttube",
+            "action": "playlist_play",
+            "args": {"index": index},
+        }
     if re.search(r"\b(pause|mets? en pause)\b", text) and not re.search(
         r"\b(lance|joue|cherche)\b", text
     ):
@@ -371,15 +407,64 @@ async def run_command(
     turn_id: str,
     *,
     title: str | None = None,
+    prepared: bool = False,
 ) -> str:
-    device = hub.connected()
-    if device is None:
-        return speak_error("DISCONNECTED")
     action = parsed["action"]
+    if action == "playlist_play":
+        index = (parsed.get("args") or {}).get("index")
+        if type(index) is not int or index < 0:
+            return "Dites-moi le numéro de la playlist à lancer."
+        if not prepared:
+            try:
+                await hub.prepare(app="smarttube", turn_id=turn_id)
+            except TvProtocolError as exc:
+                return speak_error(exc.error_code)
+        result = await hub.start_playlist(index, prepared=True)
+        if result.get("status") == "rejected":
+            return speak_error(result.get("error"))
+        command_id = result.get("command_id")
+        if not isinstance(command_id, str):
+            return "La playlist n'a pas pu être lancée."
+        outcome = await hub.wait_result(command_id, turn_id, 32.0)
+        playlist = result.get("playlist") if isinstance(result.get("playlist"), dict) else {}
+        tracks = playlist.get("tracks") if isinstance(playlist.get("tracks"), list) else []
+        title = tracks[0].get("title") if tracks and isinstance(tracks[0], dict) else None
+        if outcome.get("status") in {"completed", "dispatched"}:
+            if isinstance(outcome.get("playback"), dict):
+                return f"Playlist numéro {index + 1} lancée : {title or 'premier morceau'}."
+            return f"Playlist numéro {index + 1} envoyée à SmartTube, sans confirmation d'image."
+        return speak_error(outcome.get("error_code"))
+    if action == "playlist_next":
+        result = await hub.next_playlist()
+        if result.get("status") == "completed":
+            return "La playlist est déjà terminée."
+        if result.get("status") == "rejected":
+            return speak_error(result.get("error"))
+        command_id = result.get("command_id")
+        if not isinstance(command_id, str):
+            return "La playlist est déjà terminée."
+        outcome = await hub.wait_result(command_id, turn_id, 32.0)
+        if outcome.get("status") in {"completed", "dispatched"}:
+            title = result.get("title") or "le morceau suivant"
+            if isinstance(outcome.get("playback"), dict):
+                return f"Suivant : {title}."
+            return f"Morceau suivant envoyé à SmartTube : {title}."
+        return speak_error(outcome.get("error_code"))
+    device = hub.connected()
     chosen = parsed.get("app") or (
-        device.playback.get("app") if isinstance(device.playback, dict) else None
+        device.playback.get("app")
+        if device is not None and isinstance(device.playback, dict)
+        else None
     )
     app = chosen if chosen in {"smarttube", "avt"} else default_app(hub, question)
+    if action in {"search", "play_content"} and not prepared:
+        try:
+            await hub.prepare(app=app, turn_id=turn_id)
+        except TvProtocolError as exc:
+            return speak_error(exc.error_code)
+        device = hub.connected()
+    if device is None:
+        return speak_error("DISCONNECTED")
     args = dict(parsed.get("args") or {})
     if action in {"pause", "resume", "stop", "seek"}:
         playback = playback_fresh(device.playback, hub.now())
@@ -435,6 +520,7 @@ async def run_command(
             question,
             turn_id,
             title=chosen.get("title") if isinstance(chosen.get("title"), str) else None,
+            prepared=True,
         )
     missing = action_supported(device.apps, app, action)
     if missing:
@@ -481,6 +567,7 @@ async def run_command(
             question,
             turn_id,
             title=chosen.get("title") if isinstance(chosen.get("title"), str) else None,
+            prepared=True,
         )
     shown = title
     if action == "play_content":

@@ -43,6 +43,7 @@ class FakeHub:
         self.issued: list[dict] = []
         self.outcomes: list[dict] = []
         self._turns: set[str] = set()
+        self.prepared: list[dict[str, str]] = []
 
     def enabled(self) -> bool:
         return self._on
@@ -52,6 +53,9 @@ class FakeHub:
 
     def connected(self) -> SimpleNamespace | None:
         return self._device
+
+    async def prepare(self, *, app: str, turn_id: str) -> None:
+        self.prepared.append({"app": app, "turn_id": turn_id})
 
     def now(self) -> int:
         return self._now
@@ -108,10 +112,26 @@ def _device(**kwargs: object) -> SimpleNamespace:
 
 
 class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_media_command_prepares_tv_before_dispatch(self) -> None:
+        hub = FakeHub(_device())
+        speech = await dispatch(hub, "joue la video aqz-KE-bpKQ", "turn1")
+        self.assertIn("sans confirmation", speech or "")
+        self.assertEqual(hub.prepared, [{"app": "smarttube", "turn_id": "turn1"}])
+
     async def test_unaddressed_local_parser_does_not_invent_search(self) -> None:
         self.assertIsNone(parse_local("mets la table", FakeHub()))
         self.assertEqual(parse_local("pause", FakeHub())["action"], "pause")
         self.assertEqual(parse_local("lance interstellar", FakeHub())["action"], "search")
+        self.assertEqual(
+            parse_local("mets la playliste numéro 1", FakeHub()),
+            {
+                "kind": "command",
+                "app": "smarttube",
+                "action": "playlist_play",
+                "args": {"index": 0},
+            },
+        )
+        self.assertEqual(parse_local("suivante", FakeHub())["action"], "playlist_next")
         for phrase in (
             "je mette Petunia de Werenoi sur la télé",
             "mets-moi Petunia de Werenoi sur SmartTube",

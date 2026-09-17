@@ -787,6 +787,7 @@ class OfficeStore:
         if not isinstance(data, dict):
             data = {}
         devices = data.get("devices")
+        playlists = data.get("playlists")
         return {
             "enabled": data.get("enabled") is True,
             "default_video_app": data["default_video_app"]
@@ -796,6 +797,7 @@ class OfficeStore:
             if data.get("default_film_app") in {"smarttube", "avt"}
             else "avt",
             "devices": devices if isinstance(devices, dict) else {},
+            "playlists": playlists if isinstance(playlists, list) else [],
         }
 
     def _tv_registry(self, db: sqlite3.Connection) -> str:
@@ -808,6 +810,7 @@ class OfficeStore:
             "default_video_app",
             "default_film_app",
             "devices",
+            "playlists",
         }:
             raise StorageError("INVALID_TV_REGISTRY")
         await self._call(self._save_tv_registry, _json(registry))

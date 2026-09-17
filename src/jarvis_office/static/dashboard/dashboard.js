@@ -35,6 +35,9 @@ function duration(seconds) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return 'Non mesuré';
   return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s` : `${Math.max(0, Math.round(seconds))} s`;
 }
+function musicDuration(milliseconds) {
+  return typeof milliseconds === 'number' && Number.isFinite(milliseconds) ? duration(milliseconds / 1000) : 'Durée non mesurée';
+}
 function device() { return state.snapshot?.devices?.find(item => item.device_id === state.device) || null; }
 function badge(value) {
   const color = /CONNECTED|ACTIVE|complete|OFF/.test(value || '') && value !== 'DISCONNECTED' ? 'cyan' : /PASSIVE|DEGRADED|partial|interrupted/.test(value || '') ? 'amber' : /ERROR|error/.test(value || '') ? 'red' : '';
@@ -178,7 +181,7 @@ function renderState(snapshot) {
   $('memory-overview').textContent = memory.last_error ? errorLabel({code: memory.last_error}, memoryState) : memoryState;
   if (state.online && state.page === 'overview' && oldTurnState !== `${current?.turn_id}/${current?.activity}`) loadLatest();
   if (state.page === 'settings') renderServiceState();
-  renderTv();
+  renderTv(); renderPlaylists();
 }
 async function refreshState() { const snapshot = await api.get('/api/state'); renderState(snapshot); setConnected(true); return snapshot; }
 async function sendCommand(action, mode) {
@@ -452,9 +455,49 @@ function renderTv() {
     }
   }
 }
+function renderPlaylists() {
+  const box = $('playlists-list');
+  if (!box) return;
+  const tv = state.snapshot?.tv || {};
+  const playlists = Array.isArray(tv.playlists) ? tv.playlists : [];
+  box.replaceChildren();
+  if (!playlists.length) {
+    empty(box, 'Aucune playlist', 'Créez une playlist puis ajoutez des URLs SmartTube ou YouTube.');
+    return;
+  }
+  const active = tv.playlist_state;
+  playlists.forEach((playlist, index) => {
+    const tracks = Array.isArray(playlist.tracks) ? playlist.tracks : [];
+    const card = el('article', undefined, 'card playlist-card');
+    const heading = el('div', undefined, 'card-heading');
+    const title = el('div'); title.append(el('h2', `Playlist ${index + 1} · ${playlist.name}`), el('p', `${tracks.length} morceau${tracks.length > 1 ? 'x' : ''}`, 'helper'));
+    const actions = el('div', '');
+    const play = el('button', active?.playlist_id === playlist.id && active?.status === 'playing' ? 'En cours' : 'Lancer', 'button secondary');
+    play.type = 'button'; play.disabled = active?.playlist_id === playlist.id && active?.status === 'playing';
+    play.onclick = () => sendTv({action:'playlist_play', playlist_id:playlist.id}, `Playlist ${index + 1} envoyée à SmartTube.`);
+    const remove = el('button', 'Supprimer', 'button danger-soft'); remove.type = 'button';
+    remove.onclick = async () => { if (await confirmAction(`Supprimer la playlist ${index + 1} ?`, 'Tous ses morceaux seront retirés de la bibliothèque locale.', 'Supprimer')) await sendTv({action:'playlist_delete', playlist_id:playlist.id, confirm:true}, 'Playlist supprimée.'); };
+    actions.append(play, remove); heading.append(title, actions); card.append(heading);
+    const form = el('form', undefined, 'playlist-add');
+    const field = el('label'); field.append(el('span', 'URL SmartTube / YouTube'));
+    const input = el('input'); input.type = 'url'; input.required = true; input.maxLength = 2048; input.placeholder = 'https://www.youtube.com/watch?v=…'; field.append(input);
+    const add = el('button', 'Ajouter', 'button'); add.type = 'submit'; form.append(field, add);
+    form.onsubmit = async event => { event.preventDefault(); add.disabled = true; try { const result = await sendTv({action:'playlist_add', playlist_id:playlist.id, url:input.value}, 'Morceau ajouté avec ses métadonnées SmartTube.'); if (result) input.value = ''; } finally { add.disabled = false; } };
+    card.append(form);
+    const list = el('ol', undefined, 'playlist-tracks');
+    if (!tracks.length) list.append(el('li', 'Aucun morceau.'));
+    tracks.forEach((track, trackIndex) => {
+      const row = el('li', undefined, 'playlist-track');
+      const info = el('div'); info.append(el('strong', `${trackIndex + 1}. ${track.title || track.content?.id || 'Sans titre'}`), el('small', musicDuration(track.duration_ms)));
+      const del = el('button', 'Retirer', 'button ghost'); del.type = 'button'; del.onclick = () => sendTv({action:'playlist_remove', playlist_id:playlist.id, track_id:track.id}, 'Morceau retiré.');
+      row.append(info, del); list.append(row);
+    });
+    card.append(list); box.append(card);
+  });
+}
 async function sendTv(body, success) {
   try {
-    const result = await api.post('/api/tv', body, {timeout:8500});
+    const result = await api.post('/api/tv', body, {timeout:body.action === 'playlist_add' ? 22000 : 8500});
     if (result.status === 'rejected' || result.error) throw {code: result.error || 'INVALID_REQUEST'};
     await refreshState();
     if (success) notify(success, 'success');
@@ -523,7 +566,7 @@ async function purge(scope) {
 }
 async function navigate() {
   const previousPage=state.page;
-  const page=location.hash.slice(1).split('?')[0]; state.page=['overview','conversations','context','data','settings'].includes(page) ? page : 'overview';
+  const page=location.hash.slice(1).split('?')[0]; state.page=['overview','playlists','conversations','context','data','settings'].includes(page) ? page : 'overview';
   for(const section of document.querySelectorAll('.page')) section.hidden=section.id!==`page-${state.page}`;
   for(const link of document.querySelectorAll('[data-page]')) { if(link.dataset.page===state.page)link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current'); }
   document.title=`${$('title-'+state.page).textContent} · Jarvis Office`;
@@ -531,6 +574,7 @@ async function navigate() {
   if(!state.online)return;
   try {
     if(state.page==='overview')await loadLatest();
+    else if(state.page==='playlists')renderPlaylists();
     else if(state.page==='conversations')await loadConversations();
     else if(state.page==='context')await loadContext();
     else if(state.page==='data')await loadCatalog();
@@ -572,6 +616,7 @@ $('data-prev').onclick=()=>{state.dataOffset=Math.max(0,state.dataOffset-Number(
 $('data-next').onclick=()=>{state.dataOffset+=Number($('data-limit').value);loadRows();};
 $('export-data').onclick=exportData;
 $('settings-refresh').onclick=showSettings; $('settings-form').onsubmit=saveSettings;
+ $('playlist-create-form').onsubmit=async event=>{event.preventDefault();const input=$('playlist-name');const name=input.value.trim();if(!name)return;const result=await sendTv({action:'playlist_create',name},'Playlist créée.');if(result)input.value='';};
 $('tv-enable').onclick=()=>sendTv({action:'enable'}, 'Fonction TV activée.');
 $('tv-disable').onclick=()=>sendTv({action:'disable'}, 'Fonction TV désactivée. Les sessions ouvertes sont coupées.');
 $('tv-save-defaults').onclick=()=>sendTv({action:'defaults', video:$('tv-video-app').value, film:$('tv-film-app').value}, 'Applications TV par défaut enregistrées.');

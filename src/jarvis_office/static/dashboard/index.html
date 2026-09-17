@@ -12,9 +12,10 @@
   <a class="skip-link" href="#main">Aller au contenu</a>
   <aside class="sidebar">
     <a class="brand" href="#overview" aria-label="Jarvis Office, vue d’ensemble"><span class="brand-mark" aria-hidden="true">J</span><span>JARVIS<span class="brand-sub">OFFICE / PRIVÉ</span></span></a>
-    <nav aria-label="Navigation principale">
-      <a href="#overview" data-page="overview"><span aria-hidden="true">◈</span>Vue d’ensemble</a>
-      <a href="#conversations" data-page="conversations"><span aria-hidden="true">▤</span>Conversations</a>
+      <nav aria-label="Navigation principale">
+        <a href="#overview" data-page="overview"><span aria-hidden="true">◈</span>Vue d’ensemble</a>
+        <a href="#playlists" data-page="playlists"><span aria-hidden="true">♫</span>Playlists</a>
+        <a href="#conversations" data-page="conversations"><span aria-hidden="true">▤</span>Conversations</a>
       <a href="#context" data-page="context"><span aria-hidden="true">◷</span>Contexte</a>
       <a href="#data" data-page="data"><span aria-hidden="true">▦</span>Données</a>
       <a href="#settings" data-page="settings"><span aria-hidden="true">⚙</span>Réglages</a>
@@ -60,6 +61,13 @@
         </div>
         <article class="card"><div class="card-heading"><h2>Dernier échange enregistré</h2><a href="#conversations">Toutes les conversations →</a></div><div id="latest-turn" class="empty">Chargement de l’historique…</div></article>
         <article class="card" id="tv-overview-card"><div class="card-heading"><h2>Télévision</h2><a href="#settings">Réglages TV →</a></div><p id="tv-overview-status" class="helper">État TV non mesuré.</p><div id="tv-overview-devices"></div></article>
+      </section>
+
+      <section id="page-playlists" class="page" aria-labelledby="title-playlists" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SMARTTUBE · URLS CANONIQUES</p><h1 id="title-playlists">Playlists</h1><p>Préparez vos morceaux YouTube et lancez-les dans l’ordre sur SmartTube.</p></div></div>
+        <div class="notice neutral"><strong>La durée est mesurée par SmartTube quand elle est disponible.</strong><span>Le passage automatique utilise ensuite l’état de lecture fraîche du terminal, son identifiant de lecture et sa position réelle. Une pause ou une autre lecture n’avance jamais la playlist.</span></div>
+        <form id="playlist-create-form" class="search-toolbar"><label class="search-field"><span>Nom de la playlist</span><input id="playlist-name" type="text" maxlength="120" required placeholder="Ex. Matin calme"></label><button class="button" type="submit">Créer la playlist</button></form>
+        <div id="playlists-list" class="stack"></div>
       </section>
 
       <section id="page-conversations" class="page" aria-labelledby="title-conversations" hidden>

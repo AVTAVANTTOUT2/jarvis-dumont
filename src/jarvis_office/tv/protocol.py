@@ -24,8 +24,10 @@ QUERY_MAX = 120
 SEARCH_LIMIT_MAX = 10
 PAIRING_TTL_MS = 10 * 60 * 1000
 APPS = frozenset({"smarttube", "avt"})
-ACTIONS = frozenset({"get_state", "search", "play_content", "pause", "resume", "stop", "seek"})
-MUTATING = frozenset({"play_content", "pause", "resume", "stop", "seek"})
+ACTIONS = frozenset(
+    {"get_state", "search", "play_content", "pause", "resume", "stop", "seek", "home"}
+)
+MUTATING = frozenset({"play_content", "pause", "resume", "stop", "seek", "home"})
 RESULT_STATUSES = frozenset(
     {"accepted", "dispatched", "completed", "rejected", "expired", "failed", "unknown"}
 )
@@ -43,6 +45,10 @@ ERROR_CODES = frozenset(
         "BUSY",
         "UNAUTHORIZED",
         "DISCONNECTED",
+        "WAKE_UNCONFIGURED",
+        "WAKE_UNAVAILABLE",
+        "TV_NOT_READY",
+        "TV_HOME_UNAVAILABLE",
         "INTERNAL_ERROR",
     }
 )
@@ -191,6 +197,11 @@ def validate_position(args: dict[str, Any]) -> int:
 def validate_args(app: str, action: str, args: object) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise TvProtocolError("rejected", "UNSUPPORTED")
+    if action == "home":
+        extra = [key for key in args if not str(key).startswith("x_")]
+        if extra:
+            raise TvProtocolError("rejected", "UNSUPPORTED")
+        return {}
     if action == "get_state":
         extra = [key for key in args if not str(key).startswith("x_")]
         if extra:

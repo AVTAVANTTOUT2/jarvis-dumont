@@ -342,10 +342,14 @@ class DashboardServer:
             "device_id",
             "video",
             "film",
+            "name",
+            "playlist_id",
+            "track_id",
+            "url",
         }:
             raise ValueError()
         try:
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(20 if body.get("action") == "playlist_add" else 8):
                 return web.json_response(await self.tv_command(body))
         except TimeoutError:
             return web.json_response({"status": "rejected", "error": "COMMAND_TIMEOUT"})
