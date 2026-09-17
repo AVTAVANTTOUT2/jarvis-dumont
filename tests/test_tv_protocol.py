@@ -15,8 +15,8 @@ from unittest.mock import patch
 import aiohttp
 
 from jarvis_office.storage import OfficeStore
-from jarvis_office.tv.hub import TvHub, TvSettings
-from jarvis_office.tv.protocol import SCHEMA, is_uuid, sha256_der_from_pem
+from jarvis_office.tv.hub import COMMAND_HISTORY_MAX, TvHub, TvSettings
+from jarvis_office.tv.protocol import SCHEMA, TvProtocolError, is_uuid, sha256_der_from_pem
 
 
 def _make_tls(root: Path) -> tuple[Path, Path]:
@@ -186,6 +186,77 @@ class TvProtocolTests(unittest.IsolatedAsyncioTestCase):
         device = self.hub.devices[session["device_id"]]
         self.assertEqual(device.pending[command["command_id"]]["status"], "dispatched")
         self.assertEqual(device.last_result["status"], "dispatched")
+
+    async def test_read_then_serial_play_commands(self) -> None:
+        _, session = await self.pair_session()
+        device = self.hub.devices[session["device_id"]]
+        await self.hub.issue(app="smarttube", action="get_state", args={})
+        self.hub._take(device)
+        args = {"content": {"kind": "youtube_video", "id": "aqz-KE-bpKQ"}}
+        first = await self.hub.issue(app="smarttube", action="play_content", args=args)
+        self.hub._take(device)
+        with self.assertRaises(TvProtocolError) as busy:
+            await self.hub.issue(app="smarttube", action="play_content", args=args)
+        self.assertEqual(busy.exception.error_code, "BUSY")
+        device.pending[first["command_id"]]["status"] = "dispatched"
+        second = await self.hub.issue(app="smarttube", action="play_content", args=args)
+        self.assertNotEqual(first["command_id"], second["command_id"])
+
+    async def test_rejected_queued_command_is_never_dispatched(self) -> None:
+        _, session = await self.pair_session()
+        device = self.hub.devices[session["device_id"]]
+        command = await self.hub.issue(app="smarttube", action="get_state", args={})
+        device.pending[command["command_id"]].update(
+            status="rejected", error_code="PROFILE_CHANGED"
+        )
+        self.assertIsNone(self.hub._take(device))
+
+    async def test_command_history_is_bounded_without_dropping_active_commands(self) -> None:
+        _, session = await self.pair_session()
+        device = self.hub.devices[session["device_id"]]
+        for _ in range(COMMAND_HISTORY_MAX + 5):
+            command = await self.hub.issue(app="smarttube", action="get_state", args={})
+            self.hub._take(device)
+            device.pending[command["command_id"]]["status"] = "completed"
+        self.assertEqual(len(device.pending), COMMAND_HISTORY_MAX)
+        for _ in range(8):
+            await self.hub.issue(app="smarttube", action="get_state", args={})
+            self.hub._take(device)
+        with self.assertRaises(TvProtocolError) as busy:
+            await self.hub.issue(app="smarttube", action="get_state", args={})
+        self.assertEqual(busy.exception.error_code, "BUSY")
+        for record in device.pending.values():
+            record["command"]["expires_at_ms"] = self.hub.now() - 1
+        await self.hub.issue(app="smarttube", action="get_state", args={})
+
+    async def test_late_result_does_not_overwrite_abandoned_command(self) -> None:
+        token, session = await self.pair_session()
+        device = self.hub.devices[session["device_id"]]
+        command = await self.hub.issue(app="smarttube", action="get_state", args={})
+        self.hub._take(device)
+        self.hub._abandon(command["command_id"], "unknown", "DISCONNECTED")
+        status, _ = await self.request(
+            "POST",
+            "/tv/v1/events",
+            token=token,
+            body={
+                "schema_version": SCHEMA,
+                "event_id": str(uuid.uuid4()),
+                "device_id": session["device_id"],
+                "server_epoch": session["server_epoch"],
+                "connection_id": session["connection_id"],
+                "sequence": 1,
+                "kind": "command_result",
+                "payload": {
+                    "command_id": command["command_id"],
+                    "status": "completed",
+                    "error_code": None,
+                    "result": None,
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(device.pending[command["command_id"]]["status"], "unknown")
 
     async def test_wrong_identity_url_secret_expiry_reconnect_and_late_event(self) -> None:
         token, session = await self.pair_session()

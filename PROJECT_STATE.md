@@ -25,6 +25,21 @@
   Testhost corrigé avec UUID. Qualification Philips et livraison en cours ;
   aucun résultat matériel n'est déduit des tests unitaires.
 
+### Intégration privée et corrections matérielles
+
+- Release TV `0.3.0-c0998b566c65` construite depuis un commit local et activée
+  par le pipeline de release. Mode Echo OFF et micro fermé vérifiés ; aucun push.
+- Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
+  l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
+  de catalogue ; appairage TLS réel par le formulaire du récepteur réussi.
+- File Office corrigée : une commande de lecture après une consultation ne
+  provoque plus de KeyError ; une commande déjà rejetée ne quitte plus la file.
+  Huit commandes en attente maximum, historique RAM borné à 128 résultats,
+  expiration et résultat tardif sans réactivation d'une commande abandonnée.
+- Validation du correctif : 273 tests Python, tests dashboard, Ruff et Mypy
+  réussis. Ces vérifications ne constituent pas une confirmation humaine
+  d'image/son ni une campagne d'endurance TV.
+
 ## Mise en service — Prompt vocal, 16 septembre 2026
 
 - Release `0.3.0-72b08a88cbc6` vérifiée puis activée atomiquement ; la

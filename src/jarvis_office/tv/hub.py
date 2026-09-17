@@ -43,6 +43,8 @@ from jarvis_office.tv.protocol import (
     validate_event,
 )
 
+COMMAND_HISTORY_MAX = 128
+
 
 def _registry_default() -> dict[str, Any]:
     return {
@@ -324,6 +326,21 @@ class TvHub:
         if missing:
             raise TvProtocolError("rejected", missing)
         stamp = self.now()
+        for record in device.pending.values():
+            if record["status"] == "accepted" and record["command"]["expires_at_ms"] < stamp:
+                record.update(status="expired", error_code="EXPIRED")
+        device.queue = deque(
+            item
+            for item in device.queue
+            if device.pending[item["command_id"]]["status"] == "accepted"
+        )
+        if sum(record["status"] == "accepted" for record in device.pending.values()) >= QUEUE_MAX:
+            raise TvProtocolError("rejected", "BUSY")
+        for command_id in list(device.pending):
+            if len(device.pending) < COMMAND_HISTORY_MAX:
+                break
+            if device.pending[command_id]["status"] != "accepted":
+                del device.pending[command_id]
         command = build_command(
             device_id=device.device_id,
             server_epoch=device.server_epoch,
@@ -337,8 +354,8 @@ class TvHub:
         if len(device.queue) >= QUEUE_MAX:
             raise TvProtocolError("rejected", "BUSY")
         if action in MUTATING and any(
-            item["action"] in MUTATING and item["command_id"] in device.pending
-            for item in list(device.queue) + list(device.pending.values())
+            record["status"] == "accepted" and record["command"]["action"] in MUTATING
+            for record in device.pending.values()
         ):
             raise TvProtocolError("rejected", "BUSY")
         device.pending[command["command_id"]] = {
@@ -589,7 +606,7 @@ class TvHub:
         if kind == "command_result":
             result = validate_command_result(payload)
             record = device.pending.get(result["command_id"])
-            if record is not None:
+            if record is not None and record["status"] in {"accepted", "dispatched"}:
                 if result["status"] == "completed" and record["command"]["action"] in MUTATING:
                     # A dispatched intent is not proof of playback.
                     if not self._playback_matches(device, record["command"]):
@@ -627,7 +644,7 @@ class TvHub:
         while device.queue:
             command = device.queue.popleft()
             record = device.pending.get(command["command_id"])
-            if record is None:
+            if record is None or record["status"] != "accepted":
                 continue
             if command["expires_at_ms"] < stamp:
                 record.update(status="expired", error_code="EXPIRED")
