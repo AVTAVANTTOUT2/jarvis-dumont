@@ -35,6 +35,13 @@ def _binary() -> str | None:
     return None
 
 
+def _label(value: object, fallback: str) -> str:
+    if not isinstance(value, str):
+        return fallback
+    cleaned = "".join(char for char in value.strip() if char.isprintable())
+    return cleaned[:160] or fallback
+
+
 def parse_entries(raw: bytes, *, limit: int) -> list[dict[str, Any]]:
     try:
         document = json.loads(raw.decode("utf-8"))
@@ -59,11 +66,12 @@ def parse_entries(raw: bytes, *, limit: int) -> list[dict[str, Any]]:
         title = entry.get("title")
         channel = entry.get("channel") or entry.get("uploader")
         item: dict[str, Any] = {
-            "title": title[:160] if isinstance(title, str) and title.strip() else "Sans titre",
+            "title": _label(title, "Sans titre"),
             "content": {"kind": "youtube_video", "id": identifier},
         }
-        if isinstance(channel, str) and channel.strip():
-            item["channel"] = channel[:120]
+        clean_channel = _label(channel, "")[:120]
+        if clean_channel:
+            item["channel"] = clean_channel
         results.append(item)
         if len(results) >= limit:
             break
@@ -113,5 +121,8 @@ async def search_smarttube(query: str, limit: int = 5) -> list[dict[str, Any]]:
         ) from None
     finally:
         if process is not None and process.returncode is None:
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             await process.wait()
