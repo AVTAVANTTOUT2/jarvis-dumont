@@ -20,14 +20,14 @@
   vocal après adresse Jarvis, UI dashboard loopback. Schéma SQLite 2 inchangé
   (`preferences.tv_registry`). La release privée active est construite et activée
   depuis un commit ; aucun runtime de production ne démarre depuis le checkout.
-- Candidat intégré dans la release active `0.3.0-9e800395f83e`. Le service AVT
+- Candidat intégré dans la release active `0.3.0-251edef1cb4d`. Le service AVT
   Binder et le récepteur TV existent dans leurs lots.
   Testhost corrigé avec UUID. Qualification Philips et livraison privée terminées ;
   aucun résultat matériel n'est déduit des tests unitaires.
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-9e800395f83e` construite depuis le commit `9e800395f83efe2ffc2636f1a9176aa264f6f9d3`
+- Release TV `0.3.0-251edef1cb4d` construite depuis le commit `251edef1cb4d9677146cf61fee98371eff067d7d`
   et activée atomiquement. Mode Echo OFF et micro fermé vérifiés ; branche privée poussée.
 - Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
   l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
