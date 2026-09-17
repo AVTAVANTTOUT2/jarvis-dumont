@@ -18,16 +18,16 @@
 
 - Worktree `feature/tv-v1-office` : serveur `/tv/v1`, file bornée, dispatcher
   vocal après adresse Jarvis, UI dashboard loopback. Schéma SQLite 2 inchangé
-  (`preferences.tv_registry`). Aucune release, activation `current`, LaunchAgent
-  ou runtime de production depuis le checkout.
+  (`preferences.tv_registry`). La release privée active est construite et activée
+  depuis un commit ; aucun runtime de production ne démarre depuis le checkout.
 - Candidat intégré sur la base de la release active `d816fb01e394`, orbes
   conservées. Le service AVT Binder et le récepteur TV existent dans leurs lots.
-  Testhost corrigé avec UUID. Qualification Philips et livraison en cours ;
+  Testhost corrigé avec UUID. Qualification Philips et livraison privée terminées ;
   aucun résultat matériel n'est déduit des tests unitaires.
 
 ### Intégration privée et corrections matérielles
 
-- Release TV `0.3.0-86a69108117d` construite depuis un commit local et activée
+- Release TV `0.3.0-03b8a13a9d1c` construite depuis un commit local et activée
   par le pipeline de release. Mode Echo OFF et micro fermé vérifiés ; aucun push.
 - Philips Android 14 : APK récepteur et AVT debug installés côte à côte avec
   l'AVT habituel, conservé. Binder réel : profil confirmé et trois résultats
@@ -36,14 +36,13 @@
   provoque plus de KeyError ; une commande déjà rejetée ne quitte plus la file.
   Huit commandes en attente maximum, historique RAM borné à 128 résultats,
   expiration et résultat tardif sans réactivation d'une commande abandonnée.
-- Validation du correctif : 273 tests Python, tests dashboard, Ruff et Mypy
-  réussis. Ces vérifications ne constituent pas une confirmation humaine
-  d'image/son ni une campagne d'endurance TV.
-- Correctif de confirmation vocale : profil de recherche transmis à AVT ;
+- Validation du correctif : 275 tests Python, tests dashboard, Ruff, format et
+  Mypy réussis. L'endurance TV réelle de 30 minutes est passée sans écart.
+  Ces vérifications ne constituent pas une confirmation humaine d'image/son.
+- Correctif de confirmation vocale activé : profil de recherche transmis à AVT ;
   ancienne lecture, autre profil/épisode, chargement et pause ne confirment
   jamais le nouveau lancement. Échecs reproduits puis 275 tests Python,
-  dashboard, Ruff/format et Mypy réussis. Activation de cette dernière correction
-  prévue après l'endurance en cours de la chaîne TV déjà installée.
+  dashboard, Ruff/format et Mypy réussis.
 - Philips : Binder réel et transports AVT/SmartTube validés, y compris via HTTPS
   sans ADB. Redémarrage TV avec retour automatique du récepteur sans lecture.
   Corrections TV : observations indépendantes du long-poll, conversion d'horloge,
