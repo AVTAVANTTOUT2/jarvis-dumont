@@ -1040,6 +1040,11 @@ async def run_live(settings: Settings) -> None:
                 return
             await boot
             gateway.boot_complete = True
+            # A client can finish its audio handshake before the workers boot; replay
+            # the persisted owner mode once the live pipeline is ready.
+            for session in tuple(gateway.sessions.values()):
+                if session.alive and session.audio is not None:
+                    await gateway.on_audio_ready(session)
             print(f"ECHO_LIVE_READY {settings.security} REMOTE_STT_QUALIFIED=NO", flush=True)
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in tasks:
