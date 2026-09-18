@@ -402,6 +402,15 @@ class TvHub:
         finally:
             self._turns.discard(turn_id)
 
+    async def handle_command(self, question: str, turn_id: str) -> tuple[bool, str]:
+        from jarvis_office.tv.intent import dispatch_command
+
+        self._turns.add(turn_id)
+        try:
+            return await dispatch_command(self, question, turn_id)
+        finally:
+            self._turns.discard(turn_id)
+
     def turn_alive(self, turn_id: str) -> bool:
         return turn_id in self._turns
 

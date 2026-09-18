@@ -29,7 +29,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from .context import PassiveContextBuffer
-from .protocol import VERSION, Packet, Sequence, control
+from .protocol import ECHO_MODES, VERSION, Packet, Sequence, control
 
 
 @dataclass(frozen=True, repr=False)
@@ -446,7 +446,7 @@ class EchoGateway:
             )
         elif kind == "set_mode":
             mode = p.get("mode")
-            if mode not in {"OFF", "ACTIVE", "PASSIVE"}:
+            if mode not in ECHO_MODES:
                 raise ValueError("INVALID_MODE")
             if mode != "OFF" and s.current_turn:
                 await s.send("error", {"code": "TURN_BUSY"})

@@ -764,7 +764,7 @@ class OfficeStore:
         await self._call(self._remember_echo_mode, _identifier(device_id), mode)
 
     def _remember_echo_mode(self, db: sqlite3.Connection, device: str, mode: str) -> None:
-        if mode not in {"OFF", "ACTIVE", "PASSIVE"}:
+        if mode not in {"OFF", "ACTIVE", "PASSIVE", "COMMAND"}:
             raise StorageError("INVALID_MODE")
         row = db.execute("SELECT value_json FROM preferences WHERE key='echo_modes'").fetchone()
         modes = json.loads(row["value_json"]) if row else {}
@@ -829,7 +829,7 @@ class OfficeStore:
             return "OFF"
         modes = json.loads(row["value_json"])
         mode = modes.get(device, "OFF") if isinstance(modes, dict) else "OFF"
-        return mode if mode in {"OFF", "ACTIVE", "PASSIVE"} else "OFF"
+        return mode if mode in {"OFF", "ACTIVE", "PASSIVE", "COMMAND"} else "OFF"
 
     def record_passive(
         self,

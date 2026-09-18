@@ -2,10 +2,12 @@
 
 import asyncio
 import contextlib
+import math
 import re
 import signal
 import time
 import uuid
+from array import array
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,23 @@ def addressed(text: str) -> str | None:
     if match is None:
         return None
     return text[match.end() :].lstrip(" \t\r\n,;:.!?…")
+
+
+def cue_pcm(kind: str, rate: int, duration_s: float = 0.25) -> bytes:
+    freq = 880.0 if kind == "ok" else 220.0
+    n = max(1, int(rate * duration_s))
+    ramp = max(1, int(rate * 0.01))
+    samples = array("h")
+    amplitude = 8000
+    for i in range(n):
+        if i < ramp:
+            gain = i / ramp
+        elif i > n - ramp:
+            gain = max(0.0, (n - i) / ramp)
+        else:
+            gain = 1.0
+        samples.append(int(amplitude * gain * math.sin(2 * math.pi * freq * i / rate)))
+    return samples.tobytes()
 
 
 class VoiceLoop:
@@ -96,7 +115,8 @@ class VoiceLoop:
             "notice": (
                 ("Écoute armée. " if self.armed else "Écoute non armée. ")
                 + "Pendant l'armement : STT local de toute parole. En Conversation Echo, "
-                "chaque énoncé est une demande. En local, adresse textuelle Jarvis ; "
+                "chaque énoncé est une demande. En Commandes Echo, Jarvis est optionnel "
+                "et seule une action média est traitée. En local, adresse textuelle Jarvis ; "
                 "ni wake word acoustique ni identification du locuteur."
             ),
         }
@@ -182,6 +202,57 @@ class VoiceLoop:
         result = await asyncio.shield(self.abort_task)
         self._progress(result, identifier, final=True)
 
+    async def _play_cue(self, identifier: str, kind: str) -> None:
+        pcm = cue_pcm(kind, int(self.tts.ready["sample_rate"]))
+        for offset in range(0, len(pcm), 24000):
+            chunk = pcm[offset : offset + 24000]
+            async with asyncio.timeout(3):
+                while True:
+                    if self.turn != identifier:
+                        raise LoopError("stale_pcm_turn")
+                    credit = await self.audio.call("progress", turn=identifier)
+                    if credit.get("free_source_bytes", len(chunk)) >= len(chunk):
+                        break
+                    await asyncio.sleep(0.02)
+            self._progress(await self.audio.write_pcm(identifier, chunk), identifier)
+        self._progress(await self.audio.call("mark", turn=identifier, segment=1), identifier)
+        self._progress(await self.audio.call("finish", turn=identifier), identifier)
+        while True:
+            result = await self.audio.call("progress", turn=identifier)
+            self._progress(result, identifier)
+            if result.get("done"):
+                self._progress(await self.audio.call("drained", turn=identifier), identifier)
+                self.metrics["playback_finished"] = time.perf_counter()
+                return
+            await asyncio.sleep(0.04)
+
+    async def _command_reply(
+        self,
+        text: str,
+        identifier: str,
+        *,
+        ok: bool,
+        speech: str,
+        no_play: bool,
+    ) -> None:
+        cue = "ok" if ok else "error"
+        self.answer = speech
+        if no_play:
+            self.playback = "NOT_RUN"
+        else:
+            await self._play_cue(identifier, cue)
+            self.playback = "completed_estimated"
+        self.metrics.update(
+            status="PASS",
+            playback=self.playback,
+            cue=cue,
+            llm={"path": "tv_dispatcher", "spoken": False},
+        )
+        self.results.append(dict(self.metrics))
+        del self.results[:-20]
+        if self.on_turn_finished is not None:
+            self.on_turn_finished(identifier, text, speech, "", dict(self.metrics))
+
     async def _respond(
         self,
         text: str,
@@ -192,16 +263,22 @@ class VoiceLoop:
         context_metadata: dict[str, Any] | None = None,
     ) -> None:
         question = addressed(text)
+        meta = context_metadata or {}
+        command = meta.get("command_session") is not None
+        conversation = meta.get("conversation_session") is not None
         if question is None:
-            if (context_metadata or {}).get("conversation_session") is None:
+            if not command and not conversation:
                 return  # Local CLI and PASSIVE still require a Jarvis address.
             question = text.strip()
             if not question:
                 return
         self.accepted = text
         if not question:
-            self.answer = "Présent. Adressez votre demande à Jarvis."
-            return  # Local UI state only; not a measured LLM answer or spoken filler.
+            if command:
+                question = ""
+            else:
+                self.answer = "Présent. Adressez votre demande à Jarvis."
+                return  # Local UI state only; not a measured LLM answer or spoken filler.
         self.answer, self.error, self.playback = "", None, "not_started"
         self.state = "responding"
         self.completed = []
@@ -231,60 +308,31 @@ class VoiceLoop:
             self.output_device = result["device"]
         if self.turn != identifier:
             raise asyncio.CancelledError
-        tv_speech: str | None = None
-        if self.tv is not None:
-            tv_speech = await self.tv.handle_addressed(question, identifier)
-            if self.turn != identifier:
-                raise asyncio.CancelledError
-        if tv_speech == "":
-            # Short transport command handled with nothing to say: no TTS, no LLM.
-            await self._abort_audio(identifier)
-            self.answer = ""
-            self.metrics.update(
-                status="PASS",
-                playback="NOT_RUN",
-                llm={"path": "tv_dispatcher", "spoken": False},
-            )
-            self.results.append(dict(self.metrics))
-            del self.results[:-20]
-            if self.on_turn_finished is not None:
-                self.on_turn_finished(identifier, text, "", "", dict(self.metrics))
+        if command:
+            try:
+                if not question:
+                    ok, speech = False, "Commande inconnue."
+                elif self.tv is None:
+                    ok, speech = False, "La télévision n'est pas configurée."
+                else:
+                    ok, speech = await self.tv.handle_command(question, identifier)
+                    if self.turn != identifier:
+                        raise asyncio.CancelledError
+                await self._command_reply(text, identifier, ok=ok, speech=speech, no_play=no_play)
+            except BaseException:
+                if not no_play:
+                    await self._abort_audio(identifier)
+                raise
             return
-        turn_context: Any = (
-            contextlib.nullcontext(None)
-            if tv_speech is not None
-            else self.chat.turn(
-                question, turn_id=identifier, context=context, context_metadata=context_metadata
-            )
+        turn_context: Any = self.chat.turn(
+            question, turn_id=identifier, context=context, context_metadata=context_metadata
         )
         async with turn_context as chat_turn:
-            if tv_speech is not None:
-
-                class _TvTurn:
-                    def __init__(self) -> None:
-                        self.started = time.perf_counter()
-                        self.metrics: dict[str, Any] = {"path": "tv_dispatcher"}
-                        self.invalidated = True
-
-                    async def cancel(self) -> None:
-                        return None
-
-                turn: Any = _TvTurn()
-                self.answer = tv_speech
-            else:
-                turn = chat_turn
+            turn = chat_turn
             self.metrics["request_started"] = turn.started
 
             async def receive() -> None:
                 nonlocal queued_chars
-                if tv_speech is not None:
-                    if queued_chars + len(tv_speech) > self.config.voice.text_queue_chars:
-                        raise LoopError("text_queue_full")
-                    queued_chars += len(tv_speech)
-                    self.metrics["text_queue_peak_chars"] = queued_chars
-                    queue.put_nowait(tv_speech)
-                    queue.put_nowait(None)
-                    return
                 async for event in turn:
                     if self.turn != identifier or event.turn_id != identifier:
                         raise LoopError("stale_text_turn")
@@ -520,7 +568,11 @@ class VoiceLoop:
                 )
                 meta = self.request_context_metadata
                 if addressed(result.get("text", "")) is None and (
-                    meta is None or meta.get("conversation_session") is None
+                    meta is None
+                    or (
+                        meta.get("conversation_session") is None
+                        and meta.get("command_session") is None
+                    )
                 ):
                     continue
                 self.remaining -= 1
@@ -650,13 +702,20 @@ class VoiceLoop:
                 self.microphone, self.state = "closure_unverified", "error"
                 self.error, self.ready = "audio_shutdown_unverified", False
 
-    async def test_text(self, text: str, *, no_play: bool) -> None:
-        if addressed(text) in (None, ""):
+    async def test_text(
+        self, text: str, *, no_play: bool, context_metadata: dict[str, Any] | None = None
+    ) -> None:
+        meta = context_metadata or {}
+        if (
+            addressed(text) in (None, "")
+            and not meta.get("command_session")
+            and not meta.get("conversation_session")
+        ):
             raise LoopError("test_requires_explicit_jarvis_request")
         self.turn = uuid.uuid4().hex
         self.metrics = {"input_kind": "explicit_synthetic_text", "microphone": "NOT_RUN"}
         try:
-            await self._respond(text, self.turn, no_play=no_play)
+            await self._respond(text, self.turn, no_play=no_play, context_metadata=context_metadata)
         finally:
             self.turn = ""
             self.state = "paused" if self.error is None else "error"

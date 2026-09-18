@@ -9,6 +9,8 @@ VERSION = 1
 HEADER = struct.Struct("!4sBBHQIQQIBBHI")
 MAX_PAYLOAD = 3840
 FRAME_MS = 20
+ECHO_MODES = frozenset({"OFF", "ACTIVE", "PASSIVE", "COMMAND"})
+CAPTURE_MODES = frozenset({"ACTIVE", "PASSIVE", "COMMAND"})
 
 
 @dataclass(frozen=True)

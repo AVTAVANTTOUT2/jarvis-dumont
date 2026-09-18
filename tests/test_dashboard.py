@@ -105,7 +105,15 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         body["mode"] = "ACTIVE"
         response = await self.post("/api/command", body)
         self.assertEqual((await response.json())["status"], "applied")
-        self.assertEqual(len(self.commands), 2)
+        body["mode"] = "COMMAND"
+        response = await self.post("/api/command", body)
+        self.assertEqual((await response.json())["status"], "applied")
+        body["mode"] = "ALEXA"
+        response = await self.post("/api/command", body)
+        self.assertEqual(response.status, 400)
+        await response.release()
+        self.assertEqual(len(self.commands), 3)
+        self.assertEqual(self.commands[-1]["mode"], "COMMAND")
         self.assertEqual((await self.store.settings())["budget"]["used"], 0)
 
         response = await self.post(

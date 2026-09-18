@@ -190,6 +190,47 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests[0]["messages"][-1]["content"], "Quelle heure est-il ?")
         self.assertGreaterEqual(len(self.tts.texts), 1)
 
+    async def test_command_mode_unaddressed_speech_plays_cue_without_llm(self):
+        class Tv:
+            async def handle_command(self, question, turn_id):
+                del turn_id
+                return (True, "") if "pause" in question.lower() else (False, "Commande inconnue.")
+
+            def cancel_turn(self, turn_id):
+                del turn_id
+
+            def clear_dialogue(self):
+                return None
+
+        self.voice.tv = Tv()
+        await self.mode("COMMAND")
+        self.assertEqual(self.s.mode, "COMMAND")
+        previous_packets = len(self.endpoint.packets)
+        await self.say("pause")
+        await self.wait_for(lambda: len(self.voice.results) == 1)
+        self.assertEqual(self.voice.results[-1]["status"], "PASS", self.voice.results[-1])
+        self.assertEqual(self.voice.results[-1]["cue"], "ok")
+        self.assertEqual(self.requests, [])
+        self.assertEqual(self.tts.texts, [])
+        self.assertGreater(len(self.endpoint.packets), previous_packets)
+        await self.wait_for(lambda: self.voice.state == "listening")
+        await self.say("Jarvis, pause")
+        await self.wait_for(lambda: len(self.voice.results) == 2)
+        self.assertEqual(self.voice.results[-1]["cue"], "ok")
+        await self.wait_for(lambda: self.voice.state == "listening")
+        await self.say("bonjour tout le monde")
+        await self.wait_for(lambda: len(self.voice.results) == 3)
+        self.assertEqual(self.voice.results[-1]["cue"], "error")
+        self.assertEqual(self.requests, [])
+        self.assertEqual(self.tts.texts, [])
+        await self.wait_for(lambda: self.voice.state == "listening")
+        self.assertEqual(self.s.mode, "COMMAND")
+        self.assertTrue(all(message["type"] != "test_tone" for message in self.endpoint.control))
+        with self.assertRaises(ValueError) as raised:
+            await self.mode("ALEXA")
+        self.assertEqual(str(raised.exception), "INVALID_MODE")
+        self.assertEqual(self.s.mode, "COMMAND")
+
     async def test_passive_zero_cloud_then_ephemeral_context_clear_and_speaking_suppression(self):
         await self.mode("PASSIVE")
         await self.say("La couleur de test est turquoise.")

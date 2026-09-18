@@ -14,9 +14,9 @@ import httpx
 
 from jarvis_office.config import Chat, Config
 from jarvis_office.deepseek import ChatError, DeepSeek
-from jarvis_office.tv.intent import dispatch, parse_local
+from jarvis_office.tv.intent import dispatch, dispatch_command, parse_local
 from jarvis_office.tv.protocol import empty_app
-from jarvis_office.voice import VoiceLoop
+from jarvis_office.voice import VoiceLoop, cue_pcm
 from tests.test_chat import Wire, event
 from tests.test_voice import FakeAudio, FakeTTS, SSEStream
 
@@ -112,6 +112,13 @@ def _device(**kwargs: object) -> SimpleNamespace:
 
 
 class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
+    def test_cue_pcm_ok_and_error_differ_and_fit_remote_credit(self) -> None:
+        ok = cue_pcm("ok", 24000)
+        err = cue_pcm("error", 24000)
+        self.assertEqual(len(ok), 12000)
+        self.assertEqual(len(err), 12000)
+        self.assertNotEqual(ok, err)
+
     async def test_media_command_prepares_tv_before_dispatch(self) -> None:
         hub = FakeHub(_device())
         speech = await dispatch(hub, "joue la video aqz-KE-bpKQ", "turn1")
@@ -295,9 +302,9 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         await voice.start()
 
         class SilentTv:
-            async def handle_addressed(self, question: str, turn_id: str) -> str | None:
+            async def handle_command(self, question: str, turn_id: str) -> tuple[bool, str]:
                 del turn_id
-                return "" if "pause" in question.lower() else None
+                return (True, "") if "pause" in question.lower() else (False, "Commande inconnue.")
 
             def cancel_turn(self, turn_id: str) -> None:
                 del turn_id
@@ -306,19 +313,28 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
                 return None
 
         voice.tv = SilentTv()
+        command = {"command_session": voice.session}
         try:
-            await voice.test_text("Jarvis, mets pause", no_play=True)
+            await voice.test_text("Jarvis, mets pause", no_play=True, context_metadata=command)
             self.assertEqual(tts.texts, [])
             self.assertEqual(streams, [])
             self.assertEqual(voice.answer, "")
             self.assertEqual(voice.metrics["status"], "PASS")
+            self.assertEqual(voice.metrics["cue"], "ok")
             self.assertEqual(voice.metrics["llm"], {"path": "tv_dispatcher", "spoken": False})
             self.assertIsNone(voice.error)
             self.assertEqual(chat.history, [])
+            await voice.test_text("pause", no_play=True, context_metadata=command)
+            self.assertEqual(voice.metrics["cue"], "ok")
+            await voice.test_text("bonjour tout le monde", no_play=True, context_metadata=command)
+            self.assertEqual(voice.metrics["cue"], "error")
+            self.assertEqual(voice.answer, "Commande inconnue.")
+            self.assertEqual(tts.texts, [])
+            self.assertEqual(streams, [])
         finally:
             await voice.control("stop")
 
-    async def test_voice_loop_tv_intercept_skips_llm_and_unaddressed_never_hits_tv(self) -> None:
+    async def test_voice_loop_conversation_never_hits_tv(self) -> None:
         streams: list[SSEStream] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -334,12 +350,10 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         seen: list[str] = []
 
         class Tv:
-            async def handle_addressed(self, question: str, turn_id: str) -> str | None:
+            async def handle_command(self, question: str, turn_id: str) -> tuple[bool, str]:
                 del turn_id
                 seen.append(question)
-                if "pause" in question.lower():
-                    return "Pause demandée."
-                return None
+                return True, ""
 
             def cancel_turn(self, turn_id: str) -> None:
                 del turn_id
@@ -349,16 +363,72 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
 
         voice.tv = Tv()
         try:
-            await voice._respond("Je cite Jarvis.", "test")
+            await voice.test_text(
+                "pause",
+                no_play=True,
+                context_metadata={"conversation_session": voice.session},
+            )
             self.assertEqual(seen, [])
-            self.assertEqual(streams, [])
-            await voice.test_text("Jarvis, mets pause", no_play=True)
-            self.assertEqual(voice.answer, "Pause demandée.")
-            self.assertEqual(len(streams), 0)
-            self.assertEqual(chat.history, [])
-            await voice.test_text("Jarvis, explique la suite.", no_play=True)
             self.assertEqual(len(streams), 1)
             self.assertIn("conversation", voice.answer.lower())
+            await voice.test_text("Jarvis, mets pause", no_play=True)
+            self.assertEqual(seen, [])
+            self.assertEqual(len(streams), 2)
+            self.assertEqual(chat.history, [])
+        finally:
+            await voice.control("stop")
+
+    async def test_dispatch_command_without_media_hint_is_still_a_command(self) -> None:
+        hub = FakeHub(_device(), chat=None)
+        ok, speech = await dispatch_command(hub, "queen", "t")
+        self.assertFalse(ok)
+        self.assertIn("Précisez", speech)
+        self.assertIsNone(await dispatch(hub, "queen", "t"))
+        playback = {
+            "app": "smarttube",
+            "playback_id": "p1",
+            "position_ms": 5000,
+            "observed_at_ms": 1_700_000_000_000,
+            "valid_for_ms": 5000,
+            "state": "playing",
+        }
+        ok, speech = await dispatch_command(FakeHub(_device(playback=playback)), "pause", "t")
+        self.assertTrue(ok)
+        self.assertEqual(speech, "")
+
+    async def test_command_mode_plays_cue_pcm_without_tts(self) -> None:
+        audio, tts = FakeAudio(), FakeTTS()
+        chat = DeepSeek(
+            "test_key_only",
+            Chat(),
+            transport=httpx.MockTransport(
+                lambda request: (_ for _ in ()).throw(AssertionError("conversation must not run"))
+            ),
+        )
+        voice = VoiceLoop(Config(), Path("unused.toml"), chat, audio=audio, tts=tts)
+        await voice.start()
+
+        class Tv:
+            async def handle_command(self, question: str, turn_id: str) -> tuple[bool, str]:
+                del turn_id
+                return (True, "") if question == "pause" else (False, "Commande inconnue.")
+
+            def cancel_turn(self, turn_id: str) -> None:
+                del turn_id
+
+            def clear_dialogue(self) -> None:
+                return None
+
+        voice.tv = Tv()
+        try:
+            await voice.test_text(
+                "pause", no_play=False, context_metadata={"command_session": voice.session}
+            )
+            self.assertEqual(tts.texts, [])
+            self.assertGreater(audio.pcm, 0)
+            self.assertEqual(voice.metrics["cue"], "ok")
+            self.assertIn("pcm", audio.calls)
+            self.assertNotIn("test_tone", audio.calls)
         finally:
             await voice.control("stop")
 

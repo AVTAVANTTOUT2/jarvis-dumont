@@ -300,6 +300,75 @@ async def dispatch(hub: Any, question: str, turn_id: str) -> str | None:
         return "Je n'ai pas pu interpréter la demande télé."
 
 
+def command_outcome(speech: str | None) -> tuple[bool, str]:
+    if speech is None:
+        return False, "Commande inconnue."
+    if speech == "":
+        return True, ""
+    if speech in ERROR_SPEECH.values():
+        return False, speech
+    folded = fold(speech)
+    if any(
+        token in folded
+        for token in (
+            "invente",
+            "precisez",
+            "pas pu",
+            "pas compris",
+            "pas autorisee",
+            "identifiant youtube",
+            "identifiants renvoyes",
+            "quel titre",
+            "lecture fraiche",
+            "pas de confirmation",
+            "aucun titre",
+            "plusieurs titres",
+            "n'est pas lie",
+            "plus ces resultats",
+            "pas d'identifiant",
+            "numero de la playlist",
+            "n'a pas pu",
+            "deja terminee",
+            "pas exploitable",
+            "commande inconnue",
+            "n'est pas activee",
+            "n'est pas configuree",
+        )
+    ):
+        return False, speech
+    return True, speech
+
+
+async def dispatch_command(hub: Any, question: str, turn_id: str) -> tuple[bool, str]:
+    if not hub.enabled():
+        return False, "La télévision n'est pas activée."
+    parsed = parse_local(question, hub)
+    if parsed is None:
+        parsed = await extract(hub, question, turn_id)
+        if parsed is None or parsed.get("kind") == "not_tv":
+            return False, "Commande inconnue."
+        if parsed.get("kind") == "clarify":
+            speech = parsed.get("speech")
+            return False, (
+                speech
+                if isinstance(speech, str) and speech.strip()
+                else "Précisez le titre, l'application ou la commande."
+            )
+    if parsed.get("kind") == "pick":
+        return command_outcome(await pick_candidate(hub, int(parsed["index"]), turn_id))
+    if parsed.get("kind") != "command":
+        return False, "Commande inconnue."
+    try:
+        return command_outcome(await run_command(hub, parsed, question, turn_id))
+    except TvProtocolError as exc:
+        return False, speak_error(exc.error_code)
+    except ChatError as exc:
+        reason = str(exc)
+        if reason in {"NOMINAL_BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED"}:
+            return False, speak_error("NOMINAL_BUDGET_EXHAUSTED")
+        return False, "Je n'ai pas pu interpréter la demande télé."
+
+
 async def extract(hub: Any, question: str, turn_id: str) -> dict[str, Any] | None:
     if hub.chat is None:
         return {"kind": "clarify", "speech": "Précisez le titre, l'application ou la commande."}

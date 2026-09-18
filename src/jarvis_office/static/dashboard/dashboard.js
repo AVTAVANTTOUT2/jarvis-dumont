@@ -5,7 +5,7 @@ const api = new OfficeAPI();
 const orbs = mountOrbs(style => api.post('/api/settings', {orb_style:style}), fail);
 const $ = (id) => document.getElementById(id);
 const labels = {
-  OFF: 'Micro coupé', ACTIVE: 'Conversation', PASSIVE: 'Écoute contextuelle',
+  OFF: 'Micro coupé', ACTIVE: 'Conversation', COMMAND: 'Commandes', PASSIVE: 'Écoute contextuelle',
   DISCONNECTED: 'Déconnecté', CONNECTING: 'Connexion', CONNECTED: 'Connecté', DEGRADED: 'Dégradé',
   IDLE: 'Repos', LISTENING: 'Écoute', TRANSCRIBING: 'Transcription', GENERATING: 'Génération', PLAYING: 'Lecture', ERROR: 'Erreur',
   complete: 'Complet', partial: 'Partiel', interrupted: 'Interrompu', error: 'Erreur', active: 'En cours', open: 'Ouverte', closed: 'Terminée', ended: 'Terminée',
@@ -40,7 +40,7 @@ function musicDuration(milliseconds) {
 }
 function device() { return state.snapshot?.devices?.find(item => item.device_id === state.device) || null; }
 function badge(value) {
-  const color = /CONNECTED|ACTIVE|complete|OFF/.test(value || '') && value !== 'DISCONNECTED' ? 'cyan' : /PASSIVE|DEGRADED|partial|interrupted/.test(value || '') ? 'amber' : /ERROR|error/.test(value || '') ? 'red' : '';
+  const color = /CONNECTED|ACTIVE|COMMAND|complete|OFF/.test(value || '') && value !== 'DISCONNECTED' ? 'cyan' : /PASSIVE|DEGRADED|partial|interrupted/.test(value || '') ? 'amber' : /ERROR|error/.test(value || '') ? 'red' : '';
   return el('span', label(value), `badge ${color}`);
 }
 function notify(message, kind = '') {

@@ -25,7 +25,7 @@ from jarvis_office.voice import VoiceLoop, addressed
 
 from .audio import RemoteEchoAudio, RemoteEchoEgress
 from .gateway import EchoGateway, Session, Settings
-from .protocol import Packet
+from .protocol import CAPTURE_MODES, ECHO_MODES, Packet
 
 
 def historical_reports() -> list[dict[str, Any]]:
@@ -112,6 +112,9 @@ class LiveGateway(EchoGateway):
     ) -> None:
         owner = self.record_owner
         if self.store is None or owner is None or owner[2] != turn:
+            return
+        if metrics.get("llm", {}).get("path") == "tv_dispatcher":
+            self.record_owner = None
             return
         status = {"PASS": "complete", "CANCELLED": "interrupted"}.get(
             metrics.get("status", ""), "error"
@@ -451,7 +454,7 @@ class LiveGateway(EchoGateway):
             self.remote.context_observed("INACTIVE_OR_PLAYING", len(text))
             return ""
         self.transcriptions += 1
-        if addressed(text) is None and (s.mode != "ACTIVE" or not text.strip()):
+        if addressed(text) is None and (s.mode not in {"ACTIVE", "COMMAND"} or not text.strip()):
             self.non_addressed += 1
             if s.mode == "PASSIVE" and s.context_epoch == self.remote.listen_context_epoch:
                 entry_id = s.context.add(text)
@@ -470,7 +473,8 @@ class LiveGateway(EchoGateway):
             return ""
         if self.memory_task is not None and not self.memory_task.done():
             self.memory_task.cancel()
-        if self.store is not None:
+        command = s.mode == "COMMAND"
+        if self.store is not None and not command:
             self.record_owner = (
                 s.device,
                 s.id,
@@ -485,16 +489,23 @@ class LiveGateway(EchoGateway):
                 user_text=text,
                 status="partial",
             )
-        context, selection = s.context.select(max_chars=3500, max_utterances=20)
+        context, selection = (
+            ("", {"selection_reason": "EMPTY"})
+            if command
+            else s.context.select(max_chars=3500, max_utterances=20)
+        )
         self.voice.request_context_metadata = {
             **selection,
             "server_epoch": self.server_epoch,
             "echo_connection_session": s.id,
-            "conversation_session": self.voice.session,
             "generation": s.generation,
             "context_generation": s.context_epoch,
             "archive_generation": self.remote.listen_storage_generation,
         }
+        if command:
+            self.voice.request_context_metadata["command_session"] = self.voice.session
+        else:
+            self.voice.request_context_metadata["conversation_session"] = self.voice.session
         self.remote.context_observed("ADDRESSED", len(text))
         return context
 
@@ -579,7 +590,7 @@ class LiveGateway(EchoGateway):
             "received_ns": received_ns,
             "processing_ns": time.monotonic_ns(),
             "mode": payload.get("mode")
-            if kind == "set_mode" and payload.get("mode") in ("OFF", "ACTIVE", "PASSIVE")
+            if kind == "set_mode" and payload.get("mode") in ECHO_MODES
             else "OFF"
             if kind != "set_mode"
             else "INVALID",
@@ -589,7 +600,7 @@ class LiveGateway(EchoGateway):
             return
         error = None
         mode = payload.get("mode") if kind == "set_mode" else "OFF"
-        if mode not in {"OFF", "ACTIVE", "PASSIVE"}:
+        if mode not in ECHO_MODES:
             error = "INVALID_MODE"
         elif mode != "OFF":
             if not self.boot_complete:
@@ -658,7 +669,7 @@ class LiveGateway(EchoGateway):
             "error": error,
         }
         s.command_acks[command_id] = ack
-        audit["mode"] = mode if mode in {"OFF", "ACTIVE", "PASSIVE"} else "INVALID"
+        audit["mode"] = mode if mode in ECHO_MODES else "INVALID"
         while len(s.command_acks) > 64:
             del s.command_acks[next(iter(s.command_acks))]
         await self.command_ack(s, ack, audit, deduplicated=False)
@@ -673,7 +684,7 @@ class LiveGateway(EchoGateway):
         ):
             return
         mode = await self.store.echo_mode(s.device)
-        if mode not in {"ACTIVE", "PASSIVE"}:
+        if mode not in CAPTURE_MODES:
             return
         await self.command(
             s,
@@ -712,18 +723,19 @@ class LiveGateway(EchoGateway):
 
     async def legacy_command(self, s: Session, message: dict[str, Any], received_ns: int) -> None:
         mode = message["payload"].get("mode") if message["type"] == "set_mode" else None
-        if mode in {"ACTIVE", "PASSIVE"} and not self.boot_complete:
+        if mode in CAPTURE_MODES and not self.boot_complete:
             await s.send("error", {"code": "SERVER_NOT_READY"})
             return
         await super().command(s, message, received_ns)
-        if mode in {"ACTIVE", "PASSIVE"} and s.mode == mode:
+        if mode in CAPTURE_MODES and s.mode == mode:
             if self.remote.bound is not s:
                 await self.voice.control("clear")
                 self.remote.bound = s
-            if self.diagnostic_session == s.id:
-                self.voice.chat.restore_memory("", [])
-            elif self.store is not None:
-                await self.load_memory(s.device)
+            if mode != "COMMAND":
+                if self.diagnostic_session == s.id:
+                    self.voice.chat.restore_memory("", [])
+                elif self.store is not None:
+                    await self.load_memory(s.device)
             await self.voice.control("resume")
 
     async def stop_audio(self, s: Session, *, notify: bool = True) -> None:

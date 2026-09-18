@@ -302,7 +302,7 @@ class DashboardServer:
                 "preview_voice",
                 "passive_smoke",
             )
-            or (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE"))
+            or (action == "set_mode" and mode not in ("OFF", "ACTIVE", "PASSIVE", "COMMAND"))
             or not isinstance(body.get("device_id"), str)
             or len(body["device_id"]) > 128
             or not isinstance(body.get("command_id"), str)

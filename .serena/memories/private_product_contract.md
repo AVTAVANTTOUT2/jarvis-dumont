@@ -1,6 +1,6 @@
 # Produit privé Office
 
-Le contrat commun est PRIVATE_CONTRACT.md : protocole PCM 1 conservé, private_state_v1 et playback_envelope_v1. Les modes demandé/confirmé et les faits physiques sont distincts. Le dernier mode propriétaire par appareil survit à l'inactivité et à une reconnexion Echo ; le LaunchAgent redémarre sans ouvrir de micro tant que l'appareil n'est pas de nouveau connecté. Ouvrir une interface ne crée jamais un moteur ni une capture.
+Le contrat commun est PRIVATE_CONTRACT.md : protocole PCM 1 conservé, private_state_v1 et playback_envelope_v1. Les modes demandé/confirmé et les faits physiques sont distincts. Le dernier mode propriétaire par appareil (OFF/ACTIVE/PASSIVE/COMMAND) survit à l'inactivité et à une reconnexion Echo ; le LaunchAgent redémarre sans ouvrir de micro tant que l'appareil n'est pas de nouveau connecté. Ouvrir une interface ne crée jamais un moteur ni une capture.
 
 Le gateway live possède l'unique VoiceLoop. Le dashboard aiohttp est intégré au même processus, propriétaire loopback sur 127.0.0.1:8768 ; le jeton Echo ne donne aucun droit administrateur. Le transport Echo en release exige WSS, CA privée limitée à l'application, validation SAN/expiration et pin, sans fallback clair.
 

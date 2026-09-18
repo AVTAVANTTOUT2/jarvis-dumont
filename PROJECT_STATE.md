@@ -1,5 +1,15 @@
 # État du projet
 
+## Mode Commandes Echo — 18 septembre 2026
+
+- Quatrième mode `COMMAND` (UI **Commandes**) : assistant média sans parole.
+  Jarvis optionnel. Dispatcher TV existant (WOL, SmartTube, AVT, playlists).
+  Sortie : son OK/erreur via `RemoteEchoEgress`, jamais de phrase TTS ni
+  d'historique conversation. Conversation (`ACTIVE`) ne passe plus par le
+  dispatcher TV.
+- Protocole `OFF|ACTIVE|PASSIVE|COMMAND`. L'APK Echo doit connaître `COMMAND`
+  : `Mode.valueOf` plantait sur un mode inconnu.
+
 ## Orbes interactives — développement, 16 septembre 2026
 
 - Neuf Thinking Orbs `0.3.1` de Libraries.dev, moteur MIT local sans React,

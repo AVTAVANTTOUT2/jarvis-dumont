@@ -10,12 +10,12 @@ dans hello et négociées dans welcome.capabilities. Aucun moteur dans les UI.
 (croissant par démarrage serveur), `server_epoch` (UUID de démarrage),
 `device_id`, `session_id`, `turn_id`, `stream_id`, `generation`,
 `connection` (DISCONNECTED/CONNECTING/CONNECTED/DEGRADED),
-`requested_mode`, `confirmed_mode` (OFF/ACTIVE/PASSIVE),
+`requested_mode`, `confirmed_mode` (OFF/ACTIVE/PASSIVE/COMMAND),
 `activity` (IDLE/LISTENING/TRANSCRIBING/GENERATING/PLAYING/ERROR),
 `physical: {microphone: bool|null, playing: bool|null, playback_frames: int|null}`,
 `error: code|null`, `capabilities`. Inconnu = null. La capture physique vient
 d'Android, jamais de `up_stream`. Une session neuve reprend le dernier mode
-choisi pour cet appareil (Conversation, écoute contextuelle ou micro coupé).
+choisi pour cet appareil (Conversation, Commandes, écoute contextuelle ou micro coupé).
 Les flux audio de l'ancienne connexion restent invalidés.
 
 Commandes existantes `set_mode {mode}`, `clear_context {}`, `clear_memory {}`
@@ -26,7 +26,7 @@ réinjecté après redémarrage, sans supprimer les conversations consultables.
 la demande sous 5 secondes, sinon UI affiche délai dépassé et coupe localement.
 Un accusé confirme la transition serveur ; les faits physiques restent séparés.
 OFF ferme AudioRecord localement avant tout envoi. Clear/interrupt laissent OFF
-et mémorisent cet arrêt. ACTIVE/PASSIVE restent actifs jusqu'à OFF explicite
+et mémorisent cet arrêt. ACTIVE/PASSIVE/COMMAND restent actifs jusqu'à OFF explicite
 ou une erreur de chemin réseau ; une coupure de socket reprend le mode mémorisé
 à la reconnexion. L'inactivité ou l'absence de ping ne coupent plus la capture.
 Il n'existe aucun quota de tours par activation ; les fenêtres de capture
@@ -79,8 +79,10 @@ jamais le dashboard. Routes appareil : `POST /tv/v1/pair`, `POST /tv/v1/session`
 `GET /tv/v1/commands?connection_id=`, `POST /tv/v1/events`. Auth Bearer uniquement,
 jamais dans l'URL. `device_id` UUID (le testhost `tv-test` n'est pas compatible).
 File bornée, reconnexion sans replay, `completed` jamais déduit d'un intent.
-Commandes vocales après le filtre d'adresse Jarvis, JSON texte validé, jamais
-`tool_calls`. SQLite schéma 2 inchangé : registre TV dans `preferences`.
+Le dispatcher TV ne s'exécute qu'en mode Echo Commandes (`COMMAND`) : Jarvis y
+est optionnel, JSON texte validé, jamais `tool_calls`, jamais d'historique ni de
+phrase TTS (son OK ou erreur). Conversation (`ACTIVE`) reste du chat. SQLite
+schéma 2 inchangé : registre TV dans `preferences`.
 Statut : candidat logiciel, non déployé, non homologué matériel.
 
 `GET /api/data/catalog` => `{tables:[{name,columns:[{name,type,nullable}],
@@ -111,7 +113,7 @@ Journal DELETE initialement (WAL seulement après audit correctifs SQLite).
 Sauvegarde API SQLite, restore isolé et foreign_key_check/integrity_check.
 
 L'API expose le compteur diagnostic existant 9/10 séparément du budget nominal.
-Budget nominal sans plafond choisi = activation ACTIVE/PASSIVE refusée avec
+Budget nominal sans plafond choisi = activation ACTIVE/PASSIVE/COMMAND refusée avec
 `NOMINAL_BUDGET_REQUIRED` (sauf smoke diagnostic explicitement déclenché).
 Période/plafond/consommation persistés, aucun appel réseau sur GET/heartbeat.
 
