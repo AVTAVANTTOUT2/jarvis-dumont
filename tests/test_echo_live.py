@@ -560,10 +560,11 @@ class BoundaryTests(unittest.TestCase):
         ):
             run.return_value = Mock(stdout=good)
             self.assertEqual(require_ethernet("en0", "192.168.20.2"), 7)
+            run.return_value = Mock(stdout=good.replace("100baseTX", "IEEE802.11"))
+            self.assertEqual(require_ethernet("en1", "192.168.20.2"), 7)
             for value in (
                 good.replace("active", "inactive"),
                 good.replace(".20.2", ".20.3"),
-                good.replace("100baseTX", "IEEE802.11"),
             ):
                 run.return_value = Mock(stdout=value)
                 with self.assertRaisesRegex(ValueError, "NETWORK_PATH_UNAVAILABLE"):

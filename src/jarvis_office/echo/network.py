@@ -1,4 +1,4 @@
-"""Explicit Mac Ethernet path; never changes host routes or interface settings."""
+"""Explicit Mac interface path; never changes host routes or interface settings."""
 
 import ipaddress
 import re
@@ -22,7 +22,6 @@ def require_ethernet(interface: str, address: str) -> int:
             "UP" not in flags
             or "RUNNING" not in flags
             or "status: active" not in result
-            or "baseT" not in result
             or address not in addresses
         ):
             raise ValueError("NETWORK_PATH_UNAVAILABLE")
