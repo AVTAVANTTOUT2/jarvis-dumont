@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from typing import Any
 
 from jarvis_office.deepseek import ChatError
+from jarvis_office.tv.parser import (
+    DecisionKind,
+    LocalDecision,
+    decide_local,
+    default_app,
+    fold,
+)
 from jarvis_office.tv.protocol import (
     DEFAULT_TTL_MS,
     QUERY_MAX,
@@ -38,34 +44,6 @@ MEDIA_HINT = re.compile(
     r"ouvre|ouvrir|mette|mettez)\b",
     re.IGNORECASE,
 )
-YOUTUBE_IN_TEXT = re.compile(
-    r"(?:youtu\.be/|v=|(?:video|youtube)\s+)([A-Za-z0-9_-]{11})\b",
-    re.IGNORECASE,
-)
-ORDINALS = {
-    "premier": 0,
-    "première": 0,
-    "1": 0,
-    "deuxième": 1,
-    "second": 1,
-    "seconde": 1,
-    "2": 1,
-    "troisième": 2,
-    "3": 2,
-}
-WORDS = {
-    "une": 1,
-    "un": 1,
-    "deux": 2,
-    "trois": 3,
-    "quatre": 4,
-    "cinq": 5,
-    "six": 6,
-    "sept": 7,
-    "huit": 8,
-    "neuf": 9,
-    "dix": 10,
-}
 ERROR_SPEECH = {
     "UNSUPPORTED": "Cette action n'est pas disponible sur cette application.",
     "APP_NOT_INSTALLED": "L'application demandée n'est pas installée.",
@@ -97,142 +75,33 @@ ERROR_SPEECH = {
 }
 
 
-def fold(text: str) -> str:
-    decomposed = unicodedata.normalize("NFD", text)
-    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn").lower()
-
-
 def looks_like_media(question: str) -> bool:
     return MEDIA_HINT.search(fold(question)) is not None
 
 
-def named_app(question: str) -> str | None:
-    text = fold(question)
-    if "smarttube" in text or "youtube" in text:
-        return "smarttube"
-    if re.search(r"\bavt\b", text):
-        return "avt"
-    return None
+DECISION_SPEECH = {
+    "REJECT_NEGATION": "Commande inconnue.",
+    "REJECT_NOT_COMMAND": "Commande inconnue.",
+    "REJECT_EMPTY": "Commande inconnue.",
+    "REJECT_TOO_LONG": "Commande inconnue.",
+    "REJECT_PLAYLIST_INDEX": "Commande inconnue.",
+    "REJECT_INVALID_SEEK": "Commande inconnue.",
+    "AMBIGUOUS_PLAYLIST_INDEX": "Dites-moi le numéro de la playlist à lancer.",
+    "AMBIGUOUS_MULTI_ACTION": "Une seule commande à la fois.",
+    "AMBIGUOUS_NO_CANDIDATES": "Je n'ai plus ces résultats.",
+    "AMBIGUOUS_OUT_OF_RANGE": "Précisez un numéro parmi les résultats affichés.",
+    "AMBIGUOUS_SEEK": "Précisez le déplacement.",
+}
 
 
-def default_app(hub: Any, question: str) -> str:
-    named = named_app(question)
-    if named:
-        return named
-    text = fold(question)
-    defaults = hub.defaults()
-    film = defaults.get("default_film_app")
-    video = defaults.get("default_video_app")
-    if re.search(r"\b(film|serie|episode)\b", text):
-        return film if film in {"smarttube", "avt"} else "avt"
-    return video if video in {"smarttube", "avt"} else "smarttube"
+def decision_speech(decision: LocalDecision) -> str:
+    return DECISION_SPEECH.get(decision.reason, "Commande inconnue.")
 
 
 def parse_local(question: str, hub: Any) -> dict[str, Any] | None:
-    text = re.sub(r"[-‐‑‒–—]+", " ", fold(question)).strip()
-    if re.fullmatch(
-        r"(?:(?:mets?|passe(?:r)?)\s+(?:(?:a|au|la)\s+)*)?(?:(?:le|la)\s+)?"
-        r"(?:(?:morceau|titre|chanson|piste)\s+)?suivant[e]?",
-        text,
-    ):
-        return {"kind": "command", "app": "smarttube", "action": "playlist_next", "args": {}}
-    playlist = re.search(
-        r"\b(?:playlists?|playliste|listes?\s+de\s+lecture)\b"
-        r"(?:\s+(?:numero|n(?:umero|°|o)?|#)\s*)?\s*"
-        r"(\d+|premier|premiere|un|une|deuxieme|deux|second|seconde|troisieme|trois|"
-        r"quatre|cinq|six|sept|huit|neuf|dix)?\b",
-        text,
-    )
-    if playlist:
-        raw_index = playlist.group(1)
-        words = {
-            "premier": 0,
-            "premiere": 0,
-            "deuxieme": 1,
-            "second": 1,
-            "seconde": 1,
-            "troisieme": 2,
-        }
-        if raw_index and raw_index.isdigit():
-            index = int(raw_index) - 1
-        elif raw_index in words:
-            index = words[raw_index]
-        elif raw_index in WORDS:
-            index = WORDS[raw_index] - 1
-        else:
-            index = None
-        return {
-            "kind": "command",
-            "app": "smarttube",
-            "action": "playlist_play",
-            "args": {"index": index},
-        }
-    if re.search(r"\b(pause|mets? en pause)\b", text) and not re.search(
-        r"\b(lance|joue|cherche)\b", text
-    ):
-        return {"kind": "command", "app": None, "action": "pause", "args": {}}
-    if re.search(r"\b(reprends?|reprendre|continue)\b", text) and not re.search(
-        r"\b(lance|joue)\b", text
-    ):
-        return {"kind": "command", "app": None, "action": "resume", "args": {}}
-    if re.search(r"\b(arrete|stop)\b", text) and not re.search(r"\b(lance|joue)\b", text):
-        return {"kind": "command", "app": None, "action": "stop", "args": {}}
-    seek = re.search(
-        r"\b(avance|recule)\b(?:\s+de)?\s+(\d+|une|un|deux|trois|quatre|cinq)\s+"
-        r"(secondes?|minutes?)",
-        text,
-    )
-    if seek:
-        amount = WORDS.get(seek.group(2), int(seek.group(2)) if seek.group(2).isdigit() else 0)
-        unit = 1000 if seek.group(3).startswith("second") else 60000
-        delta = amount * unit
-        if seek.group(1) == "recule":
-            delta = -delta
-        return {"kind": "command", "app": None, "action": "seek", "args": {"delta_ms": delta}}
-    for word, index in ORDINALS.items():
-        if re.search(rf"\b{word}\b", text) and hub.active_candidates(None):
-            return {"kind": "pick", "index": index}
-    youtube = None
-    match = YOUTUBE_IN_TEXT.search(question)
-    if match and (YOUTUBE_RE.fullmatch(match.group(1)) and ("youtu" in text or "video" in text)):
-        youtube = match.group(1)
-    if youtube:
-        return {
-            "kind": "command",
-            "app": "smarttube",
-            "action": "play_content",
-            "args": {"content": {"kind": "youtube_video", "id": youtube}},
-        }
-    search = re.search(
-        r"\b(lance|lancer|joue|cherche|recherche|trouve|trouver|regarde|regarder|"
-        r"montre|montrer|ouvre|ouvrir|mets?|mette|mettez|mettre)\b"
-        r"(?:\s+(?:moi|donc))?\s+(?:le|la|l'|les)?\s*(.+)$",
-        text,
-    )
-    if search:
-        verb = search.group(1)
-        query = search.group(2).strip(" .,!?")
-        query = re.sub(
-            r"\b(sur|dans|a)\s+(?:(?:la|le|ma|mon)\s+)?"
-            r"(smarttube|youtube|avt|tele|tv)\b.*$",
-            "",
-            query,
-        )
-        query = query.strip(" .,!?")
-        media_ctx = named_app(question) or re.search(
-            r"\b(tv|tele|film|serie|video|youtube|smarttube|avt|musique)\b", text
-        )
-        if (
-            query
-            and len(query) <= QUERY_MAX
-            and (verb.startswith(("lance", "joue", "cherche", "recherche")) or media_ctx)
-        ):
-            return {
-                "kind": "command",
-                "app": default_app(hub, question),
-                "action": "search",
-                "args": {"query": query, "limit": 5},
-            }
+    decision = decide_local(question, hub)
+    if decision.kind is DecisionKind.MATCH:
+        return decision.parsed
     return None
 
 
@@ -271,8 +140,13 @@ def speak_result(action: str, outcome: dict[str, Any], title: str | None) -> str
 async def dispatch(hub: Any, question: str, turn_id: str) -> str | None:
     if not hub.enabled():
         return None
-    parsed = parse_local(question, hub)
-    if parsed is None:
+    decision = decide_local(question, hub)
+    parsed: dict[str, Any] | None
+    if decision.kind is DecisionKind.REJECT:
+        return None
+    if decision.kind is DecisionKind.AMBIGUOUS:
+        return decision_speech(decision)
+    if decision.kind is DecisionKind.NO_MATCH:
         if not looks_like_media(question):
             return None
         parsed = await extract(hub, question, turn_id)
@@ -285,6 +159,10 @@ async def dispatch(hub: Any, question: str, turn_id: str) -> str | None:
                 if isinstance(speech, str) and speech.strip()
                 else ("Précisez le titre ou l'application.")
             )
+    else:
+        parsed = decision.parsed
+    if parsed is None:
+        return None
     if parsed.get("kind") == "pick":
         return await pick_candidate(hub, int(parsed["index"]), turn_id)
     if parsed.get("kind") != "command":
@@ -342,8 +220,15 @@ def command_outcome(speech: str | None) -> tuple[bool, str]:
 async def dispatch_command(hub: Any, question: str, turn_id: str) -> tuple[bool, str]:
     if not hub.enabled():
         return False, "La télévision n'est pas activée."
-    parsed = parse_local(question, hub)
-    if parsed is None:
+    decision = decide_local(question, hub)
+    parsed: dict[str, Any] | None
+    if decision.kind is DecisionKind.REJECT:
+        return False, decision_speech(decision)
+    if decision.kind is DecisionKind.AMBIGUOUS:
+        return False, decision_speech(decision)
+    if decision.kind is DecisionKind.NO_MATCH:
+        if not looks_like_media(question):
+            return False, "Commande inconnue."
         parsed = await extract(hub, question, turn_id)
         if parsed is None or parsed.get("kind") == "not_tv":
             return False, "Commande inconnue."
@@ -354,6 +239,10 @@ async def dispatch_command(hub: Any, question: str, turn_id: str) -> tuple[bool,
                 if isinstance(speech, str) and speech.strip()
                 else "Précisez le titre, l'application ou la commande."
             )
+    else:
+        parsed = decision.parsed
+    if parsed is None:
+        return False, "Commande inconnue."
     if parsed.get("kind") == "pick":
         return command_outcome(await pick_candidate(hub, int(parsed["index"]), turn_id))
     if parsed.get("kind") != "command":

@@ -382,7 +382,7 @@ class TvVoiceTests(unittest.IsolatedAsyncioTestCase):
         hub = FakeHub(_device(), chat=None)
         ok, speech = await dispatch_command(hub, "queen", "t")
         self.assertFalse(ok)
-        self.assertIn("Précisez", speech)
+        self.assertEqual(speech, "Commande inconnue.")
         self.assertIsNone(await dispatch(hub, "queen", "t"))
         playback = {
             "app": "smarttube",
