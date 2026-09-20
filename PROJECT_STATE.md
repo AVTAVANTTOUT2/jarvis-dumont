@@ -1,5 +1,20 @@
 # État du projet
 
+## Session vocale Jarvis — lot 1 (contrat / noyau) — 20 septembre 2026
+
+- Noyau testé, non raccordé au runtime nominal, non déployé.
+- Document : `docs/conversation_session_lot1.md`. Code :
+  `src/jarvis_office/conversation_session.py`. Tests :
+  `tests/test_conversation_session.py`.
+- Le wake word acoustique, l'écoute continue et l'intégration Echo **ne sont
+  pas réalisés**. Les tests utilisent des événements simulés (politique, pas
+  reconnaissance audio).
+- Inchangés : production, pointeur `current`, services, appareils, capture,
+  stockage privé, profils STT/TTS, enum `PASSIVE`, dashboard, APK.
+- SHA de départ `ac51e68a25dc201f0fe963347d56bb01712610ac`. La baseline
+  logicielle du paragraphe suivant reste la preuve CI antérieure ; ce lot ne
+  la remplace pas.
+
 ## Base de développement logicielle — 20 septembre 2026
 
 - Lot 1 : rétablissement d'une base de vérifications logicielles exécutée
