@@ -83,6 +83,13 @@ Le dispatcher TV ne s'exécute qu'en mode Echo Commandes (`COMMAND`) : Jarvis y
 est optionnel, JSON texte validé, jamais `tool_calls`, jamais d'historique ni de
 phrase TTS (son OK ou erreur). Conversation (`ACTIVE`) reste du chat. SQLite
 schéma 2 inchangé : registre TV dans `preferences`.
+Avant extracteur IA, une décision locale déterministe
+(`MATCH` / `REJECT` / `AMBIGUOUS` / `NO_MATCH`) borne la grammaire : un refus
+ou une ambiguïté n'appelle pas `extract()`, ne prépare pas la TV et n'émet
+aucune commande. `NO_MATCH` n'autorise l'extraction que pour une demande média
+plausible déjà filtrée. Formulations, limites et corpus :
+`docs/TV_INTEGRATION_HANDOFF.md`, `tests/tv_command_corpus.py`. Ce n'est pas
+une homologation vocale.
 Statut : candidat logiciel, non déployé, non homologué matériel.
 
 `GET /api/data/catalog` => `{tables:[{name,columns:[{name,type,nullable}],

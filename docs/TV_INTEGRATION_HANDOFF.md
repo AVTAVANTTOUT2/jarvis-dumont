@@ -170,12 +170,53 @@ Ne pas lancer `jarvis-office` / `private_service` depuis le checkout.
 
 Tant que 2–4 manquent : la chaîne n'est pas homologuée.
 
+## Grammaire locale des commandes (lot 2)
+
+Parseur déterministe dans `src/jarvis_office/tv/parser.py`, raccordé à
+`dispatch` / `dispatch_command`. Aucun réseau, moteur ou appareil. Ce n'est
+pas une compréhension du français ni une preuve acoustique.
+
+Décisions (codes stables, distincts des phrases d'affichage) :
+
+| Décision | Effet | Extracteur IA |
+|---|---|---|
+| `MATCH` | Une commande ou sélection unique | Non |
+| `REJECT` | Interdit (négation, non-commande, entrée invalide) | Non |
+| `AMBIGUOUS` | Précision nécessaire, aucun choix arbitraire | Non |
+| `NO_MATCH` | Aucune règle locale | Seulement si demande média plausible |
+
+Formulations reconnues (après casse, accents, espaces, apostrophes, ponctuation
+terminale, `mets-moi`) : `pause` / `mets en pause` ; `reprends` / `continue` ;
+`arrête` / `stop` ; `suivante` / `morceau suivant` / `passe au suivant` ;
+playlists orales 1→index 0 (`playlist une`, `première playlist`, `mets la
+playlist numéro 1`) ; `avance de 30 secondes` / `recule de 2 minutes` ;
+recherches déjà couvertes (`lance`, `cherche … sur YouTube`, préambules
+polies testés) ; identifiants YouTube conservés tels quels.
+
+Refus sans fallback : `ne mets pas en pause`, `mets pas en pause`,
+`n'arrête pas`, `ne lance pas Interstellar`, `je fais une pause`,
+`elle a dit pause`, `mets la table`, `arrête de parler`. Un mot dans un
+titre n'est pas une commande (`joue Ne me quitte pas sur YouTube`,
+`cherche Pause sur YouTube`). `cherche Dune 2 sur YouTube` reste une
+recherche même s'il existe des candidats.
+
+Ambigu : `mets la playlist` (numéro manquant), `pause puis reprends`
+(deux actions), sélection sans candidats ou hors liste. `playlist 0` est
+un refus, jamais l'index -1.
+
+Limites : grammaire bornée, pas toutes les négations du français ; une
+formulation hors règles reste `NO_MATCH` (fallback média possible) plutôt
+qu'une action inventée. `QUERY_MAX` et 500 caractères : pas de troncature
+qui enlèverait une négation pour exécuter le reste. Corpus versionné :
+`tests/tv_command_corpus.py`.
+
 ## Fichiers Jarvis concernés
 
-- `src/jarvis_office/tv/` (`protocol.py`, `hub.py`, `intent.py`)
+- `src/jarvis_office/tv/` (`protocol.py`, `hub.py`, `intent.py`, `parser.py`)
 - `src/jarvis_office/dashboard.py`, `static/dashboard/*`
 - `src/jarvis_office/echo/live.py`, `echo/gateway.py`
 - `src/jarvis_office/voice.py`, `deepseek.py`, `storage.py`
-- `tests/test_tv_protocol.py`, `tests/test_tv_voice.py` (+ extensions dashboard/storage)
+- `tests/test_tv_protocol.py`, `tests/test_tv_voice.py`, `tests/test_tv_parser.py`,
+  `tests/tv_command_corpus.py` (+ extensions dashboard/storage)
 - `docs/TV_INTEGRATION_HANDOFF.md`, `PRIVATE_CONTRACT.md`, `PRIVATE_OPERATIONS.md`,
   `PROJECT_STATE.md`

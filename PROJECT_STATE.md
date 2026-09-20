@@ -1,5 +1,19 @@
 # État du projet
 
+## Parseur TV local — lot 2 — 21 septembre 2026
+
+- Grammaire bornée `MATCH` / `REJECT` / `AMBIGUOUS` / `NO_MATCH` dans
+  `src/jarvis_office/tv/parser.py`, raccordée à `dispatch` et
+  `dispatch_command`. Un `REJECT` ou `AMBIGUOUS` ne passe plus par `extract()`.
+- Corpus : `tests/tv_command_corpus.py` (77 cas). Frontière dispatcher :
+  `tests/test_tv_parser.py`. Ce n'est pas une homologation vocale ni un
+  déploiement.
+- Inchangés : politique d'écoute, mot d'activation, routage des modes,
+  noyau de session vocale (non raccordé), protocoles Echo/TV, confirmation
+  de lecture, bips, budgets, profil STT/TTS, production, pointeur `current`.
+- SHA de départ `d8c757266360933e992b6b3f05a12365678c2805`. Les commits
+  concurrents de session vocale (`e0db7ed`, `985d195`) sont conservés.
+
 ## Session vocale Jarvis — lot 1.1 (correction du noyau) — 21 septembre 2026
 
 - Noyau corrigé et testé, toujours non raccordé au runtime nominal, non
