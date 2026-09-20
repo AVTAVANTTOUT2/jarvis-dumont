@@ -1,5 +1,23 @@
 # État du projet
 
+## Session vocale Jarvis — lot 1.1 (correction du noyau) — 21 septembre 2026
+
+- Noyau corrigé et testé, toujours non raccordé au runtime nominal, non
+  déployé. Pas de moteur wake word, pas de lot 2.
+- Départ : `d8c757266360933e992b6b3f05a12365678c2805`. Packaging
+  `5bc0416` / `d8c7572` préservé. Worktree `lot2-tv-parser` non modifié.
+- R1 : `speech_start` compare `at` à `idle_deadline` ; grâce
+  `MAX_EVENT_LAG_SECONDS = 2` avant finalisation d’inactivité.
+- R2 : timeout technique → `abort_turn` + `abandoned_*` ; inactivité
+  silencieuse sans abort. L’effet n’est pas un arrêt matériel.
+- R3 : `processing_started` retiré ; le traitement commence à
+  `wake(residual)` / `transcript_ready`.
+- R4 : `Acquisition(arm_id, epoch)` portée depuis l’armement.
+- R5 : timestamps finis, pas futur, retard borné, pas antérieurs à
+  l’époque courante ; rejet avant mutation.
+- Document : `docs/conversation_session_lot1.md`. Tests :
+  `tests/test_conversation_session.py`.
+
 ## Session vocale Jarvis — lot 1 (contrat / noyau) — 20 septembre 2026
 
 - Noyau testé, non raccordé au runtime nominal, non déployé.

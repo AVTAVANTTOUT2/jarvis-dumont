@@ -1,16 +1,23 @@
 # Chantier session vocale Jarvis — lot 1
 
-Statut : **noyau testé, non raccordé au runtime nominal, non déployé**.
+Statut : **noyau lot 1.1 corrigé et testé, non raccordé au runtime nominal, non déployé**.
 
 Ce document fige l’audit du checkout et le contrat du lot 1. Il ne remplace
 pas `PRIVATE_CONTRACT.md`. Les protections sur secrets, permissions, données
 privées, V1 et production restent inchangées. L’évolution du semi-duplex et du
 mode `PASSIVE` est une **cible non déployée**.
 
-SHA de départ du lot : `ac51e68a25dc201f0fe963347d56bb01712610ac` (`origin/main`).
+SHA de départ du lot 1 : `ac51e68a25dc201f0fe963347d56bb01712610ac` (`origin/main`).
 Repère superviseur `b939ddc10b7c272151ab8ee74ed4b5e1c729e188` : déjà suivi par
 `a4b40c9` (CI indépendante) et `ac51e68` (baseline documentée). Ces commits
 sont préservés ; ce lot ne les duplique pas.
+
+SHA de départ du lot 1.1 : `d8c757266360933e992b6b3f05a12365678c2805`.
+Le noyau examiné est le blob
+`c9dd5842c82599e5407440dd58597d6d26e98d3c` (`conversation_session.py` à
+`b115702` et toujours à `d8c7572`). Les commits packaging `5bc0416` et
+`d8c7572` restent intacts. Worktree concurrent `lot2-tv-parser` : non
+modifié.
 
 Les événements wake/parole des tests du noyau sont **simulés**. Ils prouvent
 une politique, pas une reconnaissance acoustique, pas un STT réel, pas une
@@ -169,7 +176,8 @@ Horloge : `time.monotonic` injectable. Jamais d’horloge civile pour les
 échéances. Aucun `Timer`/callback : `expire_due()` / `_sync()` comparent des
 deadlines. `pending_timers()` vaut toujours 0.
 
-Constante unique : `IDLE_SECONDS = 120.0`.
+Constante d’inactivité : `IDLE_SECONDS = 120.0`.
+Retard admissible d’entrée : `MAX_EVENT_LAG_SECONDS = 2.0`.
 
 Délais techniques (anti-session infinie, distincts des 120 s) :
 
@@ -213,7 +221,7 @@ Un seul tour de réponse à la fois.
 | `set_capture(listening)` | — | Collecte autorisée (`collect_context`). Pas d’ouverture de conversation. |
 | `set_capture(command)` | — | Hors conversation. Wake/parole conversationnels ignorés. |
 | `off` | — | Capture coupée, permit `idle`, génération++, tour aborti. |
-| `wake` simulé, residual non vide | `listening`, pas `self`, pas de tour en cours | Permit `open`, `allow_reply`, residual conservé, phase `processing`, échéance 120 s si nouvelle conversation. |
+| `wake` simulé, residual non vide | `listening`, `arm_id`/`epoch` courants, `at` valide, pas `self`, pas de tour en cours | Permit `open`, `allow_reply`, residual conservé, phase `processing`, échéance 120 s si nouvelle conversation. |
 | `wake` simulé, residual vide | idem | Permit `open`, attente 120 s, pas de LLM. Wake nu redondant ignoré. |
 | `speech_start` `user`, `at < idle_deadline` | permit `open`, phase `idle` | Réserve le tour (`speech`). N’ajoute pas 120 s. |
 | `speech_start` `at >= idle_deadline` | — | Pas de réouverture. Expire si besoin. |
@@ -221,7 +229,7 @@ Un seul tour de réponse à la fois.
 | `begin_transcribe` | ids + génération | Phase `transcribing`. L’échéance 120 s ne court pas. |
 | `transcript_ready` texte non vide | ids, phase speech/transcribe | `allow_reply`, phase `processing`. |
 | `speech_reject` / transcript vide | ids | Restaure l’échéance précédente ; expire si dépassée. |
-| `processing_started` / `playback_started` | ids | L’échéance 120 s ne clôt pas. |
+| `playback_started` | ids, phase `processing` | L’échéance 120 s ne clôt pas. Pas de `processing_started` : le traitement commence à `wake(residual)` ou `transcript_ready`. |
 | `note_llm_token` / `note_tts_segment` | — | Aucun renouvellement. |
 | `playback_finished` | ids, phase `playing`, `playback_id` nouveau | `idle_deadline = now + 120`. Un doublon est ignoré. |
 | `processing_failed` | ids | Restaure l’échéance précédente ou expire. |
@@ -231,8 +239,43 @@ Un seul tour de réponse à la fois.
 | `expire_due` à l’échéance, phase `idle` | permit `open` | Expire silencieux : pas d’arrêt capture, pas de purge. |
 
 Frontière d’échéance : l’instant de **début de parole** (`speech_start`,
-paramètre `at` ou horloge) est comparé à `idle_deadline` en `>=`.
-Égalité = trop tard. Le STT peut arriver après.
+paramètre `at`) est comparé à `idle_deadline` en `>=`. Égalité = trop tard
+sans wake. Le STT peut arriver après. L’heure de réception n’est pas
+substituée à `at`.
+
+### 3.3 Lot 1.1 — ordre temporel, origines, effets
+
+Horloge de référence : `time.monotonic` injectable. Domaine : réels finis
+`<= now`. Un horodatage NaN / ±inf / non numérique est `invalid_timestamp`.
+Un `at > now` est `timestamp_in_future`. Un retard `now - at > 2 s` est
+`event_too_late`. Ces rejets ont lieu **avant** toute mutation et sans
+appeler `_sync()`.
+
+`at` est le temps de capture/préparation. `now` est le temps de réception.
+Un début admissible (`at < idle_deadline`, même armement, retard ≤ 2 s)
+réserve le tour même si `now` a déjà dépassé l’échéance d’inactivité.
+
+Finalisation d’inactivité : `expire_due()` ne clôt la veille que lorsque
+`now >= idle_deadline + MAX_EVENT_LAG_SECONDS`. Dans la fenêtre de grâce,
+`expire_due()` puis `speech_start(at)` (ou l’inverse) donnent le même
+résultat : tour réservé. Après finalisation, `_bump_epoch()` ; un
+événement rétrodaté ne rouvre pas la session. Off, cancel, clear et
+reconnect restent prioritaires sur tout événement antérieur.
+
+Origine : `Acquisition(arm_id, epoch)` est prise à l’armement, pas à la
+livraison. `wake` et `speech_start` exigent ces identifiants plus `at`.
+Un événement d’un ancien armement/époque est `stale_source`. Un `at`
+antérieur à `epoch_started_at` est `timestamp_before_invalidation`.
+Déduplication bornée (`deque` 32) sur `(arm_id, epoch, kind, at, residual)`.
+
+Effets d’annulation : `_sync()` renvoie une `SessionDecision` ou `None`.
+Timeout technique (`turn_hold_timeout`) : `abort_turn=True` et identifiants
+`abandoned_*` du tour/restitution **abandonnés**, figés avant invalidation.
+L’effet survit si l’événement déclencheur est ignoré (`note_llm_token`,
+événement obsolète). Ce n’est **pas** une preuve d’arrêt matériel : le
+futur runtime doit drainer l’ancien travail avant d’en lancer un autre.
+Expiration d’inactivité en phase `idle` : `silent_expire=True`,
+`abort_turn=False`, pas d’arrêt de capture, pas de purge.
 
 Différence `cancel` vs `off` (cible, distincte du `pause` actuel de
 `VoiceLoop` qui ferme déjà la capture) :
@@ -310,11 +353,12 @@ simulé ne sélectionne pas un moteur.
 | 4 | Modes, protocole, dashboard, APK | Compat `PASSIVE` lu ; APK avant suppression UI | Restaurer les quatre boutons |
 | 5 | Qualification matérielle, endurance, déploiement contrôlé | Preuves humaines + Echo réel | Ne pas activer `current` |
 
-## 10. Retour arrière du lot 1 (non exécuté)
+## 10. Retour arrière des lots 1 et 1.1 (non exécuté)
 
 Le runtime ignore encore le module. Revenir en arrière =
 
-1. revert des commits de ce lot ;
+1. revert des commits du lot 1.1, puis du lot 1 si besoin ;
 2. aucun toucher à `current`, LaunchAgent, SQLite privée, APK, services.
 
-Pas de migration à défaire.
+Pas de migration à défaire. Le packaging (`check_wheel.py`,
+`test_verify_package.py`, CI) n’appartient pas à ces lots : le conserver.
