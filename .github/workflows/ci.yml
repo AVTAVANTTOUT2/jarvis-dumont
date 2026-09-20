@@ -65,11 +65,15 @@ jobs:
         with:
           version: '0.11.29'
       - run: uv sync --locked --extra private --no-python-downloads
-      - run: ./scripts/verify.sh package
+      - name: Verify the wheel from this invocation
+        env:
+          VERIFY_OUT_DIR: ${{ runner.temp }}/office-package
+        run: ./scripts/verify.sh package
       - uses: actions/upload-artifact@v4
         with:
           name: office-wheel
-          path: dist/*.whl
+          path: ${{ runner.temp }}/office-package/*.whl
+          if-no-files-found: error
 
   diagnostics:
     if: always()

@@ -14,6 +14,10 @@ usage() {
 }
 
 lint_format() {
+    if [ -n "${VERIFY_LINT_FORMAT_CMD:-}" ]; then
+        sh -c "$VERIFY_LINT_FORMAT_CMD"
+        return $?
+    fi
     rc=0
     uv run --no-sync ruff check . || rc=1
     uv run --no-sync ruff format --check . || rc=1
@@ -21,36 +25,40 @@ lint_format() {
 }
 
 typecheck() {
+    if [ -n "${VERIFY_TYPECHECK_CMD:-}" ]; then
+        sh -c "$VERIFY_TYPECHECK_CMD"
+        return $?
+    fi
     uv run --no-sync mypy
 }
 
 tests_python() {
+    if [ -n "${VERIFY_TESTS_PYTHON_CMD:-}" ]; then
+        sh -c "$VERIFY_TESTS_PYTHON_CMD"
+        return $?
+    fi
     uv run --no-sync python -m unittest discover -s tests -v
 }
 
 tests_javascript() {
+    if [ -n "${VERIFY_TESTS_JAVASCRIPT_CMD:-}" ]; then
+        sh -c "$VERIFY_TESTS_JAVASCRIPT_CMD"
+        return $?
+    fi
     # ponytail: glob keeps newly added tests/ *.mjs in the same family
     node --test tests/*.mjs
 }
 
 package() {
-    rc=0
-    uv build --no-python-downloads || rc=1
-    if [ "$rc" -ne 0 ]; then
-        return "$rc"
+    if [ -n "${VERIFY_PACKAGE_CMD:-}" ]; then
+        sh -c "$VERIFY_PACKAGE_CMD"
+        return $?
     fi
-    uv run --no-sync python - <<'PY'
-from pathlib import Path
-from zipfile import ZipFile
-
-wheel = next(Path("dist").glob("*.whl"))
-with ZipFile(wheel) as archive:
-    names = archive.namelist()
-    assert "jarvis_office/control.html" in names
-    assert all(n.startswith("jarvis_office/") or ".dist-info/" in n for n in names)
-    assert not any(n.endswith((".wav", ".safetensors", ".env", ".toml")) for n in names)
-print(f"wheel_ok {wheel.name}")
-PY
+    if [ -n "${VERIFY_OUT_DIR:-}" ]; then
+        uv run --no-sync python scripts/check_wheel.py --out-dir "$VERIFY_OUT_DIR" --keep
+        return $?
+    fi
+    uv run --no-sync python scripts/check_wheel.py
 }
 
 run_family() {
