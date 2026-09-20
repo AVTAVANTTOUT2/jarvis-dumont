@@ -1,5 +1,34 @@
 # État du projet
 
+## Base de développement logicielle — 20 septembre 2026
+
+- Lot 1 : rétablissement d'une base de vérifications logicielles exécutée
+  localement et en CI. Ce n'est pas une homologation STT, TTS, Echo, TV ou
+  micro, ni un déploiement.
+- SHA de départ `3bb082a65b1041317cadfc99c344796e9b2b6b57`. Run
+  [35537276821](https://github.com/AVTAVANTTOUT2/jarvis-office/actions/runs/35537276821)
+  : job `diagnostics` 106148457699 en échec sur Ruff I001
+  (`tests/test_tv_youtube.py` imports). Format, mypy, unittest, Node et wheel
+  étaient skipped.
+- Correctif minimal d'imports/guillemets : `b939ddc10b7c272151ab8ee74ed4b5e1c729e188`.
+  CI séquentielle
+  [35538866167](https://github.com/AVTAVANTTOUT2/jarvis-office/actions/runs/35538866167)
+  success sur ce SHA : 295 tests Python OK (0 skipped), 7 tests Node dashboard,
+  Ruff check/format, mypy 41 fichiers, wheel contrôlée. `tests/test_orbs.mjs`
+  n'était pas encore dans ce workflow.
+- CI indépendante : `a4b40c9ad75d8b92de6e1c0eade44f966cf580a4`, run
+  [35538986485](https://github.com/AVTAVANTTOUT2/jarvis-office/actions/runs/35538986485)
+  success. Jobs `lint-format`, `typecheck`, `tests-python` (295 OK),
+  `tests-javascript` (8 tests Node 22, dashboard + orbes, 0 skipped),
+  `package` (`wheel_ok`), agrégat `diagnostics` success. Point d'entrée local :
+  `scripts/verify.sh` après `uv sync --locked --extra private`.
+- Hors périmètre laissé intact : parseur TV (négations/ordinaux), résultats
+  structurés, découplage TTS/commandes, budgets DeepSeek, protocoles Echo/TV,
+  APK, production et pointeur `current`.
+- Le SHA de ce paragraphe est le commit de documentation du lot 1. Un vert
+  sur `a4b40c9` ne valide pas à lui seul ce fichier ; relire la CI du SHA
+  publié.
+
 ## Mode Commandes Echo — 18 septembre 2026
 
 - Quatrième mode `COMMAND` (UI **Commandes**) : assistant média sans parole.

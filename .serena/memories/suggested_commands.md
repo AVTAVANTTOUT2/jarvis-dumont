@@ -1,4 +1,5 @@
 - Reproducible commands and exit codes are maintained in README.md; run from the Office project root.
+- Software baseline: `uv sync --locked --extra private --no-python-downloads` then `./scripts/verify.sh`. Extra `chat` remains valid for chat-only work. Node 22+ for JavaScript tests.
 - For all tests/chat: uv sync --locked --extra chat --no-python-downloads. Use uv run --no-sync afterward so the selected extra remains installed; direct .venv/bin/jarvis-office avoids runtime package resolution.
 - configure-deepseek --from-env explicitly imports only DEEPSEEK_API_KEY into the private config/deepseek.env (0600). The chat runtime never reads V1 or ambient env keys. Never print the key or place it in process arguments.
 - chat --text sends only the explicit text plus confirmed RAM history; optional --report writes metadata only under the private reports directory. No microphone or audio playback.

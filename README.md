@@ -79,13 +79,20 @@ empreintes de distributions. Le backend de build est épinglé séparément dans
 `pyproject.toml`. TTS et STT possèdent chacun un environnement distinct ; la V1 reste inchangée.
 
 ```sh
-uv sync --locked --extra chat --no-python-downloads
-uv run --no-sync python -m unittest discover -s tests -v
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-uv run --no-sync mypy
-uv build --no-python-downloads
+uv sync --locked --extra private --no-python-downloads
+./scripts/verify.sh
 ```
+
+`scripts/verify.sh` enchaîne lint/format, mypy, les tests Python, les tests
+JavaScript `tests/*.mjs` (Node 22+) et le contrôle de contenu de la wheel. Il
+affiche le résultat de chaque famille et sort non nul si l'une échoue. Il ne
+corrige, ne commite, ne pousse et ne déploie rien. L'extra `chat` reste valable
+pour un travail chat seul ; la CI et la suite complète utilisent `private`.
+
+Les jobs GitHub `lint-format`, `typecheck`, `tests-python`, `tests-javascript`
+et `package` s'exécutent indépendamment. Le job `diagnostics` échoue si l'un
+d'eux n'est pas `success` (échec, annulation ou non-exécution). Un vert CI
+logiciel n'est pas une homologation matérielle.
 
 L'installation des outils/build nécessite leur présence dans le cache ou un accès au
 registre. Une fois installé, le diagnostic fonctionne hors réseau. Le lock ne constitue
