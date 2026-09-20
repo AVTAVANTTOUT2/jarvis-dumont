@@ -5,7 +5,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-
 from unittest.mock import patch
 
 from jarvis_office.tv.hub import _playlist_reached_end
@@ -77,7 +76,7 @@ class SmartTubeSearchTests(unittest.TestCase):
                 'for arg in "$@"; do\n'
                 '  if [ "$arg" = "--dump-single-json" ]; then exit 3; fi\n'
                 "done\n"
-                "printf '%s\\n' '{\"title\": \"Track\", \"duration\": 163}'\n"
+                'printf \'%s\\n\' \'{"title": "Track", "duration": 163}\'\n'
             )
             binary.chmod(0o755)
             with patch("jarvis_office.tv.youtube._binary", return_value=str(binary)):
