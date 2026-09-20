@@ -15,6 +15,22 @@
   logicielle du paragraphe suivant reste la preuve CI antérieure ; ce lot ne
   la remplace pas.
 
+## Contrôle d'artefact d'invocation — 20 septembre 2026
+
+- Lot 1 bis : la famille `package` ne lit plus `dist/*.whl`. Construction
+  dans un répertoire neuf (`uv build --out-dir`), une seule wheel exigée,
+  contrôles de contenu inchangés, SHA-256 et nom affichés. En CI, l'artefact
+  `office-wheel` est `VERIFY_OUT_DIR/*.whl` après succès ; un échec n'uploade
+  pas. `dist/` historique n'est pas vidé. Tests sur archives ZIP factices et
+  doubles de `uv build`, pas des builds produit.
+- Code : `5bc0416c2f893ff0d23552ffeedf3c3151346012`. Run
+  [35540034271](https://github.com/AVTAVANTTOUT2/jarvis-office/actions/runs/35540034271)
+  success : 322 tests Python (dont 9 `test_verify_package`), 8 JS, mypy 42
+  fichiers, `wheel_ok jarvis_office-0.3.0-py3-none-any.whl`, upload d'un
+  seul fichier depuis `runner.temp/office-package`. Un vert sur ce SHA ne
+  valide pas à lui seul le commit de documentation.
+- Hors périmètre : parseur TV, runtime, production.
+
 ## Base de développement logicielle — 20 septembre 2026
 
 - Lot 1 : rétablissement d'une base de vérifications logicielles exécutée

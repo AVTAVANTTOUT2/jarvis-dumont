@@ -1,3 +1,3 @@
-- From the Office root, after `uv sync --locked --extra private --no-python-downloads`, run `./scripts/verify.sh`. It runs Ruff check/format, mypy, unittest discovery, Node `tests/*.mjs` and the wheel content check, prints each family, and exits non-zero on any failure. It does not auto-fix, commit, push or deploy.
+- From the Office root, after `uv sync --locked --extra private --no-python-downloads`, run `./scripts/verify.sh`. It runs Ruff check/format, mypy, unittest discovery, Node `tests/*.mjs` and `scripts/check_wheel.py` on the unique wheel from a fresh `uv build --out-dir` (not `dist/*.whl`). It prints each family and exits non-zero on any failure. It does not auto-fix, commit, push or deploy.
 - After changes to packaging, install the wheel offline with --no-deps into a clean venv and run the tests there.
 - Inspect tracked files, diff, exclusions and actual remote before push. Compare scoped V1 baselines without claiming whole-machine immutability.

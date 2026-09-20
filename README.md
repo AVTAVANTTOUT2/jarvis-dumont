@@ -89,6 +89,15 @@ affiche le résultat de chaque famille et sort non nul si l'une échoue. Il ne
 corrige, ne commite, ne pousse et ne déploie rien. L'extra `chat` reste valable
 pour un travail chat seul ; la CI et la suite complète utilisent `private`.
 
+La famille `package` construit avec `uv build --out-dir` dans un répertoire
+neuf propre à l'invocation (`VERIFY_OUT_DIR` en CI, sinon un temporaire).
+Elle exige exactement une wheel dans ce répertoire, applique les contrôles de
+contenu existants à ce fichier, puis affiche `wheel_ok <nom> sha256:<hex>`.
+L'empreinte identifie l'artefact contrôlé ; elle ne prouve pas une
+reproductibilité binaire ni le fonctionnement matériel. Le job CI n'uploade
+que `VERIFY_OUT_DIR/*.whl` après un contrôle réussi. Le `dist/` historique
+n'est ni lu ni vidé.
+
 Les jobs GitHub `lint-format`, `typecheck`, `tests-python`, `tests-javascript`
 et `package` s'exécutent indépendamment. Le job `diagnostics` échoue si l'un
 d'eux n'est pas `success` (échec, annulation ou non-exécution). Un vert CI
