@@ -25,7 +25,7 @@ from jarvis_office.deepseek import DeepSeek
 from jarvis_office.local_ui import PAGE, LocalUI
 from jarvis_office.stt import Recognizer
 from jarvis_office.tts import TTSError, worker_environment
-from jarvis_office.voice import VoiceLoop, addressed, run_command
+from jarvis_office.voice import VoiceLoop, accepts_utterance, addressed, run_command
 
 
 class SSEStream(httpx.AsyncByteStream):
@@ -203,6 +203,23 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.voice.audio_event(event)
         self.assertEqual(self.voice.results[-1]["rearmed"], 27)
 
+    def test_web_conversation_accepts_unaddressed_speech(self):
+        self.assertTrue(
+            accepts_utterance("quelle heure est-il", web_conversation=True, meta=None)
+        )
+        self.assertFalse(
+            accepts_utterance("quelle heure est-il", web_conversation=False, meta=None)
+        )
+        self.assertTrue(accepts_utterance("Jarvis, salut", web_conversation=False, meta=None))
+        self.assertFalse(accepts_utterance("  ", web_conversation=True, meta=None))
+
+    async def test_web_snapshot_hides_stt_qualification_banner(self):
+        self.voice.web_conversation = True
+        snapshot = self.voice.snapshot()
+        self.assertIsNone(snapshot["qualification"])
+        self.assertNotIn("NO_ACCEPTABLE_STT", snapshot["notice"])
+        self.assertNotIn("Echo", snapshot["notice"])
+
     async def test_paused_ui_names_selection_without_claiming_listening_or_verification(self):
         self.voice.config = replace(
             self.voice.config,
@@ -317,8 +334,17 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(ui.route("GET", "/control", auth, b"")[0], 403)
         self.assertEqual(ui.route("POST", "/control", auth, b'{"action":"shell"}')[0], 400)
+        self.assertEqual(
+            ui.route("POST", "/say", {**auth, "origin": "https://evil.test"}, b'{"text":"Salut"}')[
+                0
+            ],
+            403,
+        )
+        self.assertEqual(ui.route("POST", "/say", auth, b'{"text":""}')[0], 400)
+        self.assertEqual(ui.route("POST", "/say", auth, b'{"text":"Bonjour"}')[0], 202)
         self.assertNotIn("innerHTML", PAGE)
         self.assertIn("textContent", PAGE)
+        self.assertNotIn("STT_QUALIFICATION_PENDING", PAGE)
         self.assertEqual(len(self.streams), 0)
         self.assertFalse(self.voice.armed)
 

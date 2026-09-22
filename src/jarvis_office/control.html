@@ -1,71 +1,98 @@
 <!doctype html>
 <html lang="fr">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width">
-<title>Jarvis Office</title>
-<style nonce="NONCE">body{font:18px system-ui;
-max-width:850px;
-margin:3rem auto;
-padding:1rem;
-background:#111820;
-color:#edf5ff}
-button{font:inherit;
-margin:.3rem;
-padding:.6rem}pre{white-space:pre-wrap;
-overflow-wrap:anywhere}small{color:#b8cadc}</style>
-<h1>Jarvis Office</h1>
-<p id="notice">
-</p>
-<p>
-<strong id="state">Connexion locale…</strong>
-</p>
-<p id="qualification">
-</p>
-<p id="devices">
-</p>
-<label>Niveau micro <meter id="level" min="0" max="1" value="0">
-</meter>
-</label>
-<p>
-<button data-action="resume">Reprendre (essai borné)</button>
-<button data-action="pause">Pause</button>
-<button data-action="cancel">Annuler</button>
-<button data-action="clear">Effacer la session</button>
-<button data-action="stop">Arrêter</button>
-</p>
-<h2>Dernière demande adressée</h2>
-<pre id="transcription">
-</pre>
-<h2>Réponse</h2>
-<pre id="response">
-</pre>
-<p id="playback">
-</p>
-<p id="error" role="alert">
-</p>
-<details>
-<summary>Mesures (pas de preuve acoustique)</summary>
-<pre id="metrics">
-</pre>
-</details>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis Dumont</title>
+<style nonce="NONCE">
+:root{--bg:#0b0f14;--card:#141b24;--line:#243041;--text:#edf5ff;--muted:#8ea3b8;--accent:#7dd3fc;--user:#1d4ed8;--bot:#243041}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:17px/1.45 ui-sans-serif,system-ui,sans-serif}
+body{max-width:720px;margin:0 auto;padding:28px 20px 32px;display:flex;flex-direction:column;min-height:100vh}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+h1{margin:0;font-size:22px;letter-spacing:-.03em}h1 span{display:block;color:var(--muted);font-size:13px;font-weight:500;letter-spacing:0;margin-top:4px}
+#chip{border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--muted)}
+#chip.hot{color:#052e16;background:#86efac;border-color:#86efac}
+#log{flex:1;display:flex;flex-direction:column;gap:10px;min-height:280px}
+#log p{margin:0;max-width:85%;padding:12px 14px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere}
+#log .user{align-self:flex-end;background:var(--user)}
+#log .assistant{align-self:flex-start;background:var(--bot)}
+#empty{color:var(--muted);margin:auto 0}
+#notice,#error{color:var(--muted);font-size:14px;margin:12px 0 0}
+#error{color:#fecaca}
+#level{width:100%;margin:14px 0 8px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button,input{font:inherit}button{border:0;border-radius:12px;padding:12px 16px;background:#e8eef6;color:#0b0f14}
+button:active{transform:scale(.97)}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button.primary{background:var(--accent)}
+#composer{display:flex;gap:8px;margin-top:14px}
+#text{flex:1;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);padding:12px 14px}
+</style>
+<header>
+  <h1>Jarvis Dumont<span id="devices">Conversation locale · Mac</span></h1>
+  <div id="chip">Connexion…</div>
+</header>
+<div id="log"><p id="empty">Appuyez sur Écouter, puis parlez. Ou écrivez une demande.</p></div>
+<label>Niveau micro <meter id="level" min="0" max="1" value="0"></meter></label>
+<p id="notice"></p>
+<p id="error" role="alert"></p>
+<div class="row">
+  <button class="primary" data-action="resume">Écouter</button>
+  <button class="ghost" data-action="pause">Pause</button>
+  <button class="ghost" data-action="cancel">Couper la réponse</button>
+  <button class="ghost" data-action="clear">Effacer</button>
+</div>
+<form id="composer">
+  <input id="text" maxlength="2000" autocomplete="off" placeholder="Écrire à Jarvis…">
+  <button class="primary" type="submit">Envoyer</button>
+</form>
 <script nonce="NONCE">
 const headers={'Content-Type':'application/json','X-Jarvis-Local':'1'};
-
-async function api(path,data={}){const r=await fetch(path,{method:'POST',headers,credentials:'same-origin',body:JSON.stringify(data)});
-if(!r.ok)throw Error('Contrôle local indisponible');
-return r.json()}
-for(const b of document.querySelectorAll('button'))b.onclick=async()=>{try{await api('/control',{action:b.dataset.action})}catch(e){document.getElementById('error').textContent=e.message}};
-
-async function poll(){try{const s=await api('/snapshot');
-for(const k of ['state','notice','qualification','transcription','response','playback','error'])document.getElementById(k).textContent=s[k]||'';
-
-document.getElementById('devices').textContent=JSON.stringify({micro:s.microphone,selection:{input:s.selected_input,output:s.selected_output},verification:{input:s.input,output:s.output}});
-
-document.getElementById('metrics').textContent=JSON.stringify(s.metrics,null,2);
-document.getElementById('level').value=s.level||0;
-
-}catch(e){document.getElementById('state').textContent='Contrôleur arrêté ou connexion perdue'}setTimeout(poll,300)}
-api('/bootstrap').then(poll).catch(()=>{document.getElementById('state').textContent='Amorçage local refusé'});
-
+const labels={paused:'En pause',listening:'Écoute',transcribing:'Transcription',responding:'Réponse',starting:'Démarrage',error:'Erreur',stopping:'Arrêt'};
+const log=document.getElementById('log');
+let lastUser='', lastAnswer='';
+function append(role,text){
+  const empty=document.getElementById('empty');
+  if(empty)empty.remove();
+  const p=document.createElement('p');
+  p.className=role;
+  p.textContent=text;
+  log.appendChild(p);
+  p.scrollIntoView({block:'end'});
+}
+async function api(path,data={}){
+  const r=await fetch(path,{method:'POST',headers,credentials:'same-origin',body:JSON.stringify(data)});
+  if(!r.ok)throw Error('Contrôle local indisponible');
+  return r.json();
+}
+for(const b of document.querySelectorAll('[data-action]')){
+  b.onclick=async()=>{try{await api('/control',{action:b.dataset.action})}catch(e){document.getElementById('error').textContent=e.message}};
+}
+document.getElementById('composer').onsubmit=async(e)=>{
+  e.preventDefault();
+  const box=document.getElementById('text');
+  const text=box.value.trim();
+  if(!text)return;
+  try{
+    await api('/say',{text});
+    box.value='';
+  }catch(err){document.getElementById('error').textContent=err.message}
+};
+async function poll(){
+  try{
+    const s=await api('/snapshot');
+    const chip=document.getElementById('chip');
+    chip.textContent=labels[s.state]||s.state||'';
+    chip.classList.toggle('hot',s.armed===true);
+    document.getElementById('notice').textContent=s.notice||'';
+    document.getElementById('error').textContent=s.error||'';
+    document.getElementById('devices').textContent=[s.selected_input,s.selected_output].filter(Boolean).join(' · ')||'Conversation locale · Mac';
+    document.getElementById('level').value=s.level||0;
+    if(s.transcription&&s.transcription!==lastUser){append('user',s.transcription);lastUser=s.transcription}
+    if(s.response&&s.response!==lastAnswer){append('assistant',s.response);lastAnswer=s.response}
+  }catch(e){
+    document.getElementById('chip').textContent='Arrêté';
+  }
+  setTimeout(poll,300);
+}
+api('/bootstrap').then(poll).catch(()=>{document.getElementById('chip').textContent='Amorçage refusé'});
 </script>
-</html>

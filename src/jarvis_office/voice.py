@@ -42,6 +42,20 @@ def cue_pcm(kind: str, rate: int, duration_s: float = 0.25) -> bytes:
     return samples.tobytes()
 
 
+def accepts_utterance(
+    text: str, *, web_conversation: bool, meta: dict[str, Any] | None
+) -> bool:
+    """Local web: every nonempty utterance is a request. Echo/CLI still need Jarvis."""
+    if addressed(text) is not None:
+        return True
+    if not text.strip():
+        return False
+    if web_conversation:
+        return True
+    meta = meta or {}
+    return meta.get("conversation_session") is not None or meta.get("command_session") is not None
+
+
 class VoiceLoop:
     def __init__(
         self,
@@ -52,9 +66,11 @@ class VoiceLoop:
         audio: Any = None,
         tts: Any = None,
         transcript_context: Any = None,
+        web_conversation: bool = False,
     ) -> None:
         self.config, self.path, self.chat = config, path, chat
         self.transcript_context = transcript_context
+        self.web_conversation = web_conversation
         self.on_turn_finished: Any = None
         self.archive_generation: Any = None
         self.session = uuid.uuid4().hex
@@ -99,7 +115,11 @@ class VoiceLoop:
             "ready": self.ready and bool(self.output_device) and self.error is None,
             "conversation_ready": self.ready and not self.chat.closed and self.error is None,
             "remote_health": "NOT_RUN — no paid health poll",
-            "qualification": "STT_QUALIFICATION_PENDING — NO_ACCEPTABLE_STT",
+            "qualification": (
+                None
+                if self.web_conversation
+                else "STT_QUALIFICATION_PENDING — NO_ACCEPTABLE_STT"
+            ),
             "microphone": self.microphone,
             "level": self.level,
             "input": self.input_device,
@@ -113,11 +133,25 @@ class VoiceLoop:
             "error": self.error,
             "armed": self.armed,
             "notice": (
-                ("Écoute armée. " if self.armed else "Écoute non armée. ")
-                + "Pendant l'armement : STT local de toute parole. En Conversation Echo, "
-                "chaque énoncé est une demande. En Commandes Echo, Jarvis est optionnel "
-                "et seule une action média est traitée. En local, adresse textuelle Jarvis ; "
-                "ni wake word acoustique ni identification du locuteur."
+                (
+                    "Écoute armée. Parlez, chaque phrase est une demande."
+                    if self.web_conversation
+                    else "Écoute armée. Pendant l'armement : STT local de toute parole. "
+                    "En Conversation Echo, chaque énoncé est une demande. En Commandes Echo, "
+                    "Jarvis est optionnel et seule une action média est traitée. En local, "
+                    "adresse textuelle Jarvis ; ni wake word acoustique ni identification "
+                    "du locuteur."
+                )
+                if self.armed
+                else (
+                    "Écoute en pause. Appuyez sur Écouter pour parler ou écrivez ci-dessous."
+                    if self.web_conversation
+                    else "Écoute non armée. Pendant l'armement : STT local de toute parole. "
+                    "En Conversation Echo, chaque énoncé est une demande. En Commandes Echo, "
+                    "Jarvis est optionnel et seule une action média est traitée. En local, "
+                    "adresse textuelle Jarvis ; ni wake word acoustique ni identification "
+                    "du locuteur."
+                )
             ),
         }
 
@@ -560,19 +594,19 @@ class VoiceLoop:
                     break
                 if not result.get("accepted"):
                     continue
-                self.request_context_metadata = None
+                self.request_context_metadata = (
+                    {"conversation_session": True} if self.web_conversation else None
+                )
                 context = (
                     self.transcript_context(result["text"])
                     if self.transcript_context is not None
                     else ""
                 )
                 meta = self.request_context_metadata
-                if addressed(result.get("text", "")) is None and (
-                    meta is None
-                    or (
-                        meta.get("conversation_session") is None
-                        and meta.get("command_session") is None
-                    )
+                if not accepts_utterance(
+                    result.get("text", ""),
+                    web_conversation=self.web_conversation,
+                    meta=meta,
                 ):
                     continue
                 self.remaining -= 1
@@ -702,6 +736,26 @@ class VoiceLoop:
                 self.microphone, self.state = "closure_unverified", "error"
                 self.error, self.ready = "audio_shutdown_unverified", False
 
+    async def ask(self, text: str) -> None:
+        """Typed web turn. Pauses capture first so one owner keeps the output device."""
+        cleaned = text.strip()
+        if (
+            not cleaned
+            or len(cleaned) > 2000
+            or any(ord(c) < 32 and c not in "\t\n" for c in cleaned)
+        ):
+            raise LoopError("invalid_web_text")
+        if self.armed or (self.task is not None and not self.task.done()):
+            await self.control("pause")
+        if not self.ready:
+            if getattr(self.tts, "closed", False):
+                self.tts = TTSClient.for_config(self.path, self.config.tts)
+            await self.start()
+            self.output_device = (await self.audio.call("check", timeout=25))["device"]
+        await self.test_text(
+            cleaned, no_play=False, context_metadata={"conversation_session": True}
+        )
+
     async def test_text(
         self, text: str, *, no_play: bool, context_metadata: dict[str, Any] | None = None
     ) -> None:
@@ -769,7 +823,7 @@ async def _run_owned(
     ):
         raise ConfigError("voice_report_requires_new_private_path")
     chat = DeepSeek(load_key(), config.chat)
-    voice = VoiceLoop(config, path, chat)
+    voice = VoiceLoop(config, path, chat, web_conversation=True)
     instance.publish(voice.session, config.voice.port)
     ui = LocalUI(voice, config.voice.port)
     stop = asyncio.Event()

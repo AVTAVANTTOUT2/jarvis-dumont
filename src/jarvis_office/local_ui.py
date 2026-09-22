@@ -29,7 +29,9 @@ class LocalUI:
         self.connections = 0
         self.tasks: set[asyncio.Task[None]] = set()
         self.controls: asyncio.Queue[str] = asyncio.Queue(4)
+        self.says: asyncio.Queue[str] = asyncio.Queue(4)
         self.control_task: asyncio.Task[None] | None = None
+        self.say_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         try:
@@ -39,12 +41,22 @@ class LocalUI:
         except OSError:
             raise LoopError("loopback_port_unavailable") from None
         self.control_task = asyncio.create_task(self._control())
+        self.say_task = asyncio.create_task(self._say())
 
     async def _control(self) -> None:
         while True:
             action = await self.controls.get()
             try:
                 await self.voice.control(action)
+            except Exception as exc:
+                self.voice.error = str(exc) if isinstance(exc, LoopError) else "control_failed"
+                self.voice.state = "error"
+
+    async def _say(self) -> None:
+        while True:
+            text = await self.says.get()
+            try:
+                await self.voice.ask(text)
             except Exception as exc:
                 self.voice.error = str(exc) if isinstance(exc, LoopError) else "control_failed"
                 self.voice.state = "error"
@@ -106,6 +118,23 @@ class LocalUI:
                 ):
                     return 400, b"{}", {}
                 self.controls.put_nowait(value["action"])
+                return 202, b"{}", {}
+            except (ValueError, TypeError, asyncio.QueueFull):
+                return 400, b"{}", {}
+        if path == "/say":
+            try:
+                value = json.loads(body)
+                text = value.get("text") if isinstance(value, dict) else None
+                if (
+                    not isinstance(value, dict)
+                    or set(value) != {"text"}
+                    or not isinstance(text, str)
+                    or not text.strip()
+                    or len(text) > 2000
+                    or any(ord(c) < 32 and c not in "\t\n" for c in text)
+                ):
+                    return 400, b"{}", {}
+                self.says.put_nowait(text.strip())
                 return 202, b"{}", {}
             except (ValueError, TypeError, asyncio.QueueFull):
                 return 400, b"{}", {}
@@ -176,7 +205,11 @@ class LocalUI:
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
-        pending = [*self.tasks, *([self.control_task] if self.control_task else [])]
+        pending = [
+            *self.tasks,
+            *([self.control_task] if self.control_task else []),
+            *([self.say_task] if self.say_task else []),
+        ]
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
