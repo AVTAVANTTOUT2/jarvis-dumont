@@ -1,0 +1,16 @@
+{
+  "name": "Jarvis Dumont",
+  "short_name": "Dumont",
+  "description": "Interface poignet EVA — conversation locale Jarvis.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "lang": "fr",
+  "icons": [
+    {"src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any"},
+    {"src": "/icon.png", "type": "image/png", "sizes": "180x180", "purpose": "any maskable"}
+  ]
+}

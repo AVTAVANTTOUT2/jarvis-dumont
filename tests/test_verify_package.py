@@ -38,6 +38,10 @@ def write_fake_wheel(
     names = {"jarvis_office-0.0.dist-info/METADATA": "Name: fake\n"}
     if control_html:
         names["jarvis_office/control.html"] = "<html></html>"
+        names["jarvis_office/manifest.webmanifest"] = "{}"
+        names["jarvis_office/sw.js"] = ""
+        names["jarvis_office/icon.svg"] = "<svg></svg>"
+        names["jarvis_office/icon.png"] = "png"
     if extra:
         names.update(extra)
     with ZipFile(path, "w") as archive:
