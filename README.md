@@ -404,13 +404,14 @@ l'URL ou journal d'accès. Les réponses sont rendues avec `textContent`. Le sec
 ou une reconnexion relit le même état sans ouvrir de micro, modèle ou conversation.
 
 La page est un HUD de poignet installable (PWA, format paysage, repli portrait) :
-`control.html` et `wrist.js`, avec l'orbe `thinking-orbs` du dashboard servie depuis la même
-copie vendue (`static/dashboard/thinking-orbs.js`, MIT), sans téléchargement. CSP : scripts
-par nonce plus `'self'` pour ces deux modules de même origine, sans `unsafe-*`. Télémétrie
-réelle uniquement : état, RMS micro en dBFS, aller-retour `/snapshot`, session, heures
-locale/GMT, batterie et maintien d'écran quand le navigateur les expose. Effacer exige un
-appui maintenu d'une seconde, ou deux activations au clavier ; l'écran reste allumé
-seulement pendant l'écoute armée. Après redémarrage du serveur, la page se ré-amorce seule.
+`control.html` et `wrist.js`, orbe `thinking-orbs` à gauche (copie vendue
+`static/dashboard/thinking-orbs.js`, MIT, style libraries.dev), sans téléchargement. CSP :
+scripts par nonce plus `'self'` pour ces deux modules de même origine, sans `unsafe-*`.
+Télémétrie réelle uniquement : état, RMS micro en dBFS, aller-retour `/snapshot`, session,
+heures locale/GMT, batterie et maintien d'écran quand le navigateur les expose. Effacer
+exige un appui maintenu d'une seconde, ou deux activations au clavier ; l'écran reste
+allumé seulement pendant l'écoute armée. Après redémarrage du serveur, la page se
+ré-amorce seule.
 
 Topologie : contrôleur HTTPX/UI ; enfant STT/Silero/sounddevice/SoXR en Python 3.12 ;
 enfant Qwen3 MLX en Python 3.14. Les deux locks audio restent isolés et inchangés.

@@ -123,8 +123,6 @@ export function refine(opts, dots, dotSize) {
 
 const HOLD_MS = 1000;
 const HEADERS = {'Content-Type': 'application/json', 'X-Jarvis-Local': '1'};
-const ACCENT = '85,207,255';
-const DANGER = '255,122,112';
 const easeOut = (x) => 1 - (1 - x) ** 3;
 
 export function mount(doc, engine) {
@@ -142,7 +140,7 @@ export function mount(doc, engine) {
   let memo = createTranscript();
   let snapshot = null, linked = null, linkedAt = 0, failures = 0, rtt = NaN;
   let phase = 'boot', armed = false, fault = '';
-  let clock = 0, last = 0, raf = 0, second = -1;
+  let clock = 0.6, last = 0, raf = 0;
   let vu = 0, vuTarget = 0;
   let orbState = PHASES.boot.orb, previousOrb = null, changedAt = 0;
   let visorSize = 0, dpr = 1;
@@ -153,12 +151,12 @@ export function mount(doc, engine) {
     if (tone !== undefined && el.dataset.tone !== tone) el.dataset.tone = tone;
   };
 
-  // The hero orb is ~3x the 64 px preset: twice the dots, 0.8x their radius.
+  // 64 px libraries.dev preset, slightly denser and chunkier for the ~280 px visor.
   const preset = (state, hero) => {
     const key = `${state}-${hero ? 'hero' : 20}`;
     if (!presets.has(key)) {
       const base = engine.resolvePreset(state, hero ? 64 : 20);
-      presets.set(key, hero ? {...base, opts: refine(base.opts, 2, 0.8)} : base);
+      presets.set(key, hero ? {...base, opts: refine(base.opts, 1.6, 1.35)} : base);
     }
     return presets.get(key);
   };
@@ -174,49 +172,23 @@ export function mount(doc, engine) {
     ctx.restore();
   }
 
-  // ---- visor: bezel ticks (mic VU + seconds) around the orb ------------------
+  // ---- visor: thinking-orbs hero, no watch bezel ------------------------------
   const visor = $('orb-canvas');
   const vctx = visor.getContext('2d');
 
   function paintVisor(now) {
     if (!visorSize) return;
-    const size = visorSize, c = size / 2;
+    const size = visorSize;
     vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     vctx.clearRect(0, 0, size, size);
     const tone = PHASES[phase].tone;
-    const lit = Math.round(vu * 60);
-    const outer = c - 2;
-    vctx.lineCap = 'round';
-    for (let i = 0; i < 60; i++) {
-      const angle = -Math.PI / 2 + (i * Math.PI) / 30;
-      const major = i % 5 === 0;
-      let length = major ? Math.max(7, size * 0.04) : Math.max(4, size * 0.022);
-      const cos = Math.cos(angle), sin = Math.sin(angle);
-      let color = `rgba(255,255,255,${major ? 0.3 : 0.13})`;
-      if (tone === 'fault' && major) color = `rgba(${DANGER},0.7)`;
-      else if (i < lit) {
-        color = `rgba(${ACCENT},${0.5 + 0.5 * ((i + 1) / 60)})`;
-        length += size * 0.014;
-      } else if (i === second) color = 'rgba(255,255,255,0.85)';
-      else if (tone === 'hot') color = `rgba(${ACCENT},${major ? 0.34 : 0.12})`;
-      vctx.strokeStyle = color;
-      vctx.lineWidth = major ? 1.6 : 1.1;
-      vctx.beginPath();
-      vctx.moveTo(c + cos * (outer - length), c + sin * (outer - length));
-      vctx.lineTo(c + cos * outer, c + sin * outer);
-      vctx.stroke();
-    }
-    const inner = size * 0.72, offset = (size - inner) / 2;
     const pulse = 1 + (phase === 'listening' ? 0.05 * vu : 0);
     const mix = previousOrb === null ? 1 : easeOut(Math.min(1, (now - changedAt) / 420));
     const dim = tone === 'fault' || phase === 'stopping' ? 0.5 : 1;
-    vctx.save();
-    vctx.translate(offset, offset);
     if (mix < 1 && previousOrb !== null) {
-      paintOrb(vctx, previousOrb, clock, inner, (1 - mix) * dim, pulse * (1 + 0.06 * mix));
+      paintOrb(vctx, previousOrb, clock, size, (1 - mix) * dim, pulse * (1 + 0.06 * mix));
     }
-    paintOrb(vctx, orbState, clock, inner, mix * dim, pulse * (0.94 + 0.06 * mix));
-    vctx.restore();
+    paintOrb(vctx, orbState, clock, size, mix * dim, pulse * (0.94 + 0.06 * mix));
     if (mix >= 1) previousOrb = null;
   }
 
@@ -278,7 +250,13 @@ export function mount(doc, engine) {
       paintChips();
       return;
     }
-    if (!raf && !doc.hidden) raf = win.requestAnimationFrame(frame);
+    if (doc.hidden) {
+      last = 0;
+      paintVisor(win.performance.now());
+      paintChips();
+      return;
+    }
+    if (!raf) raf = win.requestAnimationFrame(frame);
   }
 
   function resize() {
@@ -325,7 +303,7 @@ export function mount(doc, engine) {
       pillText.textContent = value;
       pillText.dataset.text = value;
     };
-    if (reduced.matches || typeof pillText.animate !== 'function') {
+    if (reduced.matches || doc.hidden || typeof pillText.animate !== 'function') {
       swap(label);
       return;
     }
@@ -429,7 +407,6 @@ export function mount(doc, engine) {
     $('clock').dateTime = now.toISOString();
     put('gmt', time.gmt);
     put('met', linkedAt ? missionTime(Date.now() - linkedAt) : 'T+--:--:--');
-    second = now.getSeconds();
     if (reduced.matches) schedule();
   }
 
@@ -445,7 +422,9 @@ export function mount(doc, engine) {
     hud.dataset.phase = phase;
     hud.dataset.tone = tone;
     setStatus(label, tone);
-    put('orb-label', armed ? 'Pause' : 'Écouter');
+    const action = armed ? 'Pause' : 'Écouter';
+    put('orb-label', action);
+    if (orb.getAttribute('aria-label') !== action) orb.setAttribute('aria-label', action);
     vuTarget = linked && phase === 'listening' ? loudness(snapshot.level) : 0;
     put('notice', linked === false ? 'Reconnexion automatique en cours.' : snapshot?.notice || '');
     $('sig-bars').dataset.level = String(linked ? signalBars(rtt) : 0);
