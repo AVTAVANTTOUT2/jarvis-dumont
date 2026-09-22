@@ -65,8 +65,17 @@ def require_unique_wheel(output_dir: Path) -> Path:
 def validate_wheel_contents(path: Path) -> None:
     with ZipFile(path) as archive:
         names = archive.namelist()
-    if "jarvis_office/control.html" not in names:
-        raise WheelCheckError("missing jarvis_office/control.html")
+    for required in (
+        "jarvis_office/control.html",
+        "jarvis_office/manifest.webmanifest",
+        "jarvis_office/sw.js",
+        "jarvis_office/wrist.js",
+        "jarvis_office/static/dashboard/thinking-orbs.js",
+        "jarvis_office/icon.svg",
+        "jarvis_office/icon.png",
+    ):
+        if required not in names:
+            raise WheelCheckError(f"missing {required}")
     if not all(name.startswith("jarvis_office/") or ".dist-info/" in name for name in names):
         raise WheelCheckError("unexpected path prefix")
     if any(name.endswith(FORBIDDEN_SUFFIXES) for name in names):

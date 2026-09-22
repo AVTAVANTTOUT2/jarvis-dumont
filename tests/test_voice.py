@@ -22,7 +22,7 @@ from jarvis_office.audio_worker import AudioEngine
 from jarvis_office.config import Chat, Config, ConfigError, Speech, Voice, load_config
 from jarvis_office.credentials import reserve_validation_request
 from jarvis_office.deepseek import DeepSeek
-from jarvis_office.local_ui import PAGE, LocalUI
+from jarvis_office.local_ui import PAGE, SHELL, LocalUI
 from jarvis_office.stt import Recognizer
 from jarvis_office.tts import TTSError, worker_environment
 from jarvis_office.voice import VoiceLoop, accepts_utterance, addressed, run_command
@@ -204,9 +204,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.voice.results[-1]["rearmed"], 27)
 
     def test_web_conversation_accepts_unaddressed_speech(self):
-        self.assertTrue(
-            accepts_utterance("quelle heure est-il", web_conversation=True, meta=None)
-        )
+        self.assertTrue(accepts_utterance("quelle heure est-il", web_conversation=True, meta=None))
         self.assertFalse(
             accepts_utterance("quelle heure est-il", web_conversation=False, meta=None)
         )
@@ -342,9 +340,31 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ui.route("POST", "/say", auth, b'{"text":""}')[0], 400)
         self.assertEqual(ui.route("POST", "/say", auth, b'{"text":"Bonjour"}')[0], 202)
-        self.assertNotIn("innerHTML", PAGE)
-        self.assertIn("textContent", PAGE)
+        wrist = SHELL["/wrist.js"][0].decode()
+        for source in (PAGE, wrist):
+            self.assertNotIn("innerHTML", source)
+            self.assertNotIn("insertAdjacentHTML", source)
+        self.assertIn("textContent", wrist)
         self.assertNotIn("STT_QUALIFICATION_PENDING", PAGE)
+        self.assertIn("apple-mobile-web-app-capable", PAGE)
+        self.assertIn("/manifest.webmanifest", PAGE)
+        self.assertIn("/wrist.js", PAGE)
+        csp = ui.route("GET", "/", {"host": ui.host}, b"")[2]["Content-Security-Policy"]
+        self.assertIn("script-src 'nonce-", csp)
+        self.assertNotIn("unsafe", csp)
+        for path in ("/wrist.js", "/thinking-orbs.js"):
+            status, payload, extra = ui.route("GET", path, {"host": ui.host}, b"")
+            self.assertEqual(status, 200)
+            self.assertEqual(extra["Content-Type"], "text/javascript")
+            self.assertIn(b"export", payload)
+        status, payload, extra = ui.route("GET", "/manifest.webmanifest", {"host": ui.host}, b"")
+        self.assertEqual(status, 200)
+        self.assertEqual(extra["Content-Type"], "application/manifest+json")
+        self.assertIn(b"standalone", payload)
+        self.assertEqual(json.loads(payload)["orientation"], "landscape")
+        self.assertEqual(ui.route("GET", "/sw.js", {"host": "evil.test"}, b"")[0], 403)
+        self.assertEqual(ui.route("GET", "/icon.svg", {"host": ui.host}, b"")[0], 200)
+        self.assertEqual(ui.route("GET", "/icon.png", {"host": ui.host}, b"")[0], 200)
         self.assertEqual(len(self.streams), 0)
         self.assertFalse(self.voice.armed)
 

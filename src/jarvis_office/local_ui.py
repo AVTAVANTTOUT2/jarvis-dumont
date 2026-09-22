@@ -15,7 +15,23 @@ from pathlib import Path
 from jarvis_office.audio_client import LoopError
 from jarvis_office.voice import VoiceLoop
 
-PAGE = Path(__file__).with_name("control.html").read_text(encoding="utf-8")
+HERE = Path(__file__).resolve().parent
+PAGE = (HERE / "control.html").read_text(encoding="utf-8")
+SHELL = {
+    "/manifest.webmanifest": (
+        (HERE / "manifest.webmanifest").read_bytes(),
+        "application/manifest+json",
+    ),
+    "/sw.js": ((HERE / "sw.js").read_bytes(), "application/javascript"),
+    "/wrist.js": ((HERE / "wrist.js").read_bytes(), "text/javascript"),
+    # Same vendored MIT engine as the dashboard: one copy, no runtime download.
+    "/thinking-orbs.js": (
+        (HERE / "static" / "dashboard" / "thinking-orbs.js").read_bytes(),
+        "text/javascript",
+    ),
+    "/icon.svg": ((HERE / "icon.svg").read_bytes(), "image/svg+xml"),
+    "/icon.png": ((HERE / "icon.png").read_bytes(), "image/png"),
+}
 
 
 class LocalUI:
@@ -66,6 +82,7 @@ class LocalUI:
     ) -> tuple[int, bytes, dict[str, str]]:
         if headers.get("host") != self.host:
             return 403, b"{}", {}
+        path = path.split("?", 1)[0]
         if method == "GET" and path == "/":
             nonce = secrets.token_urlsafe(24)
             return (
@@ -74,12 +91,16 @@ class LocalUI:
                 {
                     "Content-Type": "text/html; charset=utf-8",
                     "Content-Security-Policy": (
-                        f"default-src 'none'; script-src 'nonce-{nonce}'; "
-                        f"style-src 'nonce-{nonce}'; connect-src 'self'; "
-                        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+                        f"default-src 'none'; script-src 'nonce-{nonce}' 'self'; "
+                        f"style-src 'nonce-{nonce}'; connect-src 'self'; img-src 'self'; "
+                        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; "
+                        "base-uri 'none'; form-action 'none'"
                     ),
                 },
             )
+        if method == "GET" and path in SHELL:
+            payload, content_type = SHELL[path]
+            return 200, payload, {"Content-Type": content_type}
         if (
             method != "POST"
             or headers.get("origin") != self.origin

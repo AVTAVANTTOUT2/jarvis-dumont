@@ -1,0 +1,17 @@
+{
+  "name": "Jarvis Dumont",
+  "short_name": "Dumont",
+  "description": "HUD de poignet EVA — conversation locale Jarvis, format paysage.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "lang": "fr",
+  "icons": [
+    {"src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any"},
+    {"src": "/icon.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable"}
+  ]
+}

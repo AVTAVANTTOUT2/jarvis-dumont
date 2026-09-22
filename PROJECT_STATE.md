@@ -1,5 +1,21 @@
 # État du projet
 
+## HUD de poignet paysage — 22 septembre 2026
+
+- UI locale sur `feat/wrist-orb-landscape` : `control.html` (paysage poignet, style
+  libraries.dev `#121212` / pilules / shimmer / cyan) et `wrist.js` (logique testée
+  dans `tests/test_wrist.mjs`). Orbe `thinking-orbs` en héros à gauche, sans lunette
+  de montre ; canal au centre ; télémétrie en pilules + touches gant à droite.
+  Repli portrait. Cache service worker v4.
+- Corrigé : la réponse diffusée en continu ne crée plus une bulle par sondage ; niveau
+  micro lu en dBFS ; ré-amorçage automatique sur 403 ; Effacer sans `window.confirm`.
+- Routes ajoutées en lecture seule : `/wrist.js`, `/thinking-orbs.js` (copie vendue du
+  dashboard). Manifeste `orientation: landscape`, icônes 512 générées depuis le moteur
+  d'orbe. Copie d'attente : « écrivez un message ».
+- Vérifié : tests JS du HUD et aperçu navigateur 844×390. Non vérifié sur téléphone
+  réel : installation PWA, service worker, maintien d'écran, vibration.
+- Inchangés : routes POST, Host/Origin/Fetch Metadata/cookie, moteurs, politique d'écoute.
+
 ## Parseur TV local — lot 2 — 21 septembre 2026
 
 - Grammaire bornée `MATCH` / `REJECT` / `AMBIGUOUS` / `NO_MATCH` dans
