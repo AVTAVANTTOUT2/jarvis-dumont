@@ -1,5 +1,12 @@
-const SHELL = "dumont-shell-v1";
-const ASSETS = ["/", "/manifest.webmanifest", "/icon.svg", "/icon.png"];
+const SHELL = "dumont-shell-v2";
+const ASSETS = [
+  "/",
+  "/manifest.webmanifest",
+  "/wrist.js",
+  "/thinking-orbs.js",
+  "/icon.svg",
+  "/icon.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(ASSETS)));

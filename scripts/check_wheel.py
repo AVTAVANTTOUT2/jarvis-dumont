@@ -69,6 +69,8 @@ def validate_wheel_contents(path: Path) -> None:
         "jarvis_office/control.html",
         "jarvis_office/manifest.webmanifest",
         "jarvis_office/sw.js",
+        "jarvis_office/wrist.js",
+        "jarvis_office/static/dashboard/thinking-orbs.js",
         "jarvis_office/icon.svg",
         "jarvis_office/icon.png",
     ):

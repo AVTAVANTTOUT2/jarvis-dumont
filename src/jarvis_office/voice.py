@@ -144,7 +144,7 @@ class VoiceLoop:
                 )
                 if self.armed
                 else (
-                    "Écoute en pause. Appuyez sur Écouter pour parler ou écrivez ci-dessous."
+                    "Écoute en pause. Appuyez sur Écouter pour parler ou écrivez un message."
                     if self.web_conversation
                     else "Écoute non armée. Pendant l'armement : STT local de toute parole. "
                     "En Conversation Echo, chaque énoncé est une demande. En Commandes Echo, "

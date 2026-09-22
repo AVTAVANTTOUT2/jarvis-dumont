@@ -23,6 +23,12 @@ SHELL = {
         "application/manifest+json",
     ),
     "/sw.js": ((HERE / "sw.js").read_bytes(), "application/javascript"),
+    "/wrist.js": ((HERE / "wrist.js").read_bytes(), "text/javascript"),
+    # Same vendored MIT engine as the dashboard: one copy, no runtime download.
+    "/thinking-orbs.js": (
+        (HERE / "static" / "dashboard" / "thinking-orbs.js").read_bytes(),
+        "text/javascript",
+    ),
     "/icon.svg": ((HERE / "icon.svg").read_bytes(), "image/svg+xml"),
     "/icon.png": ((HERE / "icon.png").read_bytes(), "image/png"),
 }
@@ -85,7 +91,7 @@ class LocalUI:
                 {
                     "Content-Type": "text/html; charset=utf-8",
                     "Content-Security-Policy": (
-                        f"default-src 'none'; script-src 'nonce-{nonce}'; "
+                        f"default-src 'none'; script-src 'nonce-{nonce}' 'self'; "
                         f"style-src 'nonce-{nonce}'; connect-src 'self'; img-src 'self'; "
                         "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; "
                         "base-uri 'none'; form-action 'none'"

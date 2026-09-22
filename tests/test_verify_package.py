@@ -40,6 +40,8 @@ def write_fake_wheel(
         names["jarvis_office/control.html"] = "<html></html>"
         names["jarvis_office/manifest.webmanifest"] = "{}"
         names["jarvis_office/sw.js"] = ""
+        names["jarvis_office/wrist.js"] = ""
+        names["jarvis_office/static/dashboard/thinking-orbs.js"] = ""
         names["jarvis_office/icon.svg"] = "<svg></svg>"
         names["jarvis_office/icon.png"] = "png"
     if extra:
