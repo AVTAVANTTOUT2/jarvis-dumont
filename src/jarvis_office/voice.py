@@ -42,9 +42,7 @@ def cue_pcm(kind: str, rate: int, duration_s: float = 0.25) -> bytes:
     return samples.tobytes()
 
 
-def accepts_utterance(
-    text: str, *, web_conversation: bool, meta: dict[str, Any] | None
-) -> bool:
+def accepts_utterance(text: str, *, web_conversation: bool, meta: dict[str, Any] | None) -> bool:
     """Local web: every nonempty utterance is a request. Echo/CLI still need Jarvis."""
     if addressed(text) is not None:
         return True
@@ -116,9 +114,7 @@ class VoiceLoop:
             "conversation_ready": self.ready and not self.chat.closed and self.error is None,
             "remote_health": "NOT_RUN — no paid health poll",
             "qualification": (
-                None
-                if self.web_conversation
-                else "STT_QUALIFICATION_PENDING — NO_ACCEPTABLE_STT"
+                None if self.web_conversation else "STT_QUALIFICATION_PENDING — NO_ACCEPTABLE_STT"
             ),
             "microphone": self.microphone,
             "level": self.level,

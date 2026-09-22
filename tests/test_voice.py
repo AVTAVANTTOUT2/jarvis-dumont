@@ -204,9 +204,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.voice.results[-1]["rearmed"], 27)
 
     def test_web_conversation_accepts_unaddressed_speech(self):
-        self.assertTrue(
-            accepts_utterance("quelle heure est-il", web_conversation=True, meta=None)
-        )
+        self.assertTrue(accepts_utterance("quelle heure est-il", web_conversation=True, meta=None))
         self.assertFalse(
             accepts_utterance("quelle heure est-il", web_conversation=False, meta=None)
         )
