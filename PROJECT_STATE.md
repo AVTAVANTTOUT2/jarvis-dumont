@@ -1,5 +1,32 @@
 # État du projet
 
+## Publication et relance privées — 25 septembre 2026
+
+- Code publié sur `main` : `57cea3bf914c3673cb327d852ee07db926fddfb0`.
+  [CI GitHub réussie](https://github.com/AVTAVANTTOUT2/jarvis-dumont/actions/runs/36120688426) :
+  lint/format, types, Python, JavaScript et paquet. Validation locale complète :
+  **396 tests Python et 33 tests JavaScript réussis**, wheel vérifié.
+- Release active `0.3.0-57cea3bf914c`, construite hors ligne depuis ce commit,
+  wheel non editable et trois environnements créés à leur emplacement final.
+  Dépendances aux versions verrouillées et empreintes vérifiées ; actifs Office
+  copiés indépendamment puis vérifiés. Le pointeur `current` est activé
+  atomiquement ; configuration précédente et tentative incomplète conservées.
+- Ancienne instance arrêtée proprement avec ses enfants. LaunchAgent utilisateur
+  `com.jarvisoffice.voice` installé et démarré ; serveur, STT et TTS chargés
+  depuis la release. État final vérifié : moteurs et conversation prêts,
+  **pause, micro fermé, aucune erreur**. Aucun téléchargement de modèle.
+- Accès loopback et HTTPS existant : HTTP 200, page et scripts identiques à la
+  release installée (nonce CSP pris en compte). Hôte HTTPS conservé dans
+  `voice.public_host` ; aucune modification du relais réseau.
+- Essai intercom rejoué avec le wheel installé : deux Chromium, micros
+  synthétiques, retards asymétriques 60/100 ms, audio dans les deux sens,
+  raccrochage et appel inverse. Recharger les applications des membres
+  d'équipage pour utiliser les nouveaux scripts et le cache PWA v9.
+- Statut : **DEPLOYED_PRIVATE_WITH_KNOWN_LIMITATIONS**. NON EXÉCUTÉ : appel
+  entre deux téléphones physiques, écoute humaine, Safari mobile et mesure de
+  latence acoustique. Les réserves historiques STT et voix restent ouvertes.
+  Les commits ultérieurs limités à ce document ne changent pas le code déployé.
+
 ## Correctif capture vocale web — 25 septembre 2026
 
 - Défauts reproduits : micros de plusieurs navigateurs entrelacés dans une
@@ -17,7 +44,7 @@
 - Tests de régression : `test_phone_capture.py`, `test_web_audio.py`,
   `test_phone_audio.mjs`. Revue indépendante avec corrections des cas second
   onglet et contexte audio interrompu. Ruff/format et mypy passent ; suite
-  Python complète : 390 tests réussis, JavaScript : 33 tests réussis. Paquet
+  Python complète après intégration : 396 tests réussis, JavaScript : 33 tests réussis. Paquet
   wheel construit et contenu vérifié hors réseau. Les moteurs et le prompt
   sont conservés.
 - Essai `scripts/check_phone_browser.mjs` exécuté dans deux Chromium isolés :
@@ -27,9 +54,9 @@
 - NON EXÉCUTÉ : validation de la phrase humaine rapportée, STT/LLM réels,
   écoute physique et Safari mobile. Les observations live sans contenu ne
   permettent pas d'attribuer avec certitude cet échange aux défauts corrigés.
-- Non activé : instance préexistante depuis le checkout, aucun pointeur de
-  release `current`, actifs configurés hors racine Office. Une relance directe
-  contrevient à la règle de release ; aucun service ou actif privé déplacé.
+- Activé dans la release décrite ci-dessus. Le constat initial d'une instance
+  depuis le checkout, sans `current` et avec des actifs hors Office, a été
+  résolu par une installation indépendante et vérifiée.
 
 ## Correctif intercom retard / son dans un seul sens — 25 septembre 2026
 
@@ -46,7 +73,7 @@
   `/talk/uplink`, `/talk/pcm`, `/talk/hangup`. Les anciennes requêtes ne peuvent
   ni alimenter ni terminer l'appel suivant. Raccrocher ou masquer l'application
   coupe localement l'envoi et la lecture sans attendre le prochain snapshot.
-- `/bootstrap` conserve une session déjà valide. Cache PWA intercom v8.
+- `/bootstrap` conserve une session déjà valide. Cache PWA final commun v9.
 - Régressions : `tests/test_talk.py` (18 scénarios, relais bidirectionnel,
   contrôle d'accès et parseur HTTP), `tests/test_wrist_audio.mjs` (8 scénarios
   avec frontières navigateur simulées). Les défauts ont été reproduits avant
@@ -55,9 +82,9 @@
   microphones synthétiques, sortie muette, appel bidirectionnel, raccrochage
   puis appel inverse. Commande reproductible :
   `PLAYWRIGHT_MODULE=<installation Playwright existante> node scripts/check_intercom_browser.mjs`.
-- NON EXÉCUTÉ : écoute sur deux téléphones physiques, Safari mobile et réseau
-  réel. Aucune relance du service par ce correctif ; intégration coordonnée avec
-  la tâche de correction de la capture Jarvis qui partage `wrist.js`/`local_ui.py`.
+- NON EXÉCUTÉ : écoute sur deux téléphones physiques, Safari mobile et appel
+  sur réseau réel. Intégration coordonnée avec la correction de capture Jarvis
+  qui partage `wrist.js`/`local_ui.py` ; relance vérifiée décrite ci-dessus.
 
 ## Intercom PWA — 5 sièges équipage — 22 septembre 2026
 
