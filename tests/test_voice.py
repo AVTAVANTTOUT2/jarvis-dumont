@@ -20,9 +20,9 @@ from jarvis_office.audio_input import AudioError, Utterance
 from jarvis_office.audio_output import Playback, resolve_output
 from jarvis_office.audio_worker import AudioEngine
 from jarvis_office.config import Chat, Config, ConfigError, Speech, Voice, load_config
-from jarvis_office.credentials import reserve_validation_request
+from jarvis_office.credentials import reserve_daily_request, reserve_validation_request
 from jarvis_office.deepseek import DeepSeek
-from jarvis_office.local_ui import PAGE, SHELL, LocalUI
+from jarvis_office.local_ui import PAGE, SHELL, LocalUI, tailscale_front
 from jarvis_office.stt import Recognizer
 from jarvis_office.tts import TTSError, worker_environment
 from jarvis_office.voice import VoiceLoop, accepts_utterance, addressed, run_command
@@ -210,6 +210,15 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(accepts_utterance("Jarvis, salut", web_conversation=False, meta=None))
         self.assertFalse(accepts_utterance("  ", web_conversation=True, meta=None))
+        wrapped = VoiceLoop(
+            Config(),
+            Path("unused.toml"),
+            self.chat,
+            audio=self.audio,
+            tts=self.tts,
+            web_conversation=True,
+        )
+        self.assertEqual(wrapped.config.speech.input_rate, 16000)
 
     async def test_web_snapshot_hides_stt_qualification_banner(self):
         self.voice.web_conversation = True
@@ -316,7 +325,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
             status, _, extra = ui.route("POST", "/bootstrap", headers, b"{}")
             self.assertEqual(status, 200)
             self.assertIn("HttpOnly", extra["Set-Cookie"])
-        auth = {**headers, "cookie": ui.cookie_name + "=" + ui.token}
+        auth = {**headers, "cookie": extra["Set-Cookie"].split(";", 1)[0]}
         self.voice.accepted = "<img src=x onerror=alert(1)>"
         self.assertEqual(ui.route("POST", "/snapshot", auth, b"{}")[0], 200)
         for changed in (
@@ -340,6 +349,28 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ui.route("POST", "/say", auth, b'{"text":""}')[0], 400)
         self.assertEqual(ui.route("POST", "/say", auth, b'{"text":"Bonjour"}')[0], 202)
+        frame = b"\x00" * 640
+        self.assertEqual(
+            ui.route(
+                "POST",
+                "/uplink",
+                {**auth, "content-type": "application/octet-stream"},
+                frame,
+            )[0],
+            200,
+        )
+        self.assertEqual(
+            ui.route(
+                "POST",
+                "/uplink",
+                {**auth, "origin": "https://evil.test", "content-type": "application/octet-stream"},
+                frame,
+            )[0],
+            403,
+        )
+        self.assertEqual(ui.route("POST", "/pcm", auth, b"{}")[0], 200)
+        self.assertEqual(ui.route("POST", "/heard", auth, b'{"bytes":0,"done":false}')[0], 200)
+        self.assertEqual(ui.route("POST", "/heard", auth, b'{"bytes":-1,"done":true}')[0], 400)
         wrist = SHELL["/wrist.js"][0].decode()
         for source in (PAGE, wrist):
             self.assertNotIn("innerHTML", source)
@@ -363,6 +394,30 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"standalone", payload)
         self.assertEqual(json.loads(payload)["orientation"], "landscape")
         self.assertEqual(ui.route("GET", "/sw.js", {"host": "evil.test"}, b"")[0], 403)
+        self.assertEqual(tailscale_front("evil.test"), {})
+        self.assertEqual(tailscale_front(""), {})
+        front = "wrist-test.tail5feb4c.ts.net"
+        public = LocalUI(self.voice, 8768, public_host=front)
+        self.assertEqual(public.route("GET", "/", {"host": front}, b"")[0], 200)
+        self.assertEqual(public.route("GET", "/", {"host": "evil.test"}, b"")[0], 403)
+        pub_headers = {
+            "host": front,
+            "origin": f"https://{front}",
+            "sec-fetch-site": "same-origin",
+            "x-jarvis-local": "1",
+            "content-type": "application/json",
+        }
+        self.assertEqual(public.route("POST", "/bootstrap", pub_headers, b"{}")[0], 200)
+        self.assertEqual(
+            public.route("POST", "/bootstrap", {**pub_headers, "origin": public.origin}, b"{}")[0],
+            403,
+        )
+        self.assertEqual(
+            LocalUI(self.voice, 8768, public_host="evil.example").route(
+                "GET", "/", {"host": "evil.example"}, b""
+            )[0],
+            403,
+        )
         self.assertEqual(ui.route("GET", "/icon.svg", {"host": ui.host}, b"")[0], 200)
         self.assertEqual(ui.route("GET", "/icon.png", {"host": ui.host}, b"")[0], 200)
         self.assertEqual(len(self.streams), 0)
@@ -754,6 +809,32 @@ class OutputTests(unittest.TestCase):
             env = worker_environment(Path(root) / "cache")
             self.assertFalse(any("KEY" in k or k == "PYTHONPATH" for k in env))
         self.assertEqual(len(source_signature()), 64)
+
+    def test_daily_api_ceiling_is_1000_and_rolls_at_utc_midnight(self):
+        with tempfile.TemporaryDirectory() as root:
+            config = Path(root) / "config"
+            config.mkdir(mode=0o700)
+            path = config / "roll.json"
+            self.assertEqual(
+                reserve_validation_request(path=path, phase="day", limit=2, period="day"), 1
+            )
+            self.assertEqual(
+                reserve_validation_request(path=path, phase="day", limit=2, period="day"), 2
+            )
+            with self.assertRaisesRegex(ConfigError, "budget_exhausted"):
+                reserve_validation_request(path=path, phase="day", limit=2, period="day")
+            payload = json.loads(path.read_text())
+            payload["period_started_at"] = "2020-01-01"
+            path.write_text(json.dumps(payload))
+            self.assertEqual(
+                reserve_validation_request(path=path, phase="day", limit=2, period="day"), 1
+            )
+            with patch("jarvis_office.credentials.private_root", return_value=Path(root)):
+                self.assertEqual(reserve_daily_request(), 1)
+                daily = json.loads((config / "deepseek-daily-budget.json").read_text())
+            self.assertEqual(daily["limit"], 1000)
+            self.assertEqual(daily["period"], "day")
+            self.assertEqual(daily["attempts"], 1)
 
 
 if __name__ == "__main__":

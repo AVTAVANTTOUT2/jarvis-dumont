@@ -1,4 +1,4 @@
-const SHELL = "dumont-shell-v4";
+const SHELL = "dumont-shell-v9";
 const ASSETS = [
   "/",
   "/manifest.webmanifest",

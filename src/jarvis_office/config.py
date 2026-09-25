@@ -1,6 +1,7 @@
 """Strict non-secret configuration; no dotenv or V1 imports."""
 
 import math
+import re
 import stat
 import sys
 import tomllib
@@ -8,6 +9,18 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 MAX_CONFIG_BYTES = 65_536
+_TS_HOST = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.ts\.net$"
+)
+
+
+def tailscale_front(name: str) -> dict[str, str]:
+    """Exact HTTPS host/origin pairs permitted by the optional Tailscale front."""
+    host = name.strip().rstrip(".").lower()
+    if not _TS_HOST.fullmatch(host):
+        return {}
+    origin = f"https://{host}"
+    return {host: origin, f"{host}:443": origin}
 
 
 class ConfigError(Exception):
@@ -90,6 +103,7 @@ class Voice:
     arm_seconds: int = 60
     arm_turns: int = 3
     stt_timeout: float = 60.0
+    public_host: str = ""
 
 
 @dataclass(frozen=True)
@@ -247,6 +261,10 @@ def load_config(path: Path | None = None) -> Config:
         ):
             raise ConfigError("invalid_voice_configuration")
         voice = Voice(**voice_values)
+        if not isinstance(voice.public_host, str) or (
+            voice.public_host and not tailscale_front(voice.public_host)
+        ):
+            raise ConfigError("invalid_public_host")
         if (
             not isinstance(voice.output_device, str)
             or len(voice.output_device) > 256

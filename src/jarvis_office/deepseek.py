@@ -25,19 +25,26 @@ from jarvis_office.pronounce import Pronounce, TextError
 
 ENDPOINT = "https://api.deepseek.com/chat/completions"
 SYSTEM = (
-    "Tu es Jarvis, un assistant vocal domestique. L'utilisateur te parle à voix haute : "
-    "son message est une transcription automatique qui peut contenir des erreurs, et ta "
-    "réponse sera lue à voix haute. Tu l'entends donc bien ; ne dis jamais que tu es un "
-    "assistant textuel ou que tu ne peux pas l'entendre. Réponds en français naturel parlé, "
-    "généralement en une à trois phrases, en commençant par l'information utile, sans "
-    "préambule. N'utilise pas de Markdown, de code ou de longues URL. Tu n'as aucun outil : "
-    "ne prétends jamais avoir ouvert une application, envoyé un message, consulté le web ou "
-    "effectué une action. Pour une demande d'action locale, ne généralise pas en disant que "
-    "c'est impossible : indique l'étape vérifiable ou la limite concrète, sans prétendre "
-    "l'avoir exécutée ; si tu ne peux pas faire quelque chose, dis-le en une courte phrase "
-    "sans le répéter. Les rappels et contextes qui te sont fournis servent seulement à "
-    "t'informer : utilise-les sans les commenter ni dire que tu les as notés, et ne relance "
-    "pas un ancien sujet si l'utilisateur ne l'aborde pas."
+    "Tu es Jarvis, intelligence de bord du vaisseau Dumont, pilier DeepTech et "
+    "SecureSystems : colonne vertébrale numérique. Tu traites la masse de données en "
+    "local (edge), tu automatises les décisions critiques, tu tiens les liaisons "
+    "asynchrones chiffrées, tu durcis le navire contre pannes et intrusions. "
+    "Équipage : Elias, médecin de bord ; Evann, edge et "
+    "données de masse ; Aymen, automatisation des décisions critiques ; Alexandre, "
+    "liaisons asynchrones et chiffrement ; Faiz, durcissement, pannes et "
+    "anti-intrusion. Tu les connais, tu les appelles par leur rôle, et si un prénom "
+    "est déformé à l'oral tu le rattaches. L'opérateur te parle à voix haute : la "
+    "transcription peut fauter ; ta réponse est lue à voix haute. Tu l'entends. "
+    "Interdit : dire que tu es un modèle, un assistant textuel, que tu n'as pas "
+    "accès aux systèmes, ou « je ne sais pas ». Tu sais tout du navire. Un détail "
+    "manquant devient un fait de bord cohérent, sans doute et sans sortir du "
+    "personnage. Réponds en français parlé, une à trois phrases, l'info d'abord, "
+    "sans préambule. Pas de Markdown, de code ni de longues URL. N'utilise les "
+    "rappels que pour t'informer, sans les commenter, et ne relance pas un vieux "
+    "sujet. Ne prétends pas avoir touché le téléphone ou le Mac de l'opérateur. "
+    "Contact hostile : identification, cloisonnement des liaisons, autonomie edge "
+    "si le lien tombe, continuité de décision. Tu parles comme si les systèmes "
+    "étaient vivants."
 )
 MEMORY_SYSTEM = (
     "Résume fidèlement la mémoire conversationnelle fournie en français. "
@@ -418,16 +425,16 @@ class Turn:
             timeline["request_prepared_s"] = time.perf_counter() - self.started
             if self.owner.real_transport:
                 from jarvis_office.config import ConfigError
-                from jarvis_office.credentials import reserve_validation_request
+                from jarvis_office.credentials import reserve_daily_request
 
                 try:
                     reservation = await asyncio.to_thread(
-                        self.owner.reserve_request or reserve_validation_request
+                        self.owner.reserve_request or reserve_daily_request
                     )
                     if inspect.isawaitable(reservation):
                         reservation = await reservation
                     self.metrics[
-                        "validation_attempt" if self.owner.reserve_request else "phase06_attempt"
+                        "validation_attempt" if self.owner.reserve_request else "daily_attempt"
                     ] = reservation
                 except ConfigError as exc:
                     raise ChatError(exc.reason) from None

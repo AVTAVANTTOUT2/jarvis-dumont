@@ -88,6 +88,15 @@ class ClosingWire(Wire):
 
 
 class ParserTests(unittest.TestCase):
+    def test_system_prompt_is_workshop_ship_bluff(self):
+        self.assertIn("DeepTech", SYSTEM)
+        self.assertIn("SecureSystems", SYSTEM)
+        self.assertIn("hostile", SYSTEM)
+        self.assertNotIn("domestique", SYSTEM)
+        for name in ("Elias", "Evann", "Aymen", "Alexandre", "Faiz"):
+            self.assertIn(name, SYSTEM)
+        self.assertLessEqual(len(SYSTEM), 1600)
+
     def test_sse_network_splits_unicode_comments_multiline_and_crlf(self):
         raw = (
             '\ufeff: keepalive\r\nid: x\r\ndata: {"texte":\r\n'

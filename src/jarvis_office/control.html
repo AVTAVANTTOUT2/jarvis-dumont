@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="format-detection" content="telephone=no">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="screen-orientation" content="landscape">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Dumont">
@@ -42,16 +43,19 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
 
 .hud{
   position:relative;display:grid;width:100%;height:100vh;height:100dvh;
-  max-width:920px;max-height:430px;
-  grid-template-columns:minmax(168px,32%) minmax(0,1fr);
+  max-width:100dvw;max-height:100dvh;
+  grid-template-columns:minmax(148px,30%) minmax(0,1fr);
   grid-template-rows:auto minmax(0,1fr) auto;
-  grid-template-areas:"visor rail" "visor comms" "visor keys";
-  gap:8px 16px;
+  grid-template-areas:"visor rail" "visor deck" "visor keys";
+  gap:8px 14px;
   padding:max(8px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right))
     max(8px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));
 }
+@media (min-width:900px){
+  .hud{max-width:920px;max-height:430px}
+}
 
-.tag,.status,.chip,.pill{
+.tag,.status,.pill{
   display:inline-flex;align-items:center;border-radius:50px;background:var(--pill);box-shadow:var(--pill-ring);
   color:var(--ink);line-height:1;white-space:nowrap;
 }
@@ -104,43 +108,39 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
   letter-spacing:-.03em;color:var(--strong);font-variant-numeric:tabular-nums}
 .clock small{font:500 11px/1 var(--mono);letter-spacing:0;color:var(--faint)}
 
-.comms{
-  grid-area:comms;display:flex;flex-direction:column;min-width:0;min-height:0;
-  padding:8px 12px 10px;border-radius:18px;background:rgba(255,255,255,.03);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.05);
+.deck{
+  grid-area:deck;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr auto;
+  gap:8px;min-width:0;min-height:0;
 }
-.panel-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 0}
-#count{font:10px/1 var(--mono);letter-spacing:.08em;color:var(--faint)}
-.log{
-  flex:1;min-height:0;display:flex;flex-direction:column;gap:14px;padding:8px 2px 4px;
-  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(to bottom,transparent,#000 10px,#000 calc(100% - 10px),transparent);
-  mask-image:linear-gradient(to bottom,transparent,#000 10px,#000 calc(100% - 10px),transparent);
+.seat{
+  display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;
+  min-width:0;min-height:44px;padding:10px 12px;border:0;border-radius:16px;
+  background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05);
+  color:var(--strong);cursor:pointer;text-align:left;
+  transition:transform 160ms var(--ease-out),background-color 150ms ease,color 150ms ease;
 }
-.log::-webkit-scrollbar{display:none}
-.empty{margin:auto;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:28ch;
-  text-align:center;color:var(--faint);font-size:13px}
-.empty p{margin:0}
-.chip{flex:none;gap:8px;height:30px;padding:0 12px 0 6px;font-size:13px}
-.chip canvas{flex:none;width:20px;height:20px}
-.exchange{display:flex;flex-direction:column;gap:8px}
-.msg{display:flex;flex-direction:column;gap:4px;
-  transition:opacity .2s var(--ease-out),filter .2s var(--ease-out)}
-@starting-style{.msg{opacity:0;filter:blur(2px)}}
-.who{font:500 9.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
-.msg p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
-.msg p:empty{display:none}
-.msg.user p{color:var(--soft);font-size:14px}
-.msg.bot{padding-left:10px;border-left:1px solid rgba(255,255,255,.1)}
-.msg.bot p{color:var(--strong);font-size:15px;line-height:1.4}
-.msg.bot.live{border-left-color:rgba(85,207,255,.5)}
-.msg.bot.live p::after{content:"";display:inline-block;width:.42em;height:1em;margin-left:3px;
-  vertical-align:-.16em;border-radius:1px;background:var(--accent);animation:caret 1.1s steps(1) infinite}
-@keyframes caret{50%{opacity:0}}
-.thinking,#pending{align-self:flex-start}
-.hud[data-phase=offline] .msg.bot.live{border-left-color:rgba(255,255,255,.1)}
-.hud[data-phase=offline] .msg.bot.live p::after,.hud[data-phase=offline] .thinking{display:none}
-.fault{flex:none;display:flex;align-items:center;gap:8px;margin:4px 0 0;padding:8px 10px;border-radius:12px;
+.seat:active{transform:scale(.97);background:var(--chip-press)}
+.seat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seat:disabled{cursor:default;color:var(--faint)}
+.seat:disabled:active{transform:none;background:rgba(255,255,255,.03)}
+.seat[data-tone=hot]{color:var(--accent);box-shadow:inset 0 0 0 1px rgba(85,207,255,.35)}
+.seat[data-tone=live] .dot{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.seat strong{font:500 16px/1.1 var(--sans);letter-spacing:-.02em}
+.seat small{font:500 10px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.orb:disabled{cursor:default;opacity:.72}
+.orb:disabled:active{transform:none}
+.gate{
+  position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;padding:16px;background:var(--void);
+}
+.gate[hidden]{display:none!important}
+.gate-title{margin:0;font:600 17px/1.2 var(--sans);letter-spacing:-.02em;color:var(--strong)}
+.gate-seats{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:min(420px,100%)}
+.gate-seats .key{flex-direction:column;gap:3px}
+.gate-seats .key:last-child{grid-column:1/-1;width:calc(50% - 4px);justify-self:center}
+.gate-seats .key:disabled{opacity:.45;cursor:default}
+.gate-seats .key small{font:500 9px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.fault{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:0;padding:8px 10px;border-radius:12px;
   background:var(--danger-soft);color:var(--danger)}
 .fault code{min-width:0;font:11px/1.25 var(--mono);overflow-wrap:anywhere}
 
@@ -173,7 +173,10 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
 .hold.holding,.hold.confirm{color:var(--danger)}
 .hold.confirm{box-shadow:inset 0 0 0 1px rgba(255,122,112,.45)}
 .hint{font:500 9px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
-@media (hover:hover) and (pointer:fine){.key:hover{background:var(--chip-hover)}}
+@media (hover:hover) and (pointer:fine){
+  .key:hover{background:var(--chip-hover)}
+  .seat:hover:not(:disabled){background:var(--chip-hover)}
+}
 
 .dock{grid-area:keys;display:flex;flex-direction:column;gap:8px;min-width:0}
 
@@ -204,6 +207,7 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
 @media (orientation:landscape) and (max-height:370px){
   .clock{font-size:18px}
   .key{min-height:44px}
+  .seat strong{font-size:15px}
 }
 @media (orientation:landscape) and (max-height:340px){
   #session-row{display:none}
@@ -212,30 +216,25 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
   #wake-row,#pwr-row,#devices,.caption{display:none}
 }
 
+/* iPhone in portrait: keep the landscape cuff. Lock is best-effort; this is the fallback. */
 @media (orientation:portrait){
   .hud{
-    max-width:none;max-height:none;
-    grid-template-columns:minmax(0,1fr);
-    grid-template-rows:auto minmax(200px,40%) minmax(0,1fr) auto;
-    grid-template-areas:"rail" "visor" "comms" "keys";
-    gap:8px;
+    position:fixed;top:50%;left:50%;
+    width:100dvh;height:100dvw;max-width:none;max-height:none;
+    transform:translate(-50%,-50%) rotate(90deg);transform-origin:center;
+    padding:max(8px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom))
+      max(8px,env(safe-area-inset-left)) max(12px,env(safe-area-inset-top));
   }
-  .orb{width:min(56vw,42vh)}
-  .dock{flex-direction:column}
-  .keys{grid-template-columns:repeat(3,1fr)}
-  .hold .hint{display:none}
 }
 
 @media (prefers-reduced-motion:reduce){
   .composer[open]{animation:none}
   .shimmer::before{content:none}
-  .msg{transition:opacity .2s ease}
-  @starting-style{.msg{opacity:0;filter:none}}
-  .orb:active,.key:active,.send:active,.close:active{transform:none}
-  .msg.bot.live p::after{animation:none}
+  .orb:active,.key:active,.seat:active,.send:active,.close:active{transform:none}
 }
 @media (prefers-contrast:more),(prefers-reduced-transparency:reduce){
   :root{--pill:#1d1d1d;--chip:#242424;--faint:#9a9a9a}
+  .seat{background:#242424}
 }
 </style>
 <body>
@@ -254,25 +253,37 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
   </section>
 
   <header class="rail" aria-label="Manchette">
-    <span class="tag"><span class="dot" id="link-dot"></span>EVA · Dumont</span>
-    <span id="devices">Conversation locale</span>
+    <span class="tag"><span class="dot" id="link-dot"></span><span id="crew-tag">EVA · Dumont</span></span>
+    <span id="devices">Combinaison EVA</span>
     <time class="clock" id="clock"><span id="clock-hm">--:--</span><small>:<span id="clock-s">--</span></small></time>
   </header>
 
-  <section class="comms" aria-labelledby="comms-title">
-    <header class="panel-head">
-      <h1 class="label" id="comms-title">Canal</h1>
-      <span id="count">Canal local</span>
-    </header>
-    <div class="log" id="log" role="log" aria-live="polite">
-      <div class="empty" id="empty"><p>Touchez l’orbe pour parler, ou écrivez un message.</p></div>
-      <div id="pending" hidden></div>
-    </div>
+  <section class="deck" id="deck" aria-label="Équipage">
+    <button type="button" class="seat" data-crew-card hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <strong></strong>
+      <small></small>
+    </button>
+    <button type="button" class="seat" data-crew-card hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <strong></strong>
+      <small></small>
+    </button>
+    <button type="button" class="seat" data-crew-card hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <strong></strong>
+      <small></small>
+    </button>
+    <button type="button" class="seat" data-crew-card hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <strong></strong>
+      <small></small>
+    </button>
     <p class="fault" id="fault" role="alert" hidden><span class="dot" data-tone="fault"></span><code id="fault-code"></code></p>
   </section>
 
   <div class="dock">
-    <div class="meta" aria-label="Télémétrie">
+    <div class="meta" aria-label="Liaison">
       <div class="pills">
         <span class="pill" id="sig-pill"><b>Liaison</b><span class="bars" id="sig-bars" data-level="0" aria-hidden="true"><i></i><i></i><i></i></span><span id="sig">—</span></span>
         <span class="pill"><b>Micro</b><span id="mic">—</span></span>
@@ -299,6 +310,17 @@ button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touc
         <span class="hint" aria-hidden="true">tenir</span>
       </button>
       <span class="sr" id="clear-help">Maintenir une seconde pour effacer la session, ou activer deux fois au clavier.</span>
+    </div>
+  </div>
+  <div class="gate" id="gate" hidden role="dialog" aria-modal="true" aria-labelledby="gate-title">
+    <p class="gate-title" id="gate-title">Qui parle ?</p>
+    <p class="fault" id="gate-fault" role="alert" hidden><span class="dot" data-tone="fault"></span><code id="gate-fault-code"></code></p>
+    <div class="gate-seats">
+      <button type="button" class="key" data-claim="aymen"><span>Aymen</span><small hidden>Déjà pris</small></button>
+      <button type="button" class="key" data-claim="evann"><span>Evann</span><small hidden>Déjà pris</small></button>
+      <button type="button" class="key" data-claim="alexandre"><span>Alexandre</span><small hidden>Déjà pris</small></button>
+      <button type="button" class="key" data-claim="elias"><span>Elias</span><small hidden>Déjà pris</small></button>
+      <button type="button" class="key" data-claim="faiz"><span>Faiz</span><small hidden>Déjà pris</small></button>
     </div>
   </div>
 </div>

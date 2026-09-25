@@ -3,10 +3,14 @@
 import json
 import os
 import stat
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jarvis_office.assets import private_root
 from jarvis_office.config import ConfigError
+
+DAILY_DEEPSEEK_LIMIT = 1000
+_MAX_RESERVE_LIMIT = 100000
 
 
 def secret_path() -> Path:
@@ -62,18 +66,36 @@ def load_key() -> str:
     return _read_key(secret_path(), private=True)
 
 
-def reserve_validation_request(
-    *, path: Path | None = None, phase: int | str = 6, limit: int = 20
-) -> int:
-    """Phase 06 hard ceiling, shared by chat/run and restarts. Phase 05 is preserved.
+def reserve_daily_request() -> int:
+    """Local chat/run ceiling: 1000 DeepSeek requests per UTC day.
 
-    Reserve BEFORE HTTP, including attempts that fail or are cancelled. A crash may
-    overcount; it can never silently replenish the budget. No automatic reset.
+    Distinct from the phase 06 campaign file, which never rolls.
+    """
+    return reserve_validation_request(
+        path=private_root() / "config/deepseek-daily-budget.json",
+        phase="day",
+        limit=DAILY_DEEPSEEK_LIMIT,
+        period="day",
+    )
+
+
+def reserve_validation_request(
+    *,
+    path: Path | None = None,
+    phase: int | str = 6,
+    limit: int = 20,
+    period: str | None = None,
+) -> int:
+    """Reserve one DeepSeek attempt before HTTP. Campaign files never roll.
+
+    A period of ``day`` resets attempts at UTC midnight. Echo and phase 06 omit
+    period: no automatic reset. A crash may overcount; it never silently
+    replenishes a campaign file. Phase 05 is preserved.
     """
     import fcntl
 
     path = path or private_root() / "config/phase06-api-budget.json"
-    if not 1 <= limit <= 20:
+    if period not in {None, "day"} or not 1 <= limit <= _MAX_RESERVE_LIMIT:
         raise ConfigError("validation_budget_invalid")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
@@ -100,6 +122,12 @@ def reserve_validation_request(
                 or not 0 <= data["attempts"] <= limit
             ):
                 raise ConfigError("validation_budget_invalid")
+            if period == "day":
+                today = datetime.now(UTC).date().isoformat()
+                if data.get("period") != "day" or data.get("period_started_at") != today:
+                    data["attempts"] = 0
+                    data["period"] = "day"
+                    data["period_started_at"] = today
             if data["attempts"] >= limit:
                 raise ConfigError("validation_budget_exhausted")
             data["attempts"] += 1

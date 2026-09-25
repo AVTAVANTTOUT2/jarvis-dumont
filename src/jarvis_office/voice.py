@@ -8,6 +8,7 @@ import signal
 import time
 import uuid
 from array import array
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from jarvis_office.config import Config
 from jarvis_office.deepseek import ChatError, DeepSeek
 from jarvis_office.runtime import Instance, RuntimeLog
 from jarvis_office.tts import TTSClient, TTSError
+from jarvis_office.web_audio import PHONE_DEVICE, WebPhoneAudio
 
 
 def addressed(text: str) -> str | None:
@@ -66,6 +68,8 @@ class VoiceLoop:
         transcript_context: Any = None,
         web_conversation: bool = False,
     ) -> None:
+        if web_conversation:
+            config = replace(config, speech=replace(config.speech, input_rate=16000))
         self.config, self.path, self.chat = config, path, chat
         self.transcript_context = transcript_context
         self.web_conversation = web_conversation
@@ -73,7 +77,12 @@ class VoiceLoop:
         self.archive_generation: Any = None
         self.session = uuid.uuid4().hex
         self.turn = ""
-        self.audio = audio or AudioClient(config, path, self.session, self.audio_event)
+        if audio is None:
+            worker = AudioClient(
+                config, path, self.session, self.audio_event, remote_ingress=web_conversation
+            )
+            audio = WebPhoneAudio(worker) if web_conversation else worker
+        self.audio = audio
         self.tts = tts or TTSClient.for_config(path, config.tts)
         self.state = "starting"
         self.ready = False
@@ -821,7 +830,7 @@ async def _run_owned(
     chat = DeepSeek(load_key(), config.chat)
     voice = VoiceLoop(config, path, chat, web_conversation=True)
     instance.publish(voice.session, config.voice.port)
-    ui = LocalUI(voice, config.voice.port)
+    ui = LocalUI(voice, config.voice.port, public_host=config.voice.public_host or None)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -841,9 +850,14 @@ async def _run_owned(
                 code = 130
                 return 130
             await boot
-            devices = await voice.audio.call("preflight", timeout=25)
-            voice.input_device = devices.get("input", {})
-            voice.output_device = devices.get("output", {})
+            if voice.web_conversation:
+                rate = int(voice.tts.ready.get("sample_rate") or 24000)
+                voice.input_device = dict(PHONE_DEVICE)
+                voice.output_device = {**PHONE_DEVICE, "sample_rate": rate}
+            else:
+                devices = await voice.audio.call("preflight", timeout=25)
+                voice.input_device = devices.get("input", {})
+                voice.output_device = devices.get("output", {})
         finally:
             stopping.cancel()
             await asyncio.gather(stopping, return_exceptions=True)

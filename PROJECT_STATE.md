@@ -1,20 +1,113 @@
 # État du projet
 
+## Correctif capture vocale web — 25 septembre 2026
+
+- Défauts reproduits : micros de plusieurs navigateurs entrelacés dans une
+  prise unique, envois PCM concurrents sans séquence ni génération, réponse
+  consommable par un autre navigateur. La présence de PCM reçu ne prouvait
+  donc ni son origine ni sa continuité avant le worker.
+- Le cookie et un identifiant d'onglet attribuent désormais une conversation
+  web à un seul appareil. Chaque fenêtre de capture porte le jeton du worker
+  et une séquence de trames. Envoi unique, lots/file de 200 ms au plus, délai
+  500 ms ; perte, saturation ou interruption du micro invalident la prise.
+  La fermeture normale par Silero rejette les paquets tardifs sans annuler STT.
+- Un autre onglet ne peut plus libérer le profil du micro actif ni consommer
+  sa réponse. Pause, intercom et expiration révoquent le propriétaire ; une
+  reprise exige une nouvelle fenêtre. Cache PWA commun v9.
+- Tests de régression : `test_phone_capture.py`, `test_web_audio.py`,
+  `test_phone_audio.mjs`. Revue indépendante avec corrections des cas second
+  onglet et contexte audio interrompu. Ruff/format et mypy passent ; suite
+  Python complète : 390 tests réussis, JavaScript : 33 tests réussis. Paquet
+  wheel construit et contenu vérifié hors réseau. Les moteurs et le prompt
+  sont conservés.
+- Essai `scripts/check_phone_browser.mjs` exécuté dans deux Chromium isolés :
+  vrais HTTP, micros synthétiques, un seul émetteur, pause puis transfert à
+  l'autre appareil, portrait/paysage, aucune exception JavaScript.
+  Essai intercom conservé avec latences réseau simulées de 60/100 ms.
+- NON EXÉCUTÉ : validation de la phrase humaine rapportée, STT/LLM réels,
+  écoute physique et Safari mobile. Les observations live sans contenu ne
+  permettent pas d'attribuer avec certitude cet échange aux défauts corrigés.
+- Non activé : instance préexistante depuis le checkout, aucun pointeur de
+  release `current`, actifs configurés hors racine Office. Une relance directe
+  contrevient à la règle de release ; aucun service ou actif privé déplacé.
+
+## Correctif intercom retard / son dans un seul sens — 25 septembre 2026
+
+- Lecture et capture utilisent le même AudioContext, ouvert lors du choix du
+  profil. Capture par blocs de 1024 échantillons ; reprise via geste utilisateur
+  si le navigateur interrompt l'audio. Un appel sans audio disponible échoue
+  explicitement au lieu de rester affiché comme une liaison muette.
+- Un seul envoi intercom à la fois ; lots PCM alignés de 20 ms, maximum 200 ms
+  par requête et dans la file d'envoi. Délai réseau maximal 500 ms. Le relais a
+  sa propre limite de 400 ms et refuse le son ayant attendu plus de 500 ms.
+  Une saturation coupe l'appel avec une erreur visible et purge les deux sens.
+  Ces bornes de files ne constituent pas une mesure de latence acoustique.
+- Chaque appel porte un identifiant, requis dans `X-Jarvis-Call` pour
+  `/talk/uplink`, `/talk/pcm`, `/talk/hangup`. Les anciennes requêtes ne peuvent
+  ni alimenter ni terminer l'appel suivant. Raccrocher ou masquer l'application
+  coupe localement l'envoi et la lecture sans attendre le prochain snapshot.
+- `/bootstrap` conserve une session déjà valide. Cache PWA intercom v8.
+- Régressions : `tests/test_talk.py` (18 scénarios, relais bidirectionnel,
+  contrôle d'accès et parseur HTTP), `tests/test_wrist_audio.mjs` (8 scénarios
+  avec frontières navigateur simulées). Les défauts ont été reproduits avant
+  correction ; revue indépendante du diff intercom effectuée.
+- Essai Chromium réel exécuté : deux sessions isolées, portrait/paysage,
+  microphones synthétiques, sortie muette, appel bidirectionnel, raccrochage
+  puis appel inverse. Commande reproductible :
+  `PLAYWRIGHT_MODULE=<installation Playwright existante> node scripts/check_intercom_browser.mjs`.
+- NON EXÉCUTÉ : écoute sur deux téléphones physiques, Safari mobile et réseau
+  réel. Aucune relance du service par ce correctif ; intégration coordonnée avec
+  la tâche de correction de la capture Jarvis qui partage `wrist.js`/`local_ui.py`.
+
+## Intercom PWA — 5 sièges équipage — 22 septembre 2026
+
+- Cinq sièges exclusifs sans mot de passe : Aymen, Evann, Alexandre, Elias,
+  Faiz. Cookie de session par navigateur (plus un jeton partagé). Claim
+  `POST /crew/claim`, présence 5 s, sixième session 429.
+- Intercom immédiat 1-1 : taper un nom en ligne ouvre les deux micros. Relais
+  PCM 16 kHz via le Mac (`/talk/uplink`, `/talk/pcm`), files RAM bornées. Jarvis
+  passe en pause pour tout le monde ; `resume` est 409 tant que l'appel vit.
+  Raccrocher (Couper) ne réarme pas.
+- HUD : overlay « Qui parle ? », rail `EVA · <prénom>`, deck = les 4 autres.
+  Le tap du profil arme le micro (geste iOS). Cache SW v7.
+- Code : `talk.py`, `local_ui.py`, `control.html`, `wrist.js`. Tests
+  `test_talk.py`, `test_voice.py`, `test_wrist.mjs`. Ce n'est pas 5 historiques
+  LLM, ni WebRTC, ni une preuve getUserMedia sur téléphone réel.
+- Inchangés : STT/TTS, Echo, Host/Origin/Fetch Metadata/CSP, un seul VoiceLoop.
+
+## Plafond DeepSeek quotidien — 22 septembre 2026
+
+- `run` / `chat` locaux réservent désormais 1000 requêtes par jour UTC
+  (`config/deepseek-daily-budget.json`), distinct du compteur campagne
+  phase 06 (20, sans reset) et du budget nominal SQLite Echo/dashboard.
+- Reset à minuit UTC uniquement sur ce fichier quotidien. Echo et phase 06
+  ne roulent toujours pas. Relancer `jarvis-office run` pour prendre l'effet.
+
 ## HUD de poignet paysage — 22 septembre 2026
 
-- UI locale sur `feat/wrist-orb-landscape` : `control.html` (paysage poignet, style
-  libraries.dev `#121212` / pilules / shimmer / cyan) et `wrist.js` (logique testée
-  dans `tests/test_wrist.mjs`). Orbe `thinking-orbs` en héros à gauche, sans lunette
-  de montre ; canal au centre ; télémétrie en pilules + touches gant à droite.
-  Repli portrait. Cache service worker v4.
+- UI locale : `control.html` / `wrist.js` (tests `tests/test_wrist.mjs`). Orbe
+  `thinking-orbs` à gauche, télémétrie RP (cardio / O₂ / pression / peau) au
+  centre, plus aucun texte transcrit à l'écran. Paysage forcé : manifeste,
+  `orientation.lock` et repli CSS (rotation 90°) en portrait iPhone. Cache SW v6.
+- Audio web : micro et haut-parleur uniquement sur le téléphone (`web_audio.py`,
+  ingress remote 16 kHz comme Echo). Le Mac ne fait plus de PortAudio ni de
+  prévol micro pour `jarvis-office run`. PCM en RAM bornée via `/uplink` `/pcm`
+  `/heard`. Le worker STT relit le TOML (48 kHz) : `bind_engine_config` force
+  16 kHz en mémoire dès qu’un pipe remote est ouvert, sinon `listen` lève
+  `remote_ingress_unavailable`.
 - Corrigé : la réponse diffusée en continu ne crée plus une bulle par sondage ; niveau
   micro lu en dBFS ; ré-amorçage automatique sur 403 ; Effacer sans `window.confirm`.
 - Routes ajoutées en lecture seule : `/wrist.js`, `/thinking-orbs.js` (copie vendue du
   dashboard). Manifeste `orientation: landscape`, icônes 512 générées depuis le moteur
-  d'orbe. Copie d'attente : « écrivez un message ».
-- Vérifié : tests JS du HUD et aperçu navigateur 844×390. Non vérifié sur téléphone
-  réel : installation PWA, service worker, maintien d'écran, vibration.
-- Inchangés : routes POST, Host/Origin/Fetch Metadata/cookie, moteurs, politique d'écoute.
+  d'orbe.
+- Vérifié : tests JS/Python du HUD et du sink téléphone. Non vérifié sur téléphone
+  réel : getUserMedia, lecture Web Audio, PWA, verrou d'orientation.
+- Prompt système : Jarvis est l'IA de bord Dumont, pilier DeepTech & SecureSystems,
+  bluff total (jamais « je ne sais pas », jamais hors personnage). Équipage ancré :
+  Elias médecin de bord, Evann edge, Aymen décisions critiques, Alexandre
+  liaisons, Faiz durcissement. Contraintes vocales inchangées. Contact hostile
+  prévu dans le prompt.
+- Inchangés : Host/Origin/Fetch Metadata/cookie, moteurs STT/TTS, politique d'écoute.
 
 ## Parseur TV local — lot 2 — 21 septembre 2026
 

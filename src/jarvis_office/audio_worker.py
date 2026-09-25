@@ -9,11 +9,21 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from jarvis_office.audio_client import WIRE_LIMIT, source_signature
 from jarvis_office.config import Config, load_config
+
+
+def bind_engine_config(config: Config, ingress: Any) -> Config:
+    """Remote pipe is 16 kHz. The worker reloads TOML; parent replace() does not reach it."""
+    from jarvis_office.audio_ingress import REMOTE_RATE, RemotePipeIngress
+
+    if isinstance(ingress, RemotePipeIngress) and config.speech.input_rate != REMOTE_RATE:
+        return replace(config, speech=replace(config.speech, input_rate=REMOTE_RATE))
+    return config
 
 
 class AudioEngine:
@@ -28,10 +38,11 @@ class AudioEngine:
 
         if config.assets.stt_model is None or config.assets.vad_model is None:
             raise AudioError("selected_stt_assets_required")
-        self.config, self.sd, self.emit = config, sd, emit
+        self.sd, self.emit = sd, emit
         self.ingress = ingress or LocalMacIngress(sd)
+        self.config = bind_engine_config(config, self.ingress)
         self.recognizer = Recognizer(
-            config.assets.stt_model, config.assets.vad_model, config.speech
+            config.assets.stt_model, config.assets.vad_model, self.config.speech
         )
         self.lock = threading.Lock()
         self.input: Any = None

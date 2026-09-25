@@ -12,17 +12,42 @@ export const PHASES = Object.freeze({
   starting: {label: 'Initialisation…', tone: 'live', orb: 'connecting'},
   paused: {label: 'En veille', tone: 'idle', orb: 'breathing'},
   listening: {label: 'À l’écoute…', tone: 'hot', orb: 'listening'},
-  transcribing: {label: 'Transcription…', tone: 'live', orb: 'searching'},
+  talking: {label: 'Liaison…', tone: 'hot', orb: 'listening'},
+  transcribing: {label: 'Décodage…', tone: 'live', orb: 'searching'},
   responding: {label: 'Jarvis réfléchit…', tone: 'live', orb: 'solving'},
   speaking: {label: 'Jarvis répond…', tone: 'live', orb: 'composing'},
   stopping: {label: 'Arrêt…', tone: 'idle', orb: 'breathing'},
   error: {label: 'Erreur', tone: 'fault', orb: 'breathing'},
 });
 
+export const CREW = Object.freeze(['aymen', 'evann', 'alexandre', 'elias', 'faiz']);
+export const CREW_LABEL = Object.freeze({
+  aymen: 'Aymen',
+  evann: 'Evann',
+  alexandre: 'Alexandre',
+  elias: 'Elias',
+  faiz: 'Faiz',
+});
+
 const MICROPHONE = {open: 'Ouvert', closed: 'Fermé', closure_unverified: 'Non vérifié'};
+
+export function crewOthers(me) {
+  return CREW.filter((id) => id !== me);
+}
+
+export function seatTaken(seats, id, me) {
+  return Boolean(id && seats?.[id]?.online && id !== me);
+}
+
+export function inCall(snapshot, id) {
+  const call = snapshot?.crew?.call;
+  const who = id ?? snapshot?.crew?.me;
+  return Boolean(call && who && (who === call.a || who === call.b));
+}
 
 export function phaseOf(snapshot, linked) {
   if (linked === false) return 'offline';
+  if (inCall(snapshot, snapshot?.crew?.me)) return 'talking';
   if (!snapshot || !Object.hasOwn(PHASES, snapshot.state)) return 'boot';
   return snapshot.state;
 }
@@ -52,6 +77,144 @@ export function missionTime(ms) {
 export function signalBars(rtt) {
   if (!Number.isFinite(rtt)) return 0;
   return rtt < 80 ? 3 : rtt < 250 ? 2 : 1;
+}
+
+export const SUIT_KINDS = Object.freeze(['hr', 'o2', 'kpa', 'th']);
+export const SUIT = Object.freeze({
+  hr: {digits: 0, unit: 'bpm', lo: 64, hi: 98},
+  o2: {digits: 1, unit: '%', lo: 20.1, hi: 21.2},
+  kpa: {digits: 1, unit: 'kPa', lo: 100.3, hi: 102.5},
+  th: {digits: 1, unit: '°C', lo: 36.1, hi: 37.6},
+});
+const SPARK_W = 120;
+const SPARK_H = 36;
+const SPARK_DEPTH = 40;
+
+export function suitLoad(phase, vu) {
+  if (phase === 'listening') return Math.min(1, 0.28 + Math.max(0, Number(vu) || 0) * 0.72);
+  if (phase === 'speaking' || phase === 'responding') return 0.42;
+  if (phase === 'transcribing') return 0.22;
+  if (phase === 'offline' || phase === 'error') return 0.75;
+  return 0.08;
+}
+
+export function suitSample(kind, t, load = 0) {
+  const time = Number(t);
+  if (!Number.isFinite(time)) throw new RangeError(`suitSample time must be finite, got ${t}`);
+  const stress = Math.min(1, Math.max(0, Number(load) || 0));
+  switch (kind) {
+    case 'hr':
+      return 72 + 10 * Math.sin(time * 1.35) + 3.5 * Math.sin(time * 0.28) + 14 * stress;
+    case 'o2':
+      return 20.72 + 0.45 * Math.sin(time * 0.41) + 0.12 * Math.sin(time * 1.1) - 0.16 * stress;
+    case 'kpa':
+      return 101.32 + 0.85 * Math.sin(time * 0.24) + 0.28 * Math.sin(time * 0.88);
+    case 'th':
+      return 36.78 + 0.42 * Math.sin(time * 0.19) + 0.12 * Math.sin(time * 0.7) + 0.32 * stress;
+    default:
+      throw new RangeError(`unknown suit metric: ${kind}`);
+  }
+}
+
+export function sparkPoints(values, width = SPARK_W, height = SPARK_H, pad = 1.5, range) {
+  const n = values.length;
+  if (!n) return '';
+  let min = values[0], max = values[0];
+  if (range && Number.isFinite(range.lo) && Number.isFinite(range.hi) && range.hi > range.lo) {
+    min = range.lo;
+    max = range.hi;
+  } else {
+    for (let i = 1; i < n; i++) {
+      const v = values[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  const innerW = width - pad * 2;
+  const innerH = height - pad * 2;
+  const last = n - 1;
+  const span = max - min || 1;
+  const low = pad;
+  const high = height - pad;
+  const flat = max === min;
+  return values
+    .map((value, i) => {
+      const x = pad + (last ? (i / last) * innerW : innerW / 2);
+      const y = flat
+        ? height / 2
+        : Math.min(high, Math.max(low, high - ((value - min) / span) * innerH));
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+export function sparkFill(values, width = SPARK_W, height = SPARK_H, pad = 1.5, range) {
+  const line = sparkPoints(values, width, height, pad, range);
+  if (!line) return '';
+  const lastX = line.slice(line.lastIndexOf(' ') + 1).split(',')[0];
+  const base = (height - pad).toFixed(2);
+  return `${pad.toFixed(2)},${base} ${line} ${lastX},${base}`;
+}
+
+export const PHONE_RATE = 16000;
+export const PHONE_FRAME = 320;
+
+export function downsample(input, fromRate, toRate) {
+  const source = Number(fromRate), target = Number(toRate);
+  if (!input.length || !(source > 0) || !(target > 0)) return new Float32Array(0);
+  if (source === target) return Float32Array.from(input);
+  const ratio = source / target;
+  const n = Math.floor(input.length / ratio);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = i * ratio;
+    const i0 = Math.floor(x);
+    const frac = x - i0;
+    const a = input[i0] || 0;
+    const b = input[i0 + 1] ?? a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+
+export function pcm16(samples) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const clipped = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(i * 2, clipped < 0 ? Math.round(clipped * 0x8000) : Math.round(clipped * 0x7fff), true);
+  }
+  return bytes;
+}
+
+export function createUplink() {
+  let hold = new Float32Array(0);
+  return {
+    push(samples, fromRate) {
+      const mono = downsample(samples, fromRate, PHONE_RATE);
+      const joined = new Float32Array(hold.length + mono.length);
+      joined.set(hold);
+      joined.set(mono, hold.length);
+      const frames = [];
+      let offset = 0;
+      while (offset + PHONE_FRAME <= joined.length) {
+        frames.push(pcm16(joined.subarray(offset, offset + PHONE_FRAME)));
+        offset += PHONE_FRAME;
+      }
+      hold = joined.subarray(offset);
+      return frames;
+    },
+    reset() {
+      hold = new Float32Array(0);
+    },
+  };
+}
+
+export function decodePcm(b64) {
+  const binary = typeof atob === 'function' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 }
 
 export function createTranscript() {
@@ -135,18 +298,18 @@ export function mount(doc, engine) {
   const pillText = $('status-text');
   const reduced = win.matchMedia('(prefers-reduced-motion: reduce)');
   const presets = new Map();
-  const chips = new Set();
-  const rows = new Map();
-  let memo = createTranscript();
+  const traces = Object.fromEntries(SUIT_KINDS.map((kind) => [kind, []]));
   let snapshot = null, linked = null, linkedAt = 0, failures = 0, rtt = NaN;
+  let settled = false, chosen = false;
   let phase = 'boot', armed = false, fault = '';
-  let clock = 0.6, last = 0, raf = 0;
+  let clock = 0.6, last = 0, raf = 0, sparkAt = 0, labelAt = 0;
   let vu = 0, vuTarget = 0;
   let orbState = PHASES.boot.orb, previousOrb = null, changedAt = 0;
   let visorSize = 0, dpr = 1;
   let pendingLabel = null, faultTimer = 0;
   const put = (id, value, tone) => {
     const el = $(id);
+    if (!el) return;
     if (el.textContent !== value) el.textContent = value;
     if (tone !== undefined && el.dataset.tone !== tone) el.dataset.tone = tone;
   };
@@ -182,7 +345,7 @@ export function mount(doc, engine) {
     vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     vctx.clearRect(0, 0, size, size);
     const tone = PHASES[phase].tone;
-    const pulse = 1 + (phase === 'listening' ? 0.05 * vu : 0);
+    const pulse = 1 + (phase === 'listening' || phase === 'talking' ? 0.05 * vu : 0);
     const mix = previousOrb === null ? 1 : easeOut(Math.min(1, (now - changedAt) / 420));
     const dim = tone === 'fault' || phase === 'stopping' ? 0.5 : 1;
     if (mix < 1 && previousOrb !== null) {
@@ -192,33 +355,35 @@ export function mount(doc, engine) {
     if (mix >= 1) previousOrb = null;
   }
 
-  function paintChips() {
-    for (const chip of chips) {
-      if (!chip.canvas.isConnected) {
-        chips.delete(chip);
-        continue;
-      }
-      if (chip.canvas.closest('[hidden]')) continue;
-      const ctx = chip.canvas.getContext('2d');
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, 20, 20);
-      paintOrb(ctx, chip.state, clock, 20);
+  function paintSuit(labels) {
+    for (const kind of SUIT_KINDS) {
+      const buf = traces[kind];
+      const spec = SUIT[kind];
+      const line = $(`${kind}-spark`);
+      const fill = $(`${kind}-fill`);
+      if (line) line.setAttribute('points', sparkPoints(buf, SPARK_W, SPARK_H, 1.5, spec));
+      if (fill) fill.setAttribute('points', sparkFill(buf, SPARK_W, SPARK_H, 1.5, spec));
+      if (labels && buf.length) put(`${kind}-val`, buf[buf.length - 1].toFixed(spec.digits));
     }
   }
 
-  function chip(state, label) {
-    const root = doc.createElement('span');
-    root.className = 'chip';
-    const canvas = doc.createElement('canvas');
-    canvas.width = canvas.height = Math.round(20 * dpr);
-    canvas.setAttribute('aria-hidden', 'true');
-    const text = doc.createElement('span');
-    text.className = 'shimmer';
-    text.textContent = label;
-    text.dataset.text = label;
-    root.append(canvas, text);
-    chips.add({canvas, state});
-    return root;
+  function ingestSuit(labels) {
+    const load = suitLoad(phase, vu);
+    for (const kind of SUIT_KINDS) {
+      const buf = traces[kind];
+      buf.push(suitSample(kind, clock, load));
+      if (buf.length > SPARK_DEPTH) buf.shift();
+    }
+    paintSuit(labels);
+  }
+
+  function seedSuit() {
+    for (const kind of SUIT_KINDS) traces[kind].length = 0;
+    const load = suitLoad(phase, vu);
+    for (let i = 0; i < SPARK_DEPTH; i++) {
+      for (const kind of SUIT_KINDS) traces[kind].push(suitSample(kind, i * 0.08, load));
+    }
+    paintSuit(true);
   }
 
   function frame(now) {
@@ -236,7 +401,12 @@ export function mount(doc, engine) {
       vu += (vuTarget - vu) * blend;
       if (vu < 0.004) vu = 0;
       paintVisor(now);
-      paintChips();
+      if (now - sparkAt >= 80) {
+        const labels = now - labelAt >= 200;
+        sparkAt = now;
+        if (labels) labelAt = now;
+        ingestSuit(labels);
+      }
     }
     schedule();
   }
@@ -247,13 +417,15 @@ export function mount(doc, engine) {
       vu = vuTarget;
       previousOrb = null;
       paintVisor(0);
-      paintChips();
+      if (!traces.hr.length) seedSuit();
+      else paintSuit(true);
       return;
     }
     if (doc.hidden) {
       last = 0;
       paintVisor(win.performance.now());
-      paintChips();
+      if (!traces.hr.length) seedSuit();
+      else paintSuit(true);
       return;
     }
     if (!raf) raf = win.requestAnimationFrame(frame);
@@ -264,7 +436,6 @@ export function mount(doc, engine) {
     const box = orb.getBoundingClientRect();
     visorSize = Math.max(0, Math.round(Math.min(box.width, box.height)));
     visor.width = visor.height = Math.round(visorSize * dpr);
-    for (const item of chips) item.canvas.width = item.canvas.height = Math.round(20 * dpr);
     drawStars();
     schedule();
   }
@@ -329,75 +500,6 @@ export function mount(doc, engine) {
     };
   }
 
-  // ---- comms log --------------------------------------------------------------
-  const log = $('log');
-  const empty = $('empty');
-  const pending = $('pending');
-  empty.prepend(chip('breathing', 'Canal ouvert'));
-  pending.append(chip('searching', 'Transcription…'));
-
-  function message(kind, who) {
-    const root = doc.createElement('div');
-    root.className = `msg ${kind}`;
-    const label = doc.createElement('span');
-    label.className = 'who';
-    label.textContent = who;
-    const text = doc.createElement('p');
-    root.append(label, text);
-    return {root, text};
-  }
-
-  function settle(row) {
-    row.thinking?.remove();
-    row.thinking = null;
-  }
-
-  function applyOps(ops) {
-    const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-    for (const op of ops) {
-      if (op.op === 'reset') {
-        for (const row of rows.values()) row.root.remove();
-        rows.clear();
-      } else if (op.op === 'open') {
-        const root = doc.createElement('article');
-        root.className = 'exchange';
-        const {hm} = clockOf(new Date());
-        const user = message('user', `Vous · ${hm}`);
-        user.text.textContent = op.user;
-        const bot = message('bot', 'Jarvis');
-        const thinking = chip('solving', 'Jarvis réfléchit…');
-        thinking.classList.add('thinking');
-        bot.root.append(thinking);
-        if (op.user) root.append(user.root);
-        root.append(bot.root);
-        log.insertBefore(root, pending);
-        rows.set(op.id, {root, bot, thinking});
-        while (rows.size > 40) {
-          const [oldest, row] = rows.entries().next().value;
-          row.root.remove();
-          rows.delete(oldest);
-        }
-      } else if (op.op === 'bot') {
-        const row = rows.get(op.id);
-        if (row) {
-          row.bot.text.textContent = op.text;
-          if (op.text !== '') settle(row);
-        }
-      } else if (op.op === 'live') {
-        const row = rows.get(op.id);
-        if (row) {
-          row.bot.root.classList.toggle('live', op.live);
-          row.bot.root.setAttribute('aria-busy', String(op.live));
-          if (!op.live) settle(row);
-        }
-      }
-    }
-    empty.hidden = rows.size > 0;
-    const count = rows.size;
-    put('count', count ? `${count} échange${count > 1 ? 's' : ''}` : 'Canal local');
-    if (stick || ops.some((op) => op.op === 'open')) log.scrollTop = log.scrollHeight;
-  }
-
   // ---- telemetry --------------------------------------------------------------
   function tick() {
     const now = new Date();
@@ -412,56 +514,112 @@ export function mount(doc, engine) {
 
   function render() {
     phase = phaseOf(snapshot, linked);
+    if (phase === 'talking' && snapshot.crew.call.id === blockedCall) phase = 'paused';
+    const otherPhone = snapshot?.phone_audio?.owned === false &&
+      (snapshot?.armed || LIVE.has(snapshot?.state) || snapshot?.state === 'transcribing');
+    if (phase !== 'talking' && (otherPhone || voiceStopped)) phase = 'paused';
     const {label, tone, orb: next} = PHASES[phase];
     if (next !== orbState) {
       previousOrb = orbState;
       orbState = next;
       changedAt = win.performance.now();
     }
-    armed = snapshot?.armed === true && linked !== false;
+    armed = snapshot?.armed === true && linked !== false && !otherPhone && !voiceStopped;
     hud.dataset.phase = phase;
     hud.dataset.tone = tone;
     setStatus(label, tone);
-    const action = armed ? 'Pause' : 'Écouter';
+    const callLive = Boolean(snapshot?.crew?.call);
+    const action = phase === 'talking' ? 'Liaison' : armed ? 'Pause' : 'Écouter';
     put('orb-label', action);
     if (orb.getAttribute('aria-label') !== action) orb.setAttribute('aria-label', action);
+    orb.disabled = callLive || !!otherPhone;
+    const hang = $('cancel').querySelector('span');
+    if (hang) hang.textContent = phase === 'talking' ? 'Raccrocher' : 'Couper';
     vuTarget = linked && phase === 'listening' ? loudness(snapshot.level) : 0;
-    put('notice', linked === false ? 'Reconnexion automatique en cours.' : snapshot?.notice || '');
+    put('notice', linked === false ? 'Reconnexion automatique en cours.' : otherPhone ? 'Jarvis est utilisé sur un autre appareil.' : '');
     $('sig-bars').dataset.level = String(linked ? signalBars(rtt) : 0);
     const sig = linked === false ? 'Coupée' : Number.isFinite(rtt) ? `${Math.round(rtt)} ms` : '—';
     put('sig', sig, linked === false ? 'fault' : '');
     const mic = snapshot?.microphone;
-    const micTone = mic === 'open' ? 'hot' : mic === 'closure_unverified' ? 'fault' : '';
-    put('mic', linked === false ? '—' : MICROPHONE[mic] || '—', micTone);
+    const micTone = mic === 'open' || (phase === 'talking' && phoneStream) ? 'hot' : mic === 'closure_unverified' ? 'fault' : '';
+    put(
+      'mic',
+      linked === false ? '—' : phase === 'talking' && phoneStream ? MICROPHONE.open : MICROPHONE[mic] || '—',
+      micTone,
+    );
     const session = typeof snapshot?.session === 'string' ? snapshot.session.slice(0, 4) : '';
     put('session', linked && session ? `#${session.toUpperCase()}` : '—');
-    const devices = [snapshot?.selected_input, snapshot?.selected_output].filter(Boolean);
-    put('devices', devices.join(' → ') || 'Conversation locale');
+    put('devices', 'Téléphone');
     $('link-dot').dataset.tone = linked === true ? 'hot' : linked === false ? 'fault' : '';
-    const problem = linked === false ? 'Liaison locale coupée' : fault || snapshot?.error || '';
+    const problem = linked === false ? 'Liaison locale coupée' : fault ||
+      (snapshot?.crew?.error === 'audio_stalled' ? 'Liaison audio interrompue. Relancez l’appel.' : '') ||
+      snapshot?.error || '';
     $('fault').hidden = !problem;
     put('fault-code', problem);
-    const transcribing = phase === 'transcribing';
-    if (transcribing === pending.hidden) {
-      pending.hidden = !transcribing;
-      if (transcribing) log.scrollTop = log.scrollHeight;
-    }
-    if (snapshot && linked) {
-      const result = track(memo, snapshot);
-      memo = result.memo;
-      if (result.ops.length) applyOps(result.ops);
-    }
-    wantLock(armed);
+    renderCrew();
+    syncPhone();
+    wantLock(armed || phase === 'talking');
+    if (!doc.hidden) pumpOut();
     schedule();
   }
 
+  function renderCrew() {
+    const crew = snapshot?.crew;
+    const me = typeof crew?.me === 'string' ? crew.me : '';
+    const seats = crew?.seats || {};
+    const call = crew?.call;
+    put('crew-tag', me && CREW_LABEL[me] ? `EVA · ${CREW_LABEL[me]}` : 'EVA · Dumont');
+    const gate = $('gate');
+    const locked = !me && linked !== false;
+    const opened = locked && gate.hidden;
+    gate.hidden = !locked;
+    for (const el of hud.querySelectorAll(':scope > :not(#gate)')) el.inert = locked;
+    if (opened) gate.querySelector('[data-claim]:not(:disabled)')?.focus();
+    const problem = linked === false ? 'Liaison locale coupée' : fault || snapshot?.error || '';
+    $('gate-fault').hidden = !locked || !problem;
+    put('gate-fault-code', problem);
+    for (const btn of doc.querySelectorAll('[data-claim]')) {
+      const id = btn.getAttribute('data-claim');
+      const taken = seatTaken(seats, id, me);
+      btn.disabled = taken;
+      const note = btn.querySelector('small');
+      if (note) note.hidden = !taken;
+    }
+    const others = me ? crewOthers(me) : [];
+    const cards = doc.querySelectorAll('[data-crew-card]');
+    cards.forEach((card, index) => {
+      const id = others[index];
+      const name = card.querySelector('strong');
+      const state = card.querySelector('small');
+      if (!id) {
+        card.hidden = true;
+        card.dataset.id = '';
+        return;
+      }
+      const online = seats[id]?.online === true;
+      const live = Boolean(call && (call.a === id || call.b === id));
+      if (name) name.textContent = CREW_LABEL[id];
+      if (state) state.textContent = live ? 'En liaison' : online ? 'En ligne' : 'Hors ligne';
+      card.hidden = false;
+      card.dataset.id = id;
+      card.dataset.tone = live ? 'hot' : online ? 'live' : '';
+      card.disabled = !online || Boolean(call);
+      const label = CREW_LABEL[id];
+      card.setAttribute(
+        'aria-label',
+        live ? `${label}, en liaison` : online ? `Appeler ${label}` : `${label}, hors ligne`,
+      );
+    });
+  }
+
   // ---- link -------------------------------------------------------------------
-  async function api(path, data = {}) {
+  async function api(path, data = {}, options = {}) {
     const response = await win.fetch(path, {
       method: 'POST',
-      headers: HEADERS,
       credentials: 'same-origin',
       body: JSON.stringify(data),
+      ...options,
+      headers: {...HEADERS, 'X-Jarvis-Client': phoneClient, ...options.headers},
     });
     if (!response.ok) {
       const error = new Error('link');
@@ -494,6 +652,10 @@ export function mount(doc, engine) {
       linked = true;
       linkedAt ||= Date.now();
       snapshot = next;
+      if (!settled && !chosen && next.crew) {
+        settled = true;
+        if (next.crew.me) api('/crew/release', {}).catch(() => {});
+      }
     }
     render();
   }
@@ -517,20 +679,449 @@ export function mount(doc, engine) {
 
   const buzz = (ms) => nav.vibrate?.(ms);
 
+  // ---- phone I/O: capture and playback stay on the device, never the Mac -----
+  const AudioCtx = win.AudioContext || win.webkitAudioContext;
+  const phoneClient = (win.crypto || globalThis.crypto).randomUUID();
+  const uplink = createUplink();
+  let phoneCtx = null, phoneStream = null, phoneNode = null, phoneMute = null;
+  let phoneArming = null, speakerCursor = 0, speakerBytes = 0, speakerRate = 0;
+  const speakerSources = [];
+  let pumping = false, capturing = false, activeCall = '', blockedCall = '';
+  let audioEpoch = 0, audioRoute = '', captureRoute = '';
+  let talkPending = [], talkRequest = null, talkPull = null;
+  const TALK_QUEUE_FRAMES = 10; // 200 ms at 16 kHz, independent of Jarvis STT.
+  const TALK_TIMEOUT_MS = 500;
+  let voicePending = [], voiceRequest = null, voiceCapture = '', voiceSequence = 0;
+  let blockedCapture = '', voiceStopped = false;
+
+  function resetVoiceTransport() {
+    voicePending = [];
+    voiceRequest?.abort();
+    voiceRequest = null;
+    voiceSequence = 0;
+  }
+
+  function stopVoice(message = '') {
+    voiceStopped = true;
+    capturing = false;
+    audioEpoch += 1;
+    resetVoiceTransport();
+    uplink.reset();
+    cutSpeaker();
+    if (message) fault = message;
+  }
+
+  function failVoice(message) {
+    if (voiceStopped) return;
+    stopVoice(message);
+    api('/control', {action: 'pause'}).catch(() => {});
+    render();
+  }
+
+  async function flushVoice() {
+    if (voiceRequest || !voiceCapture || !voicePending.length || voiceStopped) return;
+    const capture = voiceCapture;
+    const controller = new AbortController();
+    voiceRequest = controller;
+    const frames = voicePending;
+    voicePending = [];
+    const body = new Uint8Array(frames.length * PHONE_FRAME * 2);
+    frames.forEach((frame, i) => body.set(frame, i * PHONE_FRAME * 2));
+    const sequence = voiceSequence;
+    voiceSequence += frames.length;
+    const timeout = win.setTimeout(() => {
+      if (voiceRequest === controller) failVoice('Micro interrompu : liaison trop lente. Relancez l’écoute.');
+    }, 500);
+    try {
+      const response = await win.fetch('/uplink', {
+        method: 'POST', credentials: 'same-origin', body, signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/octet-stream', 'X-Jarvis-Local': '1',
+          'X-Jarvis-Client': phoneClient, 'X-Jarvis-Capture': capture,
+          'X-Jarvis-Sequence': String(sequence),
+        },
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        if (voiceRequest !== controller) return;
+        // The VAD closes capture before the next snapshot reaches this page.
+        // Frames already on the wire then expire normally; do not cancel STT.
+        if (response.status === 409 && detail.error === 'stale_phone_capture') {
+          blockedCapture = capture;
+          resetVoiceTransport();
+          capturing = false;
+          uplink.reset();
+          return;
+        }
+        throw new Error('phone_uplink_failed');
+      }
+    } catch {
+      if (voiceRequest === controller) failVoice('Micro interrompu : transmission perdue. Relancez l’écoute.');
+    } finally {
+      win.clearTimeout(timeout);
+      if (voiceRequest === controller) {
+        voiceRequest = null;
+        flushVoice();
+      }
+    }
+  }
+
+  function queueVoice(frames) {
+    if (voicePending.length + frames.length > 10) {
+      failVoice('Micro interrompu : liaison trop lente. Relancez l’écoute.');
+      return;
+    }
+    voicePending.push(...frames);
+    flushVoice();
+  }
+
+  function resetTalkTransport() {
+    talkPending = [];
+    talkRequest?.abort();
+    talkPull?.abort();
+    talkRequest = talkPull = null;
+  }
+
+  function syncPhone() {
+    const id = phase === 'talking' && !doc.hidden ? snapshot?.crew?.call?.id || '' : '';
+    // Voice PCM can arrive before its next snapshot. A new turn alone must
+    // not stop audio already dequeued for that turn.
+    const owned = snapshot?.phone_audio?.owned === true && !voiceStopped;
+    const route = id ? `talk:${id}` : `voice:${snapshot?.session}:${owned}`;
+    if (route !== audioRoute) {
+      audioRoute = route;
+      audioEpoch += 1;
+      resetTalkTransport();
+      resetVoiceTransport();
+      cutSpeaker();
+    }
+    activeCall = id;
+    if (id && (!phoneStream || phoneCtx?.state !== 'running')) {
+      endTalk('Audio interrompu. Touchez l’écran puis relancez l’appel.');
+      return;
+    }
+    const available = owned && phase === 'listening' ? snapshot?.phone_audio?.capture || '' : '';
+    const nextCapture = available && available !== blockedCapture ? available : '';
+    if (nextCapture !== voiceCapture) {
+      voiceCapture = nextCapture;
+      resetVoiceTransport();
+    }
+    capturing = !doc.hidden && !!phoneStream && phoneCtx?.state === 'running' &&
+      (!!voiceCapture || !!activeCall);
+    const capture = capturing ? (id ? route : voiceCapture) : '';
+    if (capture !== captureRoute) {
+      captureRoute = capture;
+      uplink.reset();
+    }
+  }
+
+  function endTalk(message = '') {
+    const id = activeCall;
+    if (!id) return;
+    blockedCall = id;
+    activeCall = '';
+    capturing = false;
+    audioEpoch += 1;
+    resetTalkTransport();
+    uplink.reset();
+    cutSpeaker();
+    fault = message;
+    api('/talk/hangup', {}, {headers: {'X-Jarvis-Call': id}}).catch(() => {});
+    render();
+  }
+
+  async function flushTalk() {
+    if (talkRequest || !activeCall || !talkPending.length) return;
+    const id = activeCall;
+    const controller = new AbortController();
+    talkRequest = controller;
+    const frames = talkPending;
+    talkPending = [];
+    const body = new Uint8Array(frames.length * PHONE_FRAME * 2);
+    frames.forEach((frame, i) => body.set(frame, i * PHONE_FRAME * 2));
+    const timeout = win.setTimeout(() => {
+      controller.abort();
+      if (talkRequest === controller) endTalk('Liaison audio trop lente. Relancez l’appel.');
+    }, TALK_TIMEOUT_MS);
+    try {
+      const response = await win.fetch('/talk/uplink', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream', 'X-Jarvis-Local': '1', 'X-Jarvis-Call': id,
+        },
+        credentials: 'same-origin', body, signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('talk_uplink_failed');
+    } catch {
+      if (talkRequest === controller) endTalk('Liaison audio interrompue. Relancez l’appel.');
+    } finally {
+      win.clearTimeout(timeout);
+      if (talkRequest === controller) {
+        talkRequest = null;
+        flushTalk();
+      }
+    }
+  }
+
+  function queueTalk(frames) {
+    if (talkPending.length + frames.length > TALK_QUEUE_FRAMES) {
+      endTalk('Liaison audio trop lente. Relancez l’appel.');
+      return;
+    }
+    talkPending.push(...frames);
+    flushTalk();
+  }
+
+  async function unlockAudio() {
+    if (!AudioCtx) throw new Error('web_audio_unavailable');
+    if (!phoneCtx) {
+      phoneCtx = new AudioCtx({latencyHint: 'interactive'});
+      phoneCtx.onstatechange = () => {
+        if (phoneCtx.state !== 'running') {
+          endTalk('Audio interrompu. Touchez l’écran puis relancez l’appel.');
+          if (snapshot?.phone_audio?.owned) failVoice('Audio interrompu. Relancez l’écoute.');
+          cutSpeaker();
+        }
+        render();
+      };
+    }
+    if (phoneCtx.state !== 'running') await phoneCtx.resume();
+    return phoneCtx;
+  }
+
+  async function armPhone() {
+    const ctx = await unlockAudio();
+    if (phoneStream) return;
+    if (!nav.mediaDevices?.getUserMedia) throw new Error('phone_mic_unavailable');
+    if (phoneArming) return phoneArming;
+    phoneArming = openPhone(ctx);
+    try {
+      await phoneArming;
+    } finally {
+      phoneArming = null;
+    }
+  }
+
+  async function openPhone(ctx) {
+    const stream = await nav.mediaDevices.getUserMedia({
+      audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true},
+      video: false,
+    });
+    phoneStream = stream;
+    const source = ctx.createMediaStreamSource(stream);
+    const node = ctx.createScriptProcessor(1024, 1, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    node.onaudioprocess = (event) => {
+      const path = phase === 'talking' ? '/talk/uplink' : phase === 'listening' ? '/uplink' : '';
+      if (!capturing || !path) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const frames = uplink.push(input, ctx.sampleRate);
+      if (activeCall) {
+        queueTalk(frames);
+        return;
+      }
+      queueVoice(frames);
+    };
+    source.connect(node);
+    node.connect(mute);
+    mute.connect(ctx.destination);
+    phoneNode = node;
+    phoneMute = mute;
+    for (const track of stream.getTracks()) {
+      track.addEventListener?.('ended', () => {
+        endTalk('Micro interrompu. Touchez l’écran puis relancez l’appel.');
+        if (snapshot?.phone_audio?.owned) failVoice('Micro interrompu. Relancez l’écoute.');
+        stopPhone();
+        render();
+      });
+    }
+    render();
+  }
+
+  function stopPhone() {
+    capturing = false;
+    resetVoiceTransport();
+    uplink.reset();
+    if (phoneNode) {
+      phoneNode.onaudioprocess = null;
+      phoneNode.disconnect();
+      phoneNode = null;
+    }
+    if (phoneMute) {
+      phoneMute.disconnect();
+      phoneMute = null;
+    }
+    if (phoneStream) {
+      for (const track of phoneStream.getTracks()) track.stop();
+      phoneStream = null;
+    }
+  }
+
+  function floatFromI16(bytes) {
+    const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+    const out = new Float32Array(samples.length);
+    for (let i = 0; i < samples.length; i++) out[i] = samples[i] / (samples[i] < 0 ? 0x8000 : 0x7fff);
+    return out;
+  }
+
+  function cutSpeaker() {
+    for (const source of speakerSources) {
+      try {
+        source.stop();
+      } catch {
+        // The buffer already reached its scheduled end.
+      }
+    }
+    speakerSources.length = 0;
+    speakerBytes = 0;
+    speakerCursor = phoneCtx ? phoneCtx.currentTime : 0;
+  }
+
+  function speak(bytes, rate, talk = false) {
+    if (!bytes.length || !rate) return;
+    // Playback uses the same context unlocked when the user selects a seat.
+    // Creating/resuming a second context here can hang forever on mobile.
+    if (phoneCtx?.state !== 'running') throw new Error('phone_audio_suspended');
+    if (talk && Math.max(0, speakerCursor - phoneCtx.currentTime) + bytes.length / (rate * 2) > 0.5) {
+      throw new Error('talk_playback_delayed');
+    }
+    const floats = downsample(floatFromI16(bytes), rate, phoneCtx.sampleRate);
+    if (!floats.length) return;
+    const buffer = phoneCtx.createBuffer(1, floats.length, phoneCtx.sampleRate);
+    buffer.getChannelData(0).set(floats);
+    const source = phoneCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(phoneCtx.destination);
+    source.onended = () => {
+      const index = speakerSources.indexOf(source);
+      if (index >= 0) speakerSources.splice(index, 1);
+    };
+    speakerSources.push(source);
+    // Never start before audio already queued on this context.
+    const start = Math.max(phoneCtx.currentTime + 0.015, speakerCursor);
+    source.start(start);
+    speakerCursor = start + buffer.duration;
+    speakerBytes += bytes.length;
+    speakerRate = rate;
+  }
+
+  async function pumpOut() {
+    if (pumping || phoneCtx?.state !== 'running') return;
+    pumping = true;
+    try {
+      while (pumping && !doc.hidden && phoneCtx?.state === 'running') {
+        if (inCall(snapshot) && !activeCall) break;
+        const id = activeCall;
+        const talk = !!id;
+        if (!talk && (snapshot?.phone_audio?.owned !== true || voiceStopped)) break;
+        const epoch = audioEpoch;
+        const controller = new AbortController();
+        let timeout = 0;
+        if (talk) {
+          talkPull = controller;
+          timeout = win.setTimeout(() => {
+            controller.abort();
+            if (talkPull === controller) endTalk('Liaison audio trop lente. Relancez l’appel.');
+          }, TALK_TIMEOUT_MS);
+        }
+        let chunk = {pcm: '', rate: 0, done: true};
+        try {
+          chunk = await api(talk ? '/talk/pcm' : '/pcm', {}, {
+            headers: talk ? {'X-Jarvis-Call': id} : {}, signal: controller.signal,
+          });
+          if (epoch !== audioEpoch || doc.hidden) continue;
+          if (talk && chunk.call !== id) throw new Error('stale_call');
+          if (chunk.pcm) speak(decodePcm(chunk.pcm), Number(chunk.rate) || speakerRate, talk);
+        } catch {
+          if (epoch !== audioEpoch) continue;
+          if (talk) {
+            endTalk('Liaison audio interrompue. Relancez l’appel.');
+            break;
+          }
+          await new Promise((resolve) => win.setTimeout(resolve, 400));
+          continue;
+        } finally {
+          win.clearTimeout(timeout);
+          if (talkPull === controller) talkPull = null;
+        }
+        if (!talk && chunk.done && speakerBytes) {
+          await api('/heard', {bytes: speakerBytes, done: true}).catch(() => {});
+          speakerBytes = 0;
+        }
+        await new Promise((resolve) => win.setTimeout(resolve, talk ? 20 : chunk.pcm ? 20 : 80));
+      }
+    } finally {
+      pumping = false;
+    }
+  }
+
   // ---- controls ---------------------------------------------------------------
-  orb.addEventListener('click', () => {
+  orb.addEventListener('click', async () => {
+    if (phase === 'talking' || snapshot?.crew?.call) return;
     buzz(8);
-    send('/control', {action: armed ? 'pause' : 'resume'});
+    lockLandscape();
+    if (!armed) {
+      try {
+        await armPhone();
+        capturing = true;
+      } catch {
+        fault = 'Micro du téléphone refusé';
+        render();
+        return;
+      }
+    }
+    const action = armed ? 'pause' : 'resume';
+    if (action === 'pause') stopVoice();
+    if (await send('/control', {action})) {
+      if (action === 'resume') voiceStopped = false;
+    }
   });
   $('cancel').addEventListener('click', () => {
     buzz(8);
-    send('/control', {action: 'cancel'});
+    if (phase === 'talking') endTalk();
+    else {
+      stopVoice();
+      send('/control', {action: 'cancel'});
+    }
+  });
+  $('deck').addEventListener('click', async (event) => {
+    const card = event.target.closest('[data-crew-card]');
+    if (!card || card.disabled || !card.dataset.id) return;
+    buzz(8);
+    try {
+      await armPhone();
+    } catch {
+      fault = 'Micro du téléphone refusé';
+      render();
+      return;
+    }
+    send('/talk/call', {peer: card.dataset.id});
+  });
+  $('gate').addEventListener('click', async (event) => {
+    const btn = event.target.closest('[data-claim]');
+    if (!btn || btn.disabled) return;
+    const id = btn.getAttribute('data-claim');
+    if (!CREW.includes(id)) return;
+    chosen = true;
+    buzz(8);
+    lockLandscape();
+    try {
+      await armPhone();
+    } catch {
+      chosen = false;
+      fault = 'Micro du téléphone refusé';
+      render();
+      return;
+    }
+    if (!(await send('/crew/claim', {id}))) chosen = false;
   });
 
   const clear = $('clear');
   let holdTimer = 0, confirmTimer = 0;
   const commitClear = () => {
     buzz([12, 40, 12]);
+    stopVoice();
     send('/control', {action: 'clear'});
   };
   const release = () => {
@@ -599,6 +1190,7 @@ export function mount(doc, engine) {
     sending = true;
     try {
       if (await send('/say', {text: value})) {
+        voiceStopped = false;
         text.value = '';
         composer.close();
       }
@@ -667,14 +1259,45 @@ export function mount(doc, engine) {
     })
     .catch(() => {});
 
+  const lockLandscape = () => {
+    const api = win.screen?.orientation;
+    if (typeof api?.lock !== 'function') return;
+    const type = String(api.type || '');
+    if (type.startsWith('landscape')) return;
+    api.lock('landscape').catch(() => {});
+  };
+
   doc.addEventListener('visibilitychange', () => {
     last = 0;
-    if (!doc.hidden) syncLock();
-    schedule();
+    if (doc.hidden) {
+      endTalk('Appel interrompu pendant que l’application était masquée.');
+      if (snapshot?.phone_audio?.owned && !voiceStopped) failVoice('Écoute interrompue pendant que l’application était masquée.');
+      capturing = false;
+      uplink.reset();
+      cutSpeaker();
+      audioEpoch += 1;
+    }
+    if (!doc.hidden) {
+      lockLandscape();
+      syncLock();
+      pumpOut();
+    }
+    render();
   });
   reduced.addEventListener?.('change', schedule);
   win.addEventListener('resize', resize);
+  win.screen?.orientation?.addEventListener?.('change', resize);
+  doc.addEventListener(
+    'pointerdown',
+    () => {
+      lockLandscape();
+      if (snapshot?.crew?.me) armPhone().catch(() => {});
+    },
+    {passive: true},
+  );
   new win.ResizeObserver(resize).observe(orb);
+  lockLandscape();
+  seedSuit();
   resize();
   tick();
   win.setInterval(tick, 1000);

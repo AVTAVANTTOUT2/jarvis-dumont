@@ -12,6 +12,8 @@
   borné plus tours confirmés, sans backfill ni réinjection d'archives passives.
   Aucun PCM conservé par défaut. Consultation sans réinjection automatique.
   Budget nominal choisi dans l'UI, compteur diagnostic 9/10 préservé séparément.
+  Chat/run locaux : 1000 requêtes DeepSeek par jour UTC, fichier quotidien
+  distinct ; le plafond campagne phase 06 (20, sans reset) reste inchangé.
 
 - Périmètre minimal : une conversation, un tour actif, semi-duplex. Un STT, un TTS local, un LLM distant ; Silero détecte la parole. Aucun orchestrateur au produit.
 - Phase 06 : profiling avant optimisation, stabilité et release locale Mac. Budget distinct de 20 nouvelles tentatives DeepSeek maximum, compteur phase 05 conservé. TV/Echo Show : DEFERRED. Essais micro explicitement armés et bornés, aucun nouveau poids ni changement de sortie globale. STT_QUALIFICATION_PENDING et les inconnues de provenance restent ouverts sans preuve.

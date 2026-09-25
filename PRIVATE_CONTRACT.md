@@ -153,3 +153,56 @@ taille avec ces mesures, jamais avec des syllabes synthétiques. Le dashboard
 ne représente que l’activité. Les animations respectent le mouvement réduit
 et s’arrêtent hors visibilité. Aucun moteur, flux audio ou appel LLM créé par
 le rendu ou par le choix d’apparence.
+
+# Intercom privé PWA — transport HTTP
+
+Le relais équipage est indépendant du STT/TTS et du contexte Jarvis : cinq
+sièges, une paire active, PCM16 mono 16 kHz en RAM uniquement. Les protections
+Host/Origin/Fetch Metadata et le cookie restent requis. Un tiers connecté ne
+peut ni injecter, ni lire, ni terminer la communication d'une autre paire.
+
+`crew.call` contient `{id, a, b}`. Le navigateur transmet cet `id` dans
+`X-Jarvis-Call` sur les POST `/talk/uplink`, `/talk/pcm` et `/talk/hangup`.
+Un appel absent, périmé ou étranger renvoie 409. Le downlink inclut
+`{pcm, rate, call}` ; le navigateur invalide aussi les réponses en cours lors
+du raccrochage ou du changement d'appel. Les clients sans identifiant doivent
+recharger les ressources PWA mises à jour avant de démarrer une liaison.
+
+Un upload contient de 1 à 10 trames contiguës de 640 octets. Un seul upload
+est en vol par navigateur et au plus 200 ms attendent son acquittement.
+Le tampon relais est limité à 400 ms, son plus ancien octet à 500 ms d'âge,
+et les requêtes audio à 500 ms côté navigateur. Une saturation ou interruption
+ferme l'appel et vide le son en attente ; l'interface propose de relancer.
+Ces limites ne garantissent pas une latence acoustique de bout en bout.
+Le contexte Web Audio partagé capture/lecture est armé par un geste explicite.
+Raccrocher et masquer la page interrompent immédiatement le transport local.
+
+# Conversation web — propriétaire et continuité de capture
+
+Le navigateur crée un identifiant d'onglet `X-Jarvis-Client` (16–64 caractères
+alphanumériques/tirets), distinct du cookie de session. `resume` ou `say`
+attribue la conversation à ce couple cookie/onglet ; un autre client est
+refusé avec 409 tant que la conversation est occupée. Le profil équipage
+doit être choisi. `/pcm` et `/heard` exigent aussi ce propriétaire.
+
+Le POST `/snapshot` contient `phone_audio: {owned, capture, playback}` : le
+jeton de capture worker n'est transmis qu'au propriétaire pendant l'écoute.
+Le client le transmet dans `X-Jarvis-Capture` avec `X-Jarvis-Sequence`, index
+de la première trame (zéro au début de chaque fenêtre). `/uplink` accepte
+1–10 trames de 640 octets, toutes contiguës. Un trou/doublon invalide la
+prise et met en pause. Une ancienne fenêtre renvoie 409 avec
+`error: stale_phone_capture`, sans annuler la transcription déjà engagée.
+
+Un seul upload est en vol ; au plus 200 ms attendent, délai réseau 500 ms.
+Changement de fenêtre, pause, perte de contexte audio ou page masquée purgent
+les trames locales. Les navigateurs non propriétaires n'envoient rien au STT.
+Une deuxième page partageant le cookie ne peut pas changer/libérer le profil
+du propriétaire actif. Expiration, pause ou début d'intercom révoquent la
+capture. Aucun contenu vocal ni PCM ajouté aux journaux ou à la persistance.
+Le client PWA et le serveur doivent être activés ensemble (cache v9).
+
+Le frontal HTTPS Tailscale existant peut être persisté dans `voice.public_host`
+du TOML privé. Seul un nom d'hôte `*.ts.net` validé est accepté ; Host et Origin
+restent contrôlés exactement. Une valeur vide conserve la compatibilité avec
+`JARVIS_LOCAL_PUBLIC_HOST`. Le service reste lié à loopback et ne configure
+aucun nouveau tunnel, certificat ou accès réseau.

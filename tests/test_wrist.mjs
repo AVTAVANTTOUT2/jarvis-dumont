@@ -2,14 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {MODE_FRAMES, resolvePreset} from '../src/jarvis_office/static/dashboard/thinking-orbs.js';
 import {
+  CREW,
   PHASES,
   clockOf,
   createTranscript,
+  crewOthers,
+  inCall,
+  seatTaken,
   loudness,
   missionTime,
   phaseOf,
   refine,
   signalBars,
+  sparkFill,
+  sparkPoints,
+  suitLoad,
+  suitSample,
+  createUplink,
+  decodePcm,
+  downsample,
+  pcm16,
+  PHONE_FRAME,
   track,
 } from '../src/jarvis_office/wrist.js';
 
@@ -45,7 +58,34 @@ test('every voice state has a shipped orb and a tone; the link overrides it', ()
   assert.equal(phaseOf({state: 'mystery'}, true), 'boot');
   assert.equal(phaseOf({state: 'listening'}, false), 'offline');
   assert.equal(PHASES.listening.tone, 'hot');
+  assert.equal(PHASES.talking.tone, 'hot');
   assert.equal(PHASES.offline.tone, 'fault');
+});
+
+test('talking wins over paused when this seat is in the call', () => {
+  const call = {a: 'elias', b: 'aymen'};
+  assert.equal(
+    phaseOf({state: 'paused', crew: {me: 'elias', call, seats: {}}}, true),
+    'talking',
+  );
+  assert.equal(
+    phaseOf({state: 'paused', crew: {me: 'faiz', call, seats: {}}}, true),
+    'paused',
+  );
+  assert.deepEqual(crewOthers('elias'), ['aymen', 'evann', 'alexandre', 'faiz']);
+  assert.equal(CREW.length, 5);
+  assert.equal(inCall({crew: {me: 'elias', call}}, 'elias'), true);
+  assert.equal(inCall({crew: {me: 'elias', call: null}}, 'elias'), false);
+});
+
+test('a seat is taken only when someone else is online', () => {
+  const seats = {elias: {online: true}, aymen: {online: false}, evann: {online: true}};
+  assert.equal(seatTaken(seats, 'elias', ''), true);
+  assert.equal(seatTaken(seats, 'elias', 'elias'), false);
+  assert.equal(seatTaken(seats, 'aymen', ''), false);
+  assert.equal(seatTaken(seats, 'faiz', ''), false);
+  assert.equal(seatTaken(seats, '', ''), false);
+  assert.equal(seatTaken(seats, 'evann', 'elias'), true);
 });
 
 test('a streamed answer grows one exchange in place instead of stacking copies', () => {
@@ -113,6 +153,38 @@ test('mic RMS reads on a dBFS scale, clocks and link bars are formatted', () => 
   assert.equal(time.s, '07');
   assert.match(time.hm, /^\d\d:\d\d$/);
   assert.deepEqual([NaN, 12, 120, 900].map(signalBars), [0, 3, 2, 1]);
+});
+
+test('phone uplink packs exact 20 ms 16 kHz frames after downsample', () => {
+  const uplink = createUplink();
+  const fortyEight = new Float32Array(48000 * 0.02);
+  fortyEight[0] = 0.5;
+  const frames = uplink.push(fortyEight, 48000);
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].length, PHONE_FRAME * 2);
+  const twice = downsample(new Float32Array([0, 1, 0, 1]), 2, 1);
+  assert.equal(twice.length, 2);
+  assert.ok(Math.abs(twice[0]) < 1e-9);
+  const raw = pcm16(new Float32Array([0, 1, -1]));
+  const encoded = Buffer.from(raw).toString('base64');
+  assert.deepEqual(Array.from(decodePcm(encoded)), Array.from(raw));
+});
+
+test('suit telemetry is a deterministic RP waveform and sparkline stays in the viewBox', () => {
+  assert.equal(suitSample('hr', 0, 0), 72);
+  assert.ok(suitSample('hr', 0, 1) > suitSample('hr', 0, 0));
+  assert.ok(suitSample('o2', 0, 1) < suitSample('o2', 0, 0));
+  assert.equal(suitLoad('paused', 0), 0.08);
+  assert.equal(suitLoad('listening', 1), 1);
+  assert.equal(sparkPoints([]), '');
+  assert.equal(sparkPoints([4], 100, 20, 0), '50.00,10.00');
+  assert.equal(sparkPoints([1, 3], 100, 20, 0), '0.00,20.00 100.00,0.00');
+  assert.equal(sparkPoints([0, 50], 100, 20, 0, {lo: 0, hi: 100}), '0.00,20.00 100.00,10.00');
+  assert.equal(sparkFill([1, 3], 100, 20, 0), '0.00,20.00 0.00,20.00 100.00,0.00 100.00,20.00');
+  for (const point of sparkPoints([1, 2, 1.4, 2.8], 120, 36).split(' ')) {
+    const [x, y] = point.split(',').map(Number);
+    assert.ok(x >= 0 && x <= 120 && y >= 0 && y <= 36);
+  }
 });
 
 test('the hero orb doubles the preset density without touching the cached preset', () => {

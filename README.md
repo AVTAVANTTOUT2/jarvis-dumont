@@ -1,514 +1,564 @@
-# Jarvis Office
+# DUMONT — L'IA d'équipage qui survit à la coupure Terre
 
-Assistant vocal privé : Echo Show 5 Kotlin → gateway Ethernet/WSS → VoiceLoop
-unique, STT nominal configuré, DeepSeek Flash et Qwen3/voix privée sur Mac.
-Dashboard loopback, historique local optionnel et explorateur SQLite.
-Voir [exploitation privée](PRIVATE_OPERATIONS.md), [contrat](PRIVATE_CONTRACT.md)
-et [état vérifié](PROJECT_STATE.md). Les échecs STT et limites de lecture historiques
-restent ouverts ; la livraison privée ne constitue pas une homologation audio.
+> État du dépôt : le logiciel disponible est le runtime Python Jarvis Office,
+> sa PWA et son intercom. L'architecture Laravel/Docker, le mode Ollama et les
+> contrats du projet de concours ci-dessous décrivent une cible à construire.
+> Ils ne sont pas encore livrés. Les commandes utilisables figurent en section 4.
 
-Le code original n'est assorti d'aucune licence publique. Voir THIRD_PARTY_NOTICES.md pour les composants tiers et les inconnues.
+> Workshop national EPSI 2026 · Bachelor 3 · **Pilier 4 — DeepTech & Secure Systems**
+> Équipe : **Elias · Aymen · Evan · Faiz · Alexandre**
 
-## Release locale et exploitation
+Dumont est l'assistant vocal de bord, porté au poignet de l'équipage. Il prend les notes, relaie les messages vers la Terre et répond aux questions de l'équipage. Surtout, il continue de fonctionner quand la liaison Terre tombe, quand un service plante, ou quand un appareil du réseau devient hostile.
 
-Construire depuis un commit identifié, avec les actifs Office déjà importés et les
-paquets des trois locks en cache. Aucun poids téléchargé. Le build ignore les changements
-non committés sans les modifier ; les environnements sont créés à leur emplacement final,
-jamais déplacés ni editables. Les notices des distributions restent installées.
+---
 
-```sh
-jarvis-office release build --source "$PWD" --uv "$(command -v uv)"
-jarvis-office release list
-jarvis-office release verify 0.1.0-<sha12>
-jarvis-office release activate 0.1.0-<sha12>
+## Sommaire
+
+1. [Réponse au sujet](#1-réponse-au-sujet)
+2. [La démo](#2-la-démo)
+3. [Architecture](#3-architecture)
+4. [Démarrer le projet](#4-démarrer-le-projet)
+5. [Contrats figés](#5-contrats-figés)
+6. [Équipe et périmètres](#6-équipe-et-périmètres)
+7. [Tâches par personne](#7-tâches-par-personne)
+8. [Planning de la semaine](#8-planning-de-la-semaine)
+9. [Règles de développement](#9-règles-de-développement)
+10. [Décisions d'architecture (ADR)](#10-décisions-darchitecture-adr)
+11. [Rendus du jeudi soir](#11-rendus-du-jeudi-soir)
+12. [Soutenance](#12-soutenance)
+13. [Grille d'évaluation → preuves](#13-grille-dévaluation--preuves)
+14. [Risques et plans B](#14-risques-et-plans-b)
+15. [Arborescence](#15-arborescence)
+
+---
+
+## 1. Réponse au sujet
+
+Le pilier 4 demande la colonne vertébrale numérique du vaisseau : calcul local, IA décisionnelle, communication asynchrone, sécurité. Dumont couvre les trois pistes du sujet dans un seul produit.
+
+| Exigence du sujet | Ce que fait Dumont |
+| --- | --- |
+| **A. OfflineSpace** — continuer localement, stocker, prioriser, resynchroniser | Bascule automatique en mode autonome : LLM de bord, file d'envoi vers la Terre classée par priorité, synchronisation automatique au retour de la liaison |
+| **B. CyberSpace** — détecter un comportement anormal, isoler l'appareil | Chaque brassard est authentifié ; un appareil au comportement anormal est isolé automatiquement et signalé au tableau de bord |
+| **C. EdgeAI** — analyser sans Internet | Transcription, synthèse vocale et LLM de secours tournent sur le serveur IA de bord |
+| **Crise** — rupture du lien Terre pendant 24 h | Scénario central de la démo : coupure, fonctionnement autonome, retour et resynchronisation sans intervention humaine |
+| **Interconnexion** entre équipes du vaisseau | API ouverte : les autres projets (MedBox, SpaceGrid, SpaceFarm…) poussent leurs alertes, Dumont les annonce à l'équipage et les relaie vers la Terre |
+
+---
+
+## 2. La démo
+
+Quatre actes, environ trois minutes, joués en direct pendant les minutes 2 à 5 de la soutenance.
+
+| Acte | Action | Ce que voit le jury | Piste |
+| --- | --- | --- | --- |
+| 1. Nominal | Evan : « Dumont, note : pression anormale sur la pompe 2, préviens la Terre. » | Transcription à l'écran, réponse vocale, note créée, message reçu par la station sol | EdgeAI |
+| 2. Coupure Terre | Faiz déclenche la crise depuis le tableau de bord | Bandeau **MODE AUTONOME** sur le brassard ; Dumont répond encore avec le LLM de bord ; les messages vers la Terre s'empilent par priorité | OfflineSpace |
+| 3. Intrusion | Alexandre lance `make attack` | Un brassard compromis inonde l'API, il est isolé en quelques secondes ; alerte au tableau de bord, vibration sur le brassard d'Evan | CyberSpace |
+| 4. Retour liaison | Faiz rétablit la liaison | La file se vide dans l'ordre des priorités, la station sol affiche les messages reçus | OfflineSpace |
+
+La même séquence, filmée, sert de vidéo chrono (rendu obligatoire) et de démonstration pour la finale nationale, où la démo live est interdite.
+
+---
+
+## 3. Architecture
+
+```mermaid
+flowchart LR
+  B[Brassard<br/>page web + ESP32] -->|HTTP audio| W[Laravel<br/>orchestrateur]
+  W -->|WebSocket Reverb| B
+  W --> AI[Serveur IA de bord]
+  AI --> STT[STT]
+  AI --> TTS[TTS]
+  AI --> LLM[LLM]
+  W --> DB[(PostgreSQL)]
+  W --> Q[Worker]
+  Q -->|liaison Terre| G[Station sol simulée]
+  D[Tableau de bord<br/>Filament] --> DB
 ```
 
-`verify` contrôle tous les fichiers installés et les bundles privés (hashes séquentiels).
-Le manifest privé `release.json` identifie commit, locks, packages, interpréteurs, actifs
-et provenance connue. Contrat de reconstruction contrôlée, pas reproductibilité binaire.
-`current` n'est remplacé atomiquement qu'après vérification ; une instance active bloque
-l'activation. `release rollback` vérifie et réactive la candidate précédente sans suppression.
-Le Python de base installé sur le Mac reste un prérequis explicite du manifest.
+**Le serveur IA de bord** expose trois capacités — transcription, synthèse vocale, LLM — derrière un seul contrat HTTP. Il reprend [jarvis-voice](https://github.com/AVTAVANTTOUT2/jarvis-voice) pour la voix. Le LLM est choisi par nom de modèle :
 
-Depuis un répertoire neutre, utiliser l'exécutable **de la release** :
+- `deepseek-chat` — l'IA « côté Terre », utilisée quand la liaison est active. Dans le prototype, la route est relayée vers l'API DeepSeek (compatible OpenAI).
+- `local` — le modèle de bord, servi par Ollama, qui prend le relais en mode autonome.
 
-```sh
-OFFICE="$HOME/Library/Application Support/JarvisOffice"
-"$OFFICE/current/main/bin/jarvis-office" doctor --json
-"$OFFICE/current/main/bin/jarvis-office" status --json
-"$OFFICE/current/main/bin/jarvis-office" run
-# http://127.0.0.1:8768 — départ en pause, Reprendre arme un essai borné.
-# Ou armement explicite :
-"$OFFICE/current/main/bin/jarvis-office" run --arm --seconds 30 --turns 2
-```
+C'est Laravel qui choisit le modèle selon l'état de la liaison Terre. Le reste du code ne sait pas lequel tourne.
 
-Configurer les noms exacts non ambigus dans le TOML privé (`speech.input_device`,
-`voice.output_device`) ; `input-list`/`output-list` restent passifs. Les interpréteurs
-STT/TTS de la release remplacent automatiquement les anciens chemins de développement
-du TOML ; les actifs, voix et paramètres ne changent pas. La clé reste exclusivement
-dans `config/deepseek.env` (0600), jamais dans le plist. Le budget phase 06 est distinct :
-20 tentatives au maximum, sans reset automatique ; le compteur phase 05 reste conservé.
+### Stack
 
-```sh
-"$OFFICE/current/main/bin/jarvis-office" service install
-"$OFFICE/current/main/bin/jarvis-office" service start
-"$OFFICE/current/main/bin/jarvis-office" service status
-"$OFFICE/current/main/bin/jarvis-office" service stop
-```
+| Couche | Techno |
+| --- | --- |
+| Web, API, orchestrateur | PHP 8.3, Laravel 12 |
+| Temps réel | Laravel Reverb (WebSocket) |
+| Tableau de bord | Filament 4 |
+| Base de données | PostgreSQL 16 |
+| File de jobs, cache | Redis 7 |
+| Serveur IA | Python, FastAPI, jarvis-voice (faster-whisper large-v3-turbo, Qwen3-TTS), Ollama |
+| LLM | DeepSeek `deepseek-chat` + modèle local Ollama |
+| Brassard | Page Blade plein écran sur téléphone sanglé au poignet ; ESP32 (bouton, vibreur, LED) en bonus |
+| Déploiement | Docker Compose |
 
-LaunchAgent utilisateur `com.jarvisoffice.voice`, aucun auto-arm ni boucle de redémarrage.
-`restart` réalise stop/start ; `uninstall` retire uniquement le plist, pas les données.
-L'installation ne démarre pas le service. Le statut distingue vivant, workers/périphériques
-prêts, configuration conversationnelle prête et écoute réelle ; aucune conversation payante
-de santé. Une restriction macOS reste une erreur explicite, jamais un contournement TCC.
-Arrêter par l'UI, Ctrl+C ou `service stop` ; verrou noyau unique avant moteurs/capture.
-Logs JSON sans paroles ni réponses, rotation 1 Mo × 4 fichiers sous Logs/JarvisOffice.
+---
 
-Limites : semi-duplex, aucun barge-in. En Conversation Echo, toute parole acceptée
-est une demande. En CLI locale et en écoute contextuelle, adresse « Jarvis » vérifiée
-**après STT local**, pas de wake word acoustique ni identification du locuteur. Le
-texte de la demande, le résumé persisté s'il est activé et quelques tours RAM
-vont à DeepSeek ; aucun audio/profil ni outil d'action.
+## 4. Démarrer le projet
 
-## Installation et vérification
+### Code disponible : Jarvis Office
 
-Python 3.12.13 et uv 0.11.29 ont été vérifiés localement. Le paquet n'a aucune dépendance
-d'exécution obligatoire ; l'extra `chat` installe HTTPX. Dépendances et outils sont verrouillés
-dans `uv.lock`, avec leurs
-empreintes de distributions. Le backend de build est épinglé séparément dans
-`pyproject.toml`. TTS et STT possèdent chacun un environnement distinct ; la V1 reste inchangée.
+Pour préparer et vérifier le checkout de développement : Python 3.12, `uv` et
+Node.js 22 ou supérieur sont nécessaires. Aucun modèle ni secret n'est inclus.
 
-```sh
+```bash
 uv sync --locked --extra private --no-python-downloads
 ./scripts/verify.sh
 ```
 
-`scripts/verify.sh` enchaîne lint/format, mypy, les tests Python, les tests
-JavaScript `tests/*.mjs` (Node 22+) et le contrôle de contenu de la wheel. Il
-affiche le résultat de chaque famille et sort non nul si l'une échoue. Il ne
-corrige, ne commite, ne pousse et ne déploie rien. L'extra `chat` reste valable
-pour un travail chat seul ; la CI et la suite complète utilisent `private`.
+Le service utilise une wheel installée dans une release, des environnements
+créés à leur emplacement final et des actifs privés importés et vérifiés.
+Une première installation doit préparer ces éléments puis activer `current`.
+Après installation, son état et son redémarrage se contrôlent ainsi :
 
-La famille `package` construit avec `uv build --out-dir` dans un répertoire
-neuf propre à l'invocation (`VERIFY_OUT_DIR` en CI, sinon un temporaire).
-Elle exige exactement une wheel dans ce répertoire, applique les contrôles de
-contenu existants à ce fichier, puis affiche `wheel_ok <nom> sha256:<hex>`.
-L'empreinte identifie l'artefact contrôlé ; elle ne prouve pas une
-reproductibilité binaire ni le fonctionnement matériel. Le job CI n'uploade
-que `VERIFY_OUT_DIR/*.whl` après un contrôle réussi. Le `dist/` historique
-n'est ni lu ni vidé.
-
-Les jobs GitHub `lint-format`, `typecheck`, `tests-python`, `tests-javascript`
-et `package` s'exécutent indépendamment. Le job `diagnostics` échoue si l'un
-d'eux n'est pas `success` (échec, annulation ou non-exécution). Un vert CI
-logiciel n'est pas une homologation matérielle.
-
-L'installation des outils/build nécessite leur présence dans le cache ou un accès au
-registre. Une fois installé, le diagnostic fonctionne hors réseau. Le lock ne constitue
-pas une promesse de build identique octet pour octet sur tous les systèmes.
-
-## Diagnostics
-
-```sh
-.venv/bin/jarvis-office doctor --json
-.venv/bin/jarvis-office assets inspect --json
-.venv/bin/jarvis-office assets inspect --config "/chemin privé/config.toml" --json
+```bash
+office_root="$HOME/Library/Application Support/JarvisOffice"
+"$office_root/current/main/bin/python" -I -B -m jarvis_office service status --config "$office_root/config.toml" --json
+"$office_root/current/main/bin/python" -I -B -m jarvis_office service restart --config "$office_root/config.toml" --json
 ```
 
-Le JSON est aussi la sortie par défaut : `schema_version`, `command`, `status`,
-`exit_code`, `checks` (`name`, `status`, `reason`). Les erreurs n'affichent aucun chemin,
-contenu, identifiant de compte, valeur d'environnement ou exception système brute.
+Le service démarre en pause. Le navigateur choisit un profil avant d'ouvrir
+une conversation ou un appel équipage. État et limites : [PROJECT_STATE.md](PROJECT_STATE.md).
+Pour conserver un frontal HTTPS Tailscale existant après relance du service,
+renseigner son seul nom d'hôte dans `voice.public_host` du TOML privé. Le serveur
+reste en écoute locale ; ce réglage ne crée ni tunnel ni certificat.
 
-| Code | Signification |
+### Pile cible : commandes prévues, pas encore disponibles
+
+Les exemples suivants sont le plan de la future pile Laravel/Docker. Le
+`Makefile`, `compose.yaml` et `ai-server/` n'existent pas encore dans ce dépôt.
+Ne pas les utiliser pour relancer l'installation Python actuelle.
+
+Prérequis prévus pour cette cible : Docker, Git, Make.
+
+```bash
+git clone <url-du-depot> dumont && cd dumont
+cp .env.example .env          # renseigner AI_SERVER_URL
+make up                       # web, reverb, worker, postgres, redis
+make seed                     # brassards et données de démo
+```
+
+Sur la machine du serveur IA (Mac Apple Silicon, à cause du TTS) :
+
+```bash
+cd ai-server
+cp .env.example .env          # DEEPSEEK_API_KEY, OLLAMA_MODEL
+make ai                       # lance /v1/stt, /v1/tts, /v1/chat/completions
+```
+
+| Commande | Effet |
 | --- | --- |
-| 0 | Contrôles structurels exécutés réussis ; les `NOT_RUN` restent non vérifiés. |
-| 1 | `FAIL` : actif manquant/incomplet/invalide ou plateforme incompatible. |
-| 2 | Arguments ou configuration explicite absents/invalides. |
-| 3 | `BLOCKED_USER` : chemin d'actif non configuré ou permission refusée. |
+| `make up` / `make down` | Démarre, arrête la pile |
+| `make seed` | Crée trois brassards et des données de démo |
+| `make crisis` | Coupe la liaison Terre |
+| `make restore` | Rétablit la liaison Terre |
+| `make attack` | Simule un brassard compromis |
+| `make demo` | Remet tout à zéro avant une démo |
 
-Un `FAIL` prend priorité sur `BLOCKED_USER`. L'absence de configuration par défaut
-est `NOT_RUN` ; ses actifs non configurés sont `BLOCKED_USER`. Ainsi, sans configuration,
-les deux commandes retournent 3 sur le Mac cible. Cela ne constitue pas un échec des
-fondations : les chemins nécessaires ne sont simplement pas encore configurés.
+Adresses en local : brassard `http://localhost:8000/band`, tableau de bord `http://localhost:8000/admin`, station sol `http://localhost:8000/ground`.
 
-`doctor` vérifie Python/macOS arm64, les métadonnées des distributions du Python courant
-et les actifs configurés. MLX et les moteurs absents sont `NOT_RUN`, car optionnels pour
-cette phase. Leur présence ne prouve ni un import réussi ni le fonctionnement du matériel.
-La clé DeepSeek n'est ni recherchée ni lue. Micro, lecture sonore, réseau et inférence
-restent explicitement `NOT_RUN`. Le diagnostic ne crée aucun dossier, log ou fichier.
+---
 
-`assets inspect` inspecte seulement les chemins explicitement configurés. Il contrôle les
-fichiers requis de Qwen3 MLX (y compris le tokenizer vocal et les limites des fichiers
-safetensors), un dossier STT CTranslate2, un profil WAV/transcript/métadonnées et un fichier
-Silero ONNX/JIT. Les liens vers des fichiers sont autorisés, notamment les snapshots HF ;
-les liens cassés, sous-dossiers liés et marqueurs de téléchargement incomplet sont refusés.
-Les fichiers JSON sont bornés à 16 Mio et la traversée à 4096 entrées. Aucun moteur ne
-valide les tenseurs ou les poids binaires STT/VAD : `PASS` signifie structure locale
-contrôlée, pas authenticité, qualité vocale ou aptitude à l'inférence. Les droits vocaux
-ne sont jamais déduits d'un champ de métadonnées.
+## 5. Contrats figés
 
-## Import explicite et TTS isolé
+Ces contrats sont écrits le lundi et ne changent plus. Ils permettent aux cinq de travailler en parallèle dès le mardi, chacun contre une version simulée des autres. Une modification passe par une PR étiquetée `contract` et l'accord des cinq.
 
-```sh
-# Python 3.14.6 arm64 déjà installé ; aucun téléchargement de Python ou de poids.
-uv sync --project runtime/tts --locked --python /chemin/python3.14 --no-python-downloads
-jarvis-office assets import --config "/chemin privé/source.toml" --dry-run --json
-jarvis-office assets import --config "/chemin privé/source.toml" --json
-jarvis-office tts-test --text "Bonjour, le système vocal est prêt." \
-  --output "/chemin privé/demo.wav" --repeat 3 --report "/chemin privé/mesures.json"
+### 5.1 Serveur IA — `AI_SERVER_URL`
+
+| Route | Entrée | Sortie |
+| --- | --- | --- |
+| `POST /v1/stt` | Audio multipart (WAV ou WebM), `language=fr` | `{ "text": "...", "duration_ms": 840 }` |
+| `POST /v1/tts` | `{ "text": "..." }` | `audio/wav` |
+| `POST /v1/chat/completions` | Format OpenAI, `model: deepseek-chat \| local`, `stream: true` | Flux SSE au format OpenAI |
+| `GET /v1/health` | — | `{ "stt": "ok", "tts": "ok", "llm": { "deepseek-chat": "ok", "local": "ok" } }` |
+
+### 5.2 API Laravel — préfixe `/api`
+
+| Méthode | Route | Rôle | Propriétaire |
+| --- | --- | --- | --- |
+| `POST` | `/turns` | Envoie un tour de parole (audio ou texte), rend `{ turn_id }` ; la réponse arrive par WebSocket | Aymen |
+| `GET` | `/ship/status` | Liaison Terre, file d'envoi, santé du serveur IA, appareils isolés | Faiz |
+| `POST` | `/ship/events` | Point d'entrée des autres équipes : `{ source, level, message }` | Aymen |
+| `POST` | `/link` | `{ "state": "up" \| "down" }` — bascule de la liaison Terre | Faiz |
+| `POST` | `/ground/receive` | Station sol simulée, reçoit les messages synchronisés | Faiz |
+
+Authentification : jeton d'appareil (Laravel Sanctum) en en-tête `Authorization: Bearer`.
+
+### 5.3 WebSocket — Reverb
+
+Canaux : `band.{deviceId}` (privé, un par brassard) et `ship` (diffusion à tous).
+
+| Événement | Canal | Charge utile |
+| --- | --- | --- |
+| `turn.transcript` | `band.{id}` | `{ turn_id, text }` |
+| `turn.delta` | `band.{id}` | `{ turn_id, text }` — fragment de réponse |
+| `turn.audio` | `band.{id}` | `{ turn_id, url }` — WAV d'une phrase, à jouer dans l'ordre |
+| `turn.done` | `band.{id}` | `{ turn_id, model, latency_ms }` |
+| `link.changed` | `ship` | `{ state: "up" \| "down" }` |
+| `outbox.updated` | `ship` | `{ pending, sent }` |
+| `security.alert` | `ship` | `{ device_id, rule, level }` |
+| `device.isolated` | `band.{id}` + `ship` | `{ device_id, reason }` |
+| `ship.event` | `ship` | `{ source, level, message }` — alerte d'une autre équipe |
+
+### 5.4 Tables
+
+| Table | Contenu | Propriétaire |
+| --- | --- | --- |
+| `devices` | Brassards : nom, jeton, statut `active \| isolated`, dernier contact | Alexandre |
+| `turns` | Tour de parole : transcript, réponse, modèle utilisé, mode, latences | Aymen |
+| `notes` | Notes dictées : type `observation \| action \| anomalie`, auteur | Aymen |
+| `outbox` | Messages vers la Terre : priorité `critique \| haute \| normale \| basse`, statut `queued \| sent` | Faiz |
+| `link_events` | Historique des coupures et rétablissements | Faiz |
+| `ship_events` | Alertes reçues des autres équipes | Aymen |
+| `security_events` | Journal de sécurité, en ajout seul | Alexandre |
+
+---
+
+## 6. Équipe et périmètres
+
+Chaque dossier a un seul propriétaire. On relit le code des autres, on ne le modifie pas sans leur accord.
+
+| Qui | Rôle | Possède | Relit |
+| --- | --- | --- | --- |
+| **Elias** | Serveur IA, infra, lead technique | `ai-server/`, `compose.yaml`, `Makefile` | Toutes les PR qui touchent un contrat |
+| **Aymen** | Orchestrateur IA | `app/Orchestrator/`, `app/Tools/`, `app/Http/Controllers/TurnController.php` | Evan |
+| **Evan** | Brassard, front et IoT | `resources/views/band/`, `resources/js/band/`, `firmware/` | Aymen |
+| **Faiz** | OfflineSpace et données | `database/`, `app/Offline/`, `app/Filament/` (hors sécurité) | Alexandre |
+| **Alexandre** | CyberSpace, pilotage projet, livrables | `app/Security/`, `scripts/`, `docs/` | Faiz |
+
+---
+
+## 7. Tâches par personne
+
+Cocher au fil de l'eau. Une tâche est finie quand elle est fusionnée dans `main` **et** visible sur le brassard ou le tableau de bord.
+
+### Elias — Serveur IA, infra, lead technique
+
+**J1 — lundi**
+- [ ] Créer le dépôt GitHub, protéger `main`, ajouter les cinq, créer `CODEOWNERS`
+- [ ] Écrire la section 5 (contrats) et la faire valider par les cinq avant 17 h
+- [ ] `compose.yaml` squelette : web, reverb, worker, postgres, redis
+
+**J2 — mardi**
+- [ ] `ai-server/` : FastAPI qui emballe jarvis-voice → `/v1/stt`, `/v1/tts`, `/v1/health`
+- [ ] Conversion ffmpeg WebM → WAV 16 kHz mono dans `/v1/stt`
+- [ ] Route `/v1/chat/completions` : modèle `deepseek-chat` relayé vers l'API DeepSeek
+- [ ] Publier un serveur IA simulé (réponses fixes) pour que les autres ne l'attendent pas
+
+**J3 — mercredi**
+- [ ] Modèle `local` : Ollama avec un petit modèle, même format de réponse
+- [ ] Mesurer les latences STT, TTS, LLM et les afficher dans `/v1/health`
+- [ ] Exposer le serveur IA sur le réseau de démo, vérifier depuis un autre poste
+
+**J4 — jeudi**
+- [ ] Machine de démo prête, `make demo` testé trois fois de suite
+- [ ] **Gel de `main` à 18 h** — seules les corrections passent ensuite
+- [ ] Générer `Workshop2026-B3-G<n>-Code.zip` ou vérifier le lien GitHub
+- [ ] Rédiger la partie « Architecture et technologies » du dossier
+
+**J5 — vendredi**
+- [ ] Régie technique pendant la démo, plan B prêt (section 14)
+- [ ] Présenter l'architecture en soutenance (45 s)
+
+### Aymen — Orchestrateur IA
+
+**J1 — lundi**
+- [ ] Installer Laravel 12 + Reverb, page d'accueil qui répond
+- [ ] Squelette `POST /api/turns` qui rend un `turn_id`
+
+**J2 — mardi**
+- [ ] Client du serveur IA : STT → LLM → TTS, contre le serveur simulé d'Elias
+- [ ] Prompt système de Dumont : ton, rôle, règles (ne jamais inventer une procédure)
+- [ ] Trois outils : `create_note`, `send_to_earth`, `ship_status`
+- [ ] **Tranche verticale à 18 h** : une question tapée donne une réponse texte
+
+**J3 — mercredi**
+- [ ] Diffuser la réponse par `turn.delta` au fil du flux
+- [ ] Découper la réponse par phrase et envoyer chaque phrase au TTS → `turn.audio`
+- [ ] Choisir le modèle selon la liaison : `deepseek-chat` si `up`, `local` si `down`
+- [ ] Modes dégradés : STT en panne → saisie texte ; TTS en panne → texte seul
+- [ ] `POST /api/ship/events` : une alerte d'une autre équipe est annoncée à voix haute
+
+**J4 — jeudi**
+- [ ] Jouer le scénario de démo de bout en bout, corriger
+- [ ] Rédiger la partie « Fonctionnement » du dossier
+
+**J5 — vendredi**
+- [ ] Commenter les actes 1 et 2 pendant la démo
+- [ ] Présenter le bilan et les perspectives (30 s)
+
+### Evan — Brassard, front et IoT
+
+**J1 — lundi**
+- [ ] Maquette des cinq états de l'écran : veille, écoute, réponse, mode autonome, isolé
+
+**J2 — mardi**
+- [ ] Page Blade plein écran `/band`, lisible sur un téléphone
+- [ ] Bouton push-to-talk : enregistrement `MediaRecorder`, envoi à `POST /api/turns`
+- [ ] Connexion Reverb (Laravel Echo) sur `band.{id}` et `ship`
+
+**J3 — mercredi**
+- [ ] Afficher le transcript, puis la réponse au fil des `turn.delta`
+- [ ] Jouer les `turn.audio` dans l'ordre, sans chevauchement
+- [ ] Bandeau de liaison Terre (`link.changed`) et écran rouge « appareil isolé »
+- [ ] Vibration du téléphone sur `security.alert` et `ship.event` critiques
+- [ ] **Bonus** : ESP32 avec bouton push-to-talk, vibreur et LED d'état
+
+**J4 — jeudi**
+- [ ] Sanglage du téléphone au poignet, test en conditions de démo
+- [ ] Filmer et monter `Workshop2026-B3-G<n>-VidChrono.mp4` (1 minute)
+- [ ] Captures d'écran pour le dossier et les slides
+
+**J5 — vendredi**
+- [ ] Porter le brassard et jouer l'équipier pendant la démo
+
+### Faiz — OfflineSpace et données
+
+**J1 — lundi**
+- [ ] Schéma des tables de la section 5.4, migrations
+
+**J2 — mardi**
+- [ ] Modèles Eloquent, jeu de données `make seed`
+- [ ] Table `outbox` avec priorités, service `SendToEarth`
+- [ ] Station sol simulée : `POST /api/ground/receive` + page `/ground` qui liste ce qui arrive
+
+**J3 — mercredi**
+- [ ] Bascule de liaison `POST /api/link` + `make crisis` / `make restore`
+- [ ] Liaison coupée : les messages restent en file ; liaison rétablie : job `SyncOutbox` qui envoie par priorité
+- [ ] Filament : ressources `turns`, `notes`, `outbox`, `ship_events`
+- [ ] Widgets : état de la liaison, messages en attente, dernières latences
+
+**J4 — jeudi**
+- [ ] Scénario « coupure de 24 h » accéléré : des messages générés pendant la coupure, tous synchronisés au retour
+- [ ] Rédiger la partie « OfflineSpace » du dossier
+
+**J5 — vendredi**
+- [ ] Déclencher la coupure et le retour de liaison pendant la démo (actes 2 et 4)
+
+### Alexandre — CyberSpace, pilotage projet, livrables
+
+**J1 — lundi**
+- [ ] Kanban (Trello ou Notion) avec toutes les tâches de cette section
+- [ ] Rédiger le cahier des charges (idée, solution, technologies) pour validation mardi
+- [ ] Trames du dossier PDF et du PowerPoint
+
+**J2 — mardi**
+- [ ] Authentification par jeton d'appareil (Sanctum), table `devices`
+- [ ] Journal `security_events` en ajout seul
+
+**J3 — mercredi**
+- [ ] Règles de détection : trop de requêtes par minute, appareil inconnu, jeton révoqué réutilisé
+- [ ] Isolation automatique : jeton révoqué, statut `isolated`, événement `device.isolated`
+- [ ] Script `make attack` qui simule un brassard compromis
+- [ ] Widget Filament « Sécurité » : alertes et appareils isolés
+
+**J4 — jeudi**
+- [ ] Assembler `Workshop2026-B3-G<n>-Dossier.pdf` à partir des parties de chacun
+- [ ] Finaliser `Workshop2026-B3-G<n>-Pres.pptx`
+- [ ] Vérifier les noms de fichiers et déposer le dossier `Workshop2026-B3-G<n>` avant l'échéance
+
+**J5 — vendredi**
+- [ ] Animer la soutenance, présenter le concept, déclencher l'attaque (acte 3)
+- [ ] Mener les questions-réponses
+
+---
+
+## 8. Planning de la semaine
+
+| Jour | Sprint du sujet | Objectif commun | Point de contrôle |
+| --- | --- | --- | --- |
+| **J1 — lundi** | Idéation | Contrats figés, dépôt prêt, cahier des charges rédigé | 17 h : les cinq ont validé la section 5 |
+| **J2 — mardi** | Validation du cahier des charges | Chacun code contre des simulations des autres | 18 h : question tapée → réponse texte |
+| **J3 — mercredi** | Prototypage | Voix de bout en bout, crise et attaque fonctionnelles | 12 h : voix complète · 18 h : les 4 actes passent |
+| **J4 — jeudi** | Préparation des rendus | Plus de nouvelle fonctionnalité après 14 h | 18 h : gel de `main` · soir : rendus déposés |
+| **J5 — vendredi** | Soutenance | Démo en 5 minutes, 5 minutes de questions | Répétition complète à 9 h 30 |
+
+Rituels : émargement Edusign dans les 15 premières minutes de chaque demi-journée, point debout de 10 minutes juste après (fini, en cours, bloqué), revue du Kanban à 17 h.
+
+---
+
+## 9. Règles de développement
+
+### Branches
+
+- `main` : protégée, toujours démontrable. Personne ne pousse directement dessus.
+- Une branche par tâche : `feat/<prénom>-<sujet>`, `fix/<prénom>-<sujet>`. Exemples : `feat/faiz-sync-outbox`, `fix/evan-audio-overlap`.
+- Une branche vit une journée au maximum. On fusionne petit et souvent.
+
+### Commits
+
+Format : `type(domaine): sujet en français, à l'impératif`.
+
+```
+feat(orchestrateur): découper la réponse par phrase pour le TTS
+fix(brassard): ne plus superposer deux lectures audio
+chore(infra): ajouter redis au compose
 ```
 
-Le TOML source renseigne seulement `assets.tts_model` et `assets.voice_profile` réels.
-L'import publie `assets/<bundle_id>/` sous Application Support/JarvisOffice : `model`,
-`voice` et manifeste SHA-256. Il copie les fichiers des symlinks HF, jamais leurs liens,
-ignore les caches `.npy`, conserve les avis et refuse les fichiers instables. Publication
-du dossier temporaire par renommage atomique, sans hardlink partagé avec la source.
-Une copie existante est revérifiée, pas dupliquée. `--dry-run` hache/contrôle mais n'écrit
-rien. L'import met à jour l'inventaire privé existant.
+Types : `feat`, `fix`, `chore`, `docs`, `refactor`.
 
-Dans le TOML Office, pointer vers les deux dossiers importés et définir `tts.python`
-vers `runtime/tts/.venv/bin/python`. Le contrôleur ne télécharge ni n'installe rien.
-`runtime/tts/uv.lock` fige les versions observées : mlx-audio 0.4.5, MLX/Metal 0.31.2,
-mlx-lm 0.31.3 et leurs dépendances. Aucun écart sur les 3 296 fichiers Python comparés
-avec l'environnement de référence ; cette vérification ne couvre pas les patches natifs.
+### Pull requests
 
-Une commande supervise un enfant persistant, chargé/préchauffé une fois pour ses répétitions.
-La référence WAV et son transcript sont obligatoires ; français explicite, ICL, température
-0,5, top-p 0,9, top-k 30, intervalle 0,4 s. La pénalité configurée 1,05 est effectivement
-bornée à 1,5 par ICL dans mlx-audio 0.4.5. Aucun repli vers une voix générique.
-Chargement, warmup PCM non vide et identité vocale humaine sont trois états distincts.
+| Règle | Valeur |
+| --- | --- |
+| Relecteur | 1 obligatoire (voir section 6), Elias en plus si un contrat change |
+| Délai de relecture | 1 heure maximum |
+| Taille | Moins de 300 lignes, hors fichiers générés |
+| Fusion | *Squash and merge*, par l'auteur, après approbation |
+| Après fusion | Branche supprimée, carte du Kanban déplacée |
 
-Le protocole borné est documenté dans `tts.py` : identifiant, PCM S16LE mono 24 kHz,
-fin et erreur distinctes ; stderr drainé en continu, rétention maximale 32 Kio.
-Une requête à la fois. L'annulation coupe la livraison, puis draine sous verrou ; le calcul
-MLX continue jusqu'à la fin ou au délai maximal, après lequel seul l'enfant possédé est
-terminé. Utiliser `contextlib.aclosing(client.stream(...))` et toujours `await client.close()`.
-Aucun tampon de traîne ni seuil d'amplitude ne retire les consonnes faibles.
+Modèle de description, quatre lignes :
 
-Les caches appartiennent à Office, l'environnement de l'enfant est expurgé. Sur macOS,
-`sandbox-exec` interdit le réseau ; un audit Python interdit aussi sockets/sous-processus.
-Un test de connexion réellement refusée complète les variables offline, qui ne sont pas
-une preuve à elles seules. Les diagnostics n'importent toujours aucun moteur.
-
-`tts-test` exige un nouveau WAV explicite et ne lit jamais de son (`--play` non proposé à
-ce jalon). Répétitions 1 à 5, dernier WAV conservé, toutes les mesures dans le JSON :
-chargement, warmup, premier PCM MLX/converti/livré, calcul, durée, RTF et pics RSS/MLX.
-Le premier PCM utilisateur depuis la commande inclut le démarrage. « Froid » signifie
-nouveau processus, pas cache disque macOS vidé. RTF inférieur à 1 = calcul plus rapide
-que la durée audio, pas garantie de fidélité vocale. Sortie/rapport existants refusés ;
-erreurs d'opération = 1, configuration/arguments = 2. Aucune preuve d'écoute humaine.
-
-## Capture, VAD et STT local
-
-```sh
-uv sync --project runtime/stt --locked --no-python-downloads
-jarvis-office assets import-stt --model "/source/candidat" --vad "/source/silero.onnx" \
-  --notice "/source/LICENSE" --target benchmark --dry-run --json
-# Retirer --dry-run pour importer. --target selected est une décision explicite :
-# un seul bundle sélectionné autorisé, aucun remplacement ou téléchargement automatique.
-jarvis-office mic-check --device "nom exact du microphone" --json
-jarvis-office capture --seconds 5 --rate 48000 \
-  --output "$HOME/Library/Application Support/JarvisOffice/corpus/prise.wav" --json
-jarvis-office stt-test --input "/chemin privé/prise.wav" \
-  --report "$HOME/Library/Application Support/JarvisOffice/reports/stt.json" --json
-jarvis-office stt-bench --manifest "/chemin privé/corpus/manifest.json" \
-  --small "/chemin privé/benchmark-small/model" --turbo "/chemin privé/benchmark-turbo/model" \
-  --repeat 3 --report "$HOME/Library/Application Support/JarvisOffice/reports/qualification.json"
+```
+Quoi : <une phrase>
+Tester : <une commande ou un clic>
+Contrat modifié : non | oui, lequel
+Capture : <si c'est visible>
 ```
 
-Configurer `speech.python`, `assets.stt_model` et `assets.vad_model` avec la copie sélectionnée.
-Le lock STT reprend faster-whisper 1.2.1, CTranslate2 4.8.1, ONNX Runtime 1.27.0,
-sounddevice 0.5.5, SoXR 1.1.0 et NumPy 2.5.1. Le backend réellement mesuré est CPU
-float32, quatre threads, beam 1 ; aucune accélération Metal revendiquée. Chargement et
-warmup hors transcription ; le benchmark décharge explicitement le candidat précédent.
-Seuls les imports explicites copient des actifs, indépendamment et après vérification SHA-256.
-Les candidats sont sous `benchmarks/stt/assets`, le seul sélectionné sous `assets/stt`.
+### Gel
 
-Le micro est résolu par nom exact non ambigu, pas par indice persistant. `mic-check`
-interroge formats, permission AVFoundation, activité d'entrée CoreAudio et quatre services
-V1 ciblés ; il ne capture pas. Ce contrôle est un instantané, pas une garantie contre un
-autre programme démarrant ensuite. Un conflit ou une permission manquante retourne 3
-(`BLOCKED_USER`), sans solliciter/modifier TCC ni arrêter V1. L'inspection des commandes
-de processus est indisponible dans le sandbox ; cette limite est signalée.
+À partir de **jeudi 18 h**, `main` est gelée : seules les corrections de bugs bloquants pour la démo passent, avec l'accord d'Elias.
 
-`capture` ouvre seulement sounddevice, pour 0,25 à 30 secondes, jamais en continu. Le callback
-copie dans une file bornée ; SoXR HQ conserve son état pour convertir 44,1/48 kHz vers mono
-16 kHz. Une perte, un saut d'horodatage ou une déconnexion invalide toute la prise ; au plus
-deux reprises repartent de zéro. La fréquence globale du périphérique n'est pas changée.
-Silero ONNX conserve état et contexte par session : toutes les trames complètes de 512
-échantillons (32 ms) sont traitées, les restes conservés. Pré-roll effectif 320 ms, silence
-terminal 512 ms aux réglages fournis. Durée maximale bornée ; troncature refusée pour STT.
-Les temps de parole/finalisation viennent des compteurs d'échantillons. Un replay de WAV
-marque la latence matérielle `NOT_RUN` et l'attente STT non mesurée ; aucun faux chrono micro.
+### Qualité
 
-Un seul VAD nominal, `vad_filter=False` dans faster-whisper ; français explicite, température
-unique, pas de cascade ni liste noire de sous-chaînes. Les deux exemples français du cahier
-des charges sont conservés par les tests. `avg_logprob` reste une log-probabilité moyenne,
-jamais un pourcentage de confiance. Les rapports explicites privés gardent texte brut,
-acceptation et raison ; stdout n'expose que des métadonnées, aucune parole rejetée journalisée.
-Les nouveaux WAV/rapports existants ne sont pas écrasés. Aucun son n'est joué, aucun réseau
-requis : sandbox macOS et garde sockets Python actifs dans le runtime.
+La tolérance est assumée : un code qui marche et qui respecte les contrats passe. Pas de couverture de tests visée. Deux vérifications seulement : `./vendor/bin/pint` avant de pousser, et le scénario de démo qui doit passer après chaque fusion importante.
 
-WER : Unicode NFKC, minuscules, ponctuation/apostrophes remplacées par des espaces,
-accents et chiffres conservés ; aucune conversion chiffres/mots. Noms et nombres écrits
-en lettres sont à annoter dans `critical_terms`, contrôlés en plus des chiffres/négations.
-Ces alertes conservatrices demandent une revue humaine, ne modifient pas la transcription.
-Rapports séparés par calme/bruit et dev/holdout, erreurs, phrases perdues, sorties inventées,
-p50 médiane et p95 rang le plus proche. Le pic RSS du second candidat est le maximum du
-processus depuis son démarrage, pas une mesure isolée de sa mémoire à lui seul.
-La recommandation préfère small seulement si les critères observés passent, sinon turbo ;
-`NO_ACCEPTABLE_STT`/code 1 si aucun ne passe. Aucun changement automatique de configuration.
-Une recommandation reste `PROVISIONAL`, avec latence globale à valider, jamais homologuée.
+---
 
-```sh
-jarvis-office corpus-init \
-  --output "$HOME/Library/Application Support/JarvisOffice/corpus/human/manifest.json"
+## 10. Décisions d'architecture (ADR)
+
+Prises le lundi, non rediscutées pendant la semaine.
+
+| # | Décision | Pourquoi |
+| --- | --- | --- |
+| 001 | Laravel 12 + Reverb + Filament | Web, WebSocket et tableau de bord sans écrire d'infrastructure ; le moins de code possible |
+| 002 | Un serveur IA unique derrière un contrat HTTP | STT, TTS et LLM remplaçables sans toucher à Laravel ; chacun peut coder contre une simulation |
+| 003 | Le modèle est choisi selon la liaison Terre | `deepseek-chat` en nominal, `local` en mode autonome : la résilience est une configuration, pas un second code |
+| 004 | L'audio monte en HTTP, les réponses descendent en WebSocket | Plus simple et plus robuste qu'un flux audio sur WebSocket en une semaine |
+| 005 | File d'envoi vers la Terre avec priorités, jamais de suppression | Aucun message perdu pendant une coupure ; les messages critiques repartent en premier |
+| 006 | Journaux de sécurité en ajout seul | Une trace d'intrusion ne doit pas pouvoir être effacée par l'intrus |
+| 007 | Brassard = page web sur téléphone, ESP32 en bonus | La démo ne dépend pas du matériel disponible sur le campus |
+
+---
+
+## 11. Rendus du jeudi soir
+
+Tout va dans un dossier unique nommé **`Workshop2026-B3-G<n>`** (remplacer `<n>` par le numéro de groupe), avant l'échéance donnée par les coachs.
+
+- [ ] `Workshop2026-B3-G<n>-Dossier.pdf` — idée, fonctionnement, objectifs, organisation des tâches (responsable : Alexandre)
+- [ ] `Workshop2026-B3-G<n>-Pres.pptx` — support de la soutenance (responsable : Alexandre)
+- [ ] `Workshop2026-B3-G<n>-Code.zip` ou lien vers le dépôt GitHub (responsable : Elias)
+- [ ] `Workshop2026-B3-G<n>-VidChrono.mp4` — 1 minute de présentation de la solution (responsable : Evan)
+
+Plan du dossier, une partie par personne :
+
+| Partie | Rédacteur |
+| --- | --- |
+| Problématique et idée | Alexandre |
+| Fonctionnement et parcours de l'équipier | Aymen |
+| Architecture et technologies | Elias |
+| OfflineSpace : mode autonome et resynchronisation | Faiz |
+| CyberSpace : détection et isolation | Alexandre |
+| Interface du brassard | Evan |
+| Organisation, Kanban, répartition | Alexandre |
+| Limites et évolutions vers une V1 | Aymen |
+
+---
+
+## 12. Soutenance
+
+### Soutenance locale — 5 minutes + 5 minutes de questions
+
+| Temps | Contenu | Qui |
+| --- | --- | --- |
+| 0:00 – 1:00 | Présentation de l'équipe, **en anglais**, chacun sa phrase | Les cinq |
+| 1:00 – 1:45 | Concept et réponse au problème | Alexandre |
+| 1:45 – 3:45 | Démo en quatre actes (section 2) | Evan, Faiz, Alexandre, commentée par Aymen |
+| 3:45 – 4:30 | Technologies et architecture | Elias |
+| 4:30 – 5:00 | Bilan et perspectives | Aymen |
+| 5:00 – 10:00 | Questions du jury | Alexandre distribue la parole |
+
+Présentations en anglais, une phrase chacun :
+
+- **Elias** — *"Hi, I'm Elias. I built Dumont's onboard AI server: speech recognition, voice synthesis and language models."*
+- **Aymen** — *"I'm Aymen. I wrote the orchestrator that turns a voice command into an answer and an action."*
+- **Evan** — *"I'm Evan. I designed the wristband interface the crew actually wears."*
+- **Faiz** — *"I'm Faiz. I built the autonomous mode that keeps the ship running when the link with Earth is cut."*
+- **Alexandre** — *"I'm Alexandre. I handled security and managed the project."*
+
+### Si on va en finale nationale — 5 minutes, pas de démo live
+
+| Minute | Contenu |
+| --- | --- |
+| 1 | L'accroche : équipe et rôles, en anglais |
+| 2 | Le problème : 24 h sans la Terre, un équipage seul, un réseau exposé |
+| 3 – 4 | La solution, avec la vidéo de démonstration |
+| 5 | Le pitch final |
+
+Réponse préparée à *« Si l'ESA ne devait embarquer qu'une seule solution, pourquoi la vôtre ? »* :
+
+> Parce que Dumont est ce qui continue de parler à l'équipage quand tout le reste a coupé : la Terre, le réseau, et même un appareil compromis. Les autres systèmes du vaisseau peuvent tomber ; Dumont est la voix qui le dit à l'équipage.
+
+---
+
+## 13. Grille d'évaluation → preuves
+
+| Axe du jury local | Points | Ce qu'on montre |
+| --- | --- | --- |
+| Pertinence et impact | 5 | La crise des 24 h du sujet est le cœur de la démo |
+| Faisabilité et prototype | 5 | Quatre actes joués en direct, pas en slides |
+| Innovation et complexité | 4 | Voix locale, bascule de modèle, isolation automatique, API pour les autres équipes |
+| Pérennité et résilience | 4 | Chaque panne a un mode dégradé : Terre, STT, TTS, appareil compromis |
+| Documentation et Q&A | 2 | Ce README, les ADR, le Kanban, une partie de dossier par personne |
+
+---
+
+## 14. Risques et plans B
+
+| Risque | Plan B |
+| --- | --- |
+| Wi-Fi du campus instable pendant la démo | Routeur ou partage de connexion dédié ; toute la pile sur une seule machine |
+| Serveur IA indisponible | Le brassard passe en saisie texte, le tableau de bord le signale : c'est un mode dégradé montrable |
+| API DeepSeek en panne ou sans crédit | Le modèle `local` répond — exactement ce que la démo veut prouver |
+| TTS trop lent (pas de streaming dans jarvis-voice) | Phrases courtes dans le prompt, texte affiché avant l'audio |
+| Intégration trop tardive | Tranche verticale obligatoire mardi 18 h, rien n'attend jeudi |
+| ESP32 indisponible sur le campus | Bonus seulement : le téléphone fait le brassard |
+| Démo qui plante en direct | La vidéo chrono est prête sur le poste, on la lance et on continue |
+
+---
+
+## 15. Arborescence
+
 ```
-
-Le manifeste prépare 25 phrases × calme/bruit de bureau, dont dix prises réservées au
-holdout. Il ne crée aucun enregistrement et laisse `reference` vide/`human_verified=false`.
-Déclencher chaque prise individuellement avec `capture`, écouter puis transcrire humainement
-ce qui a réellement été dit et annoter les termes critiques/vocabulaire métier. Ne pas utiliser
-la sortie STT comme vérité. Un manifeste incomplet n'est pas une référence utilisable.
-Ne pas régler les seuils sur le holdout. Moins de 50 prises humaines vérifiées, ou couverture
-insuffisante calme/bruit/holdout : validation `BLOCKED_USER`, même avec une belle WER synthétique.
-
-## DeepSeek textuel direct
-
-Contrat vérifié le 7 septembre 2026 dans la [documentation officielle](https://api-docs.deepseek.com/),
-le [contrat Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion)
-et le [mode de réflexion](https://api-docs.deepseek.com/guides/thinking_mode/) :
-`POST https://api.deepseek.com/chat/completions`, `model=deepseek-flash`, `stream=true`,
-`thinking={"type":"disabled"}`, `max_tokens=256`. HTTPX transmet ces champs directement
-dans le JSON, sans `extra_body` (spécifique aux SDK) ni `reasoning_effort`. Aucun SDK,
-clé OpenAI ou autre fournisseur. Le nom officiel est DeepSeek-V4.1-Flash ; l’ancien
-`deepseek-v4-flash` n’est plus demandé. Seuls le nom demandé/retourné et la date sont
-observables, pas des poids distants figés.
-
-```sh
-uv sync --locked --extra chat --no-python-downloads
-# Copier seulement la clé du fichier .env explicitement fourni pour Office :
-jarvis-office configure-deepseek --from-env "/chemin privé/.env"
-jarvis-office chat --text "Explique en deux phrases ce qu’est un réseau local." \
-  --report "$HOME/Library/Application Support/JarvisOffice/reports/chat-test.json"
-```
-
-Le secret est conservé sous `~/Library/Application Support/JarvisOffice/config/deepseek.env`
-(`DEEPSEEK_API_KEY=…`, fichier 0600, dossier 0700), jamais dans le TOML. L'import ne source
-pas le shell, refuse liens, valeurs ambiguës et substitutions ; il ne copie aucune autre
-clé et ne remplace pas un secret Office existant valide. Le runtime lit seulement ce fichier,
-sans recherche dans V1 ou d'autres coffres. Clé absente/permissions inadéquates : code 3.
-Ne jamais envoyer de clé dans le chat. `.env` est ignoré par Git, vérification des suivis incluse.
-
-La réponse s'affiche progressivement sur stdout. Les métadonnées de latence vont sur stderr
-et, avec `--report`, dans un nouveau JSON privé sous `reports/`, sans question, réponse,
-historique, headers ou exception réseau brute. Seul le texte fourni explicitement et les
-quelques échanges confirmés en RAM sont envoyés, jamais de fichier audio/profil vocal.
-TLS et hostname vérifiés, endpoint fixe, redirections et proxies d'environnement désactivés.
-Compression refusée avant décodage pour borner le flux ; espaces français insécables
-normalisés en espaces ordinaires, caractères de contrôle du terminal retirés.
-401/403/402/429/5xx, réseau, délais, flux tronqué/invalide, réponse vide, limite de tokens,
-saturation et annulation ont des raisons distinctes. Codes : succès 0, échec 1, configuration
-2, secret indisponible 3, Ctrl-C géré 130. Aucun retry automatique, aucun poll conversationnel.
-
-```python
-import asyncio
-from jarvis_office.credentials import load_key
-from jarvis_office.deepseek import DeepSeek
-
-
-async def demo():
-    client = DeepSeek(load_key())
-    try:
-        async with client.turn("Question explicitement adressée à Jarvis") as turn:
-            async for event in turn:
-                if event.kind == "delta":
-                    print(event.text, end="", flush=True)
-                # run livre les événements segment au TTS ; chat reste textuel.
-            turn.confirm(turn.delivered_text, channel="displayed", complete=True)
-    finally:
-        await client.close()
-
-
-asyncio.run(demo())
-```
-
-Un client réutilisable, un tour actif, un identifiant et un lecteur réseau asynchrones.
-La file de 64 événements permet au lecteur et au consommateur d'avancer indépendamment ;
-si elle sature, fermeture du flux et erreur explicite, aucun tampon illimité. Entrée/sortie
-4096 caractères, contexte total 12000, quatre tours confirmés au maximum. `reset()` annule
-le tour et efface l'historique ; `close()` ferme aussi HTTPX. Aucun résumé ou stockage mémoire.
-Un tour généré n'entre pas seul dans l'historique. `delivered_text` signifie remis au
-consommateur, pas automatiquement affiché ; la confirmation relève du consommateur.
-Après annulation/échec, `confirm(extrait, channel="spoken", complete=False)` accepte seulement
-un préfixe des segments déjà remis et note explicitement l'interruption dans le contexte.
-Le lecteur devra confirmer ce qu'il a réellement prononcé ; aucune lecture sonore ici.
-L'annulation arrête la livraison locale et ferme HTTP, sans prétendre arrêter le calcul
-ou la facturation chez le fournisseur. Aucun fragment de ce tour ne rejoint le suivant.
-
-SSE : octets UTF-8, lignes CR/LF/CRLF, commentaires, événements complets et `[DONE]` sont
-réassemblés ; rôle, usage et deltas sans contenu ne sont pas prononcés. La documentation
-actuelle place l'usage sur le dernier chunk ; une trame d'usage sans `choices` est également
-acceptée. Raisonnement/outils inattendus provoquent une erreur sans être prononcés. Les
-limites de connexion, premier contenu, inactivité de contenu (keepalive non suffisant) et
-durée totale sont distinctes. Une limite `finish_reason=length` n'est pas une réponse complète.
-
-Segmentation française autonome : phrases, première proposition utile, décimales,
-abréviations et séparation nombre/unité protégées ; Markdown/liens/code supprimés de façon
-bornée. Le timer de 0,8 s ne livre que des mots terminés, garde le dernier demi-mot et
-n'annule pas la lecture réseau en cours. Flush final unique seulement après une vraie fin.
-Token Markdown bloqué à 512 caractères, tampon de parole à 1024, segments visés ≤256 ;
-un mot insécable anormal peut dépasser cette cible jusqu'à la limite du tampon, jamais
-être découpé artificiellement. Revue du code/tests V1 refusée par l'outil : pas de copie,
-équivalence V1 non affirmée, blocage conservé dans PROJECT_STATE.md.
-
-Mesures distinctes : requête → premier contenu utile, premier segment disponible en file,
-fin explicite du texte. **Aucune n'est une latence vocale**. Les tests HTTPX simulés n'utilisent
-aucun réseau ; les tests API réels de cette phase se limitent à trois requêtes synthétiques
-sur cinq autorisées, 256 tokens maximum chacune. Résultats dans l'inventaire privé et l'état.
-
-## Boucle vocale et contrôle local — phase 05
-
-```sh
-# Démarrage en pause, micro fermé. Aucun téléchargement au démarrage.
-.venv/bin/jarvis-office run
-# Ouvrir http://127.0.0.1:8768 puis Reprendre pour un essai borné.
-# Autre déclenchement explicite : 30 secondes d'armement, deux demandes au maximum.
-.venv/bin/jarvis-office run --arm --seconds 30 --turns 2
-# Test synthétique sans micro ET sans lecture, un seul tour :
-.venv/bin/jarvis-office run --text "Jarvis, explique le réseau local." --no-play \
-  --report "$HOME/Library/Application Support/JarvisOffice/reports/integration-test.json"
-```
-
-Renseigner `[speech].input_device` et `[voice].output_device` dans le TOML privé avec
-les **noms exacts et uniques** du micro branché et de la sortie locale Mac choisis.
-Les périphériques sont revérifiés, avec fréquence et canaux configurés ; aucun repli,
-changement de volume ou sortie globale. Sans sélection explicite, la
-lecture et l'armement échouent. Retirer `--no-play` du test textuel autorise sa lecture
-sur cette sortie seulement. Un rapport exige un nouveau chemin privé explicite.
-
-Phase 05B : TV **DEFERRED — future phase**, pas un blocage de ce jalon Mac.
-`input-list --json` et `output-list --json` interrogent PortAudio dans le runtime audio
-existant : noms, canaux, fréquence par défaut et formats testés (16/24/44,1/48 kHz,
-int16/float32, un ou deux canaux selon disponibilité). Aucun stream, moteur ou appel
-API n'est démarré. Un format accepté par l'interrogation ne prouve ni ouverture ni écoute.
-`mic-check --json` vérifie séparément permissions et accès micro concurrents ; même
-le vumètre des Réglages Système peut maintenir une entrée active. Fermer ce panneau
-manuellement, sans contourner le contrôle ou arrêter un service tiers.
-
-La page est servie uniquement sur `127.0.0.1`, port configurable 8768 ; collision = erreur,
-jamais arrêt du propriétaire. Aucun build frontend ni dépendance ajoutée. Amorçage via
-POST de même origine ; lecture et commandes exigent Host/Origin/Fetch Metadata stricts,
-en-tête local et cookie HttpOnly/SameSite=Strict. Aucune action sur GET, CORS, secret dans
-l'URL ou journal d'accès. Les réponses sont rendues avec `textContent`. Le second onglet
-ou une reconnexion relit le même état sans ouvrir de micro, modèle ou conversation.
-
-La page est un HUD de poignet installable (PWA, format paysage, repli portrait) :
-`control.html` et `wrist.js`, orbe `thinking-orbs` à gauche (copie vendue
-`static/dashboard/thinking-orbs.js`, MIT, style libraries.dev), sans téléchargement. CSP :
-scripts par nonce plus `'self'` pour ces deux modules de même origine, sans `unsafe-*`.
-Télémétrie réelle uniquement : état, RMS micro en dBFS, aller-retour `/snapshot`, session,
-heures locale/GMT, batterie et maintien d'écran quand le navigateur les expose. Effacer
-exige un appui maintenu d'une seconde, ou deux activations au clavier ; l'écran reste
-allumé seulement pendant l'écoute armée. Après redémarrage du serveur, la page se
-ré-amorce seule.
-
-Topologie : contrôleur HTTPX/UI ; enfant STT/Silero/sounddevice/SoXR en Python 3.12 ;
-enfant Qwen3 MLX en Python 3.14. Les deux locks audio restent isolés et inchangés.
-Moteurs chargés et préchauffés une fois par session, pas par phrase. Une signature du
-code des workers vérifie le checkout réellement exécuté ; aucun `sys.path` vers V1.
-Workers sans clé ni réseau (sandbox macOS plus garde Python), caches Office seulement.
-
-Le départ est en pause. Le CLI local garde ses essais limités par `arm_seconds` et
-`arm_turns`. Sur Echo, les fenêtres de capture restent bornées mais se renouvellent
-tant que le mode autorisé reste actif ; l'inactivité ne le coupe pas. OFF explicite
-ou une perte réseau l'arrêtent, et une reconnexion reprend le dernier mode choisi.
-Le STT traite **localement toute parole** pendant cet armement. En
-Conversation Echo (ACTIVE), chaque énoncé accepté est une demande, sans préfixe
-Jarvis. En CLI locale et en écoute contextuelle, seule une adresse en début de
-transcription, « Jarvis », peut déclencher DeepSeek. Ce n'est ni un wake word
-acoustique ni une identification du locuteur. Les propos sans adresse hors
-Conversation sont abandonnés sans affichage ni journalisation. Un simple « Jarvis »
-donne un état local, sans LLM, son ou mesure de vraie réponse.
-
-La capture est fermée avant STT/réponse : aucun backlog ou barge-in. Un énoncé Silero
-déjà finalisé ne repasse pas par un second VAD. Après la lecture, délai acoustique de
-0,35 s par défaut, nouvelles capture/file/normalisation et remise à zéro Silero. Une
-pause volontaire n'est jamais annulée par un `finally`. Pause et Annuler arrêtent le
-tour et restent en pause ; Reprendre est explicite. Effacer invalide la session et son
-historique RAM, sans prétendre supprimer les données déjà envoyées à DeepSeek.
-Arrêter ou Ctrl+C ferme le serveur et seulement les enfants possédés.
-
-Le lecteur SSE progresse indépendamment du TTS ; segments en ordre, file de texte
-limitée à 2048 caractères (segment actif inclus). Saturation = erreur, aucun mot perdu.
-PCM : un fragment IPC borné en vol et un tampon float32 de deux secondes au format de
-sortie réel. Crédits de capacité avant chaque envoi, attente maximale trois secondes ;
-consommateur bloqué ou dépassement = erreur. Le SoXR de sortie conserve sa traîne entre
-segments ; un seul stream sounddevice par réponse, aucun WAV temporaire ou `afplay`.
-Sous-alimentation, discontinuité ou contention sont visibles et interdisent une
-confirmation complète. Fin normale : drain/stop/close de l'objet possédé ; annulation :
-abort/close et purge, fermeture HTTP, drainage Qwen borné ou arrêt du seul worker Office.
-Interrompre la livraison n'est pas une preuve d'arrêt immédiat du calcul MLX.
-
-L'historique confirme au plus les **segments entièrement terminés** selon l'échéance
-DAC estimée. Généré, remis au TTS, PCM remis au pilote et lecture estimée sont distincts.
-Une annulation conserve au plus le préfixe de segments terminé, marqué incomplet.
-Ni pourcentage d'octets ni affichage de la réponse ne prouvent les mots entendus.
-Les callbacks utilisent un tampon préalloué et ne font ni inférence, réseau, disque
-ou attente bloquante. Les opérations natives/pipe bloquantes sont hors boucle de contrôle.
-
-Les horloges ADC/application sont rapprochées explicitement ; si indisponibles, pas de
-latence depuis la parole. Le délai VAD fait partie du temps ressenti. PCM produit par
-MLX (relatif à sa synthèse), premier PCM livré, remise au pilote et échéance DAC estimée
-ne sont pas un son acoustiquement vérifié. Les objectifs p50 ≤2,5 s/p95 ≤4 s ne sont pas
-revendiqués : cinq tours matériels 05C donnent 4,085–4,420 s entre fin de parole estimée
-et première écriture pilote, sans calibration acoustique ni statistique solide sur ce petit N.
-Le jalon audio Mac est validé avec confirmation humaine de l'écoute et du timbre ;
-l'homologation générale STT reste **NO_ACCEPTABLE_STT / STT_QUALIFICATION_PENDING**.
-Dix tours avec doubles ne sont pas dix conversations matérielles. La phase 06 n'est pas ouverte.
-
-Budget phase 05 : **20 tentatives réelles maximum**, commun à `chat`, `run` et aux
-relances, réservé avant HTTP dans `config/phase05-api-budget.json` privé (0600).
-Pas de reset/retry automatique ; un crash peut surcompter, jamais renouveler le quota.
-Utiliser seulement des demandes synthétiques/non sensibles de validation, 256 tokens
-maximum. Les tests usuels utilisent un transport simulé sans réserver de requête réelle.
-Rapports explicites : métadonnées seulement, jamais historique courant, clés ou propos
-du bureau. Codes `run` : succès/arrêt normal 0, opération 1, configuration 2, clé 3,
-interruption par signal du test 130. Un arrêt normal n'homologue pas le matériel.
-
-Les mesures distinguent maintenant le premier PCM converti du premier callback de
-sortie, le format réellement rapporté par le stream, l'éligibilité au réarmement et
-la réouverture effective suivante. La capture rapporte RMS, pertes, pré-roll mesuré,
-silence terminal et fréquence normalisée sans sauvegarder l'audio. Ces données ne
-remplacent ni confirmation d'écoute ni qualification humaine du STT/du timbre.
-
-## Configuration et vie privée
-
-Le fichier par défaut est `~/Library/Application Support/JarvisOffice/config.toml`.
-`config.toml.example` décrit quatre chemins locaux optionnels, vides au départ. Les chemins
-relatifs sont résolus depuis le dossier du fichier TOML ; espaces et `~` sont acceptés.
-Les chemins doivent être textuels/locaux ; les paramètres TTS sont typés et bornés.
-Les clés inconnues et URL sont refusées. `.env.example` contient
-seulement `DEEPSEEK_API_KEY=` ; seuls l'import explicitement déclenché et le fichier secret
-Office dédié sont lus par le chemin DeepSeek. Les diagnostics ne lisent aucune clé.
-
-Développement : `~/Developer/jarvis-office`. Inventaire privé unique :
-`~/Library/Application Support/JarvisOffice/inventory.phase01.json`. Journaux futurs :
-`~/Library/Logs/JarvisOffice/`. Audio, transcripts, poids, secrets, caches et inventaires
-restent hors Git. Qwen3/tokenizers, le profil utile, les deux candidats STT de benchmark
-et Silero ont été copiés indépendamment ; seul le STT retenu rejoint les actifs sélectionnés.
-L'inventaire contient les chemins
-résolus et les SHA-256 calculés en flux, avec état d'instabilité ; PROJECT_STATE.md en
-donne uniquement une synthèse expurgée.
-
-Les requêtes DeepSeek transmettent uniquement la transcription adressée à
-Jarvis et un historique limité, jamais le flux audio ou le profil vocal. La production
-future sera sous `Application Support/JarvisOffice/releases/<version>-<sha>/` avec
-pointeur `current`, sans exécuter durablement le checkout de développement.
-
-## Jalons
-
-01 fondations/inventaire ; 02 import privé et Qwen3 isolé ; 03 capture/VAD et sélection
-d'un seul STT ; 04 DeepSeek textuel en streaming ; 05 pipeline vocal ; 06 qualification,
-release et service utilisateur. Une conversation, un tour actif, semi-duplex, sans
-interruption pendant la réponse. L'état vérifié et les blocages sont dans PROJECT_STATE.md.
+dumont/
+├── README.md
+├── compose.yaml                     # Elias
+├── Makefile                         # Elias
+├── .env.example
+├── app/
+│   ├── Http/Controllers/
+│   │   └── TurnController.php       # Aymen
+│   ├── Orchestrator/                # Aymen
+│   ├── Tools/                       # Aymen
+│   ├── Offline/                     # Faiz
+│   ├── Security/                    # Alexandre
+│   └── Filament/                    # Faiz, widget sécurité : Alexandre
+├── database/migrations/             # Faiz
+├── resources/
+│   ├── views/band/                  # Evan
+│   └── js/band/                     # Evan
+├── ai-server/                       # Elias
+├── firmware/esp32-band/             # Evan (bonus)
+├── scripts/
+│   ├── attack.sh                    # Alexandre
+│   └── crisis.sh                    # Faiz
+└── docs/
+    ├── dossier/                     # Alexandre
+    └── pres/                        # Alexandre
